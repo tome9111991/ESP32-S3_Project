@@ -12,6 +12,7 @@
 
 #define LV_CONF_INCLUDE_SIMPLE
 #include <lvgl.h>
+#include "ui_assets.h"
 
 // LVGL v9 compatibility for LovyanGFX
 #ifndef LV_ATTRIBUTE_LARGE_CONST
@@ -274,6 +275,13 @@ enum WeatherVisual {
   WEATHER_VISUAL_FOG,
   WEATHER_VISUAL_THUNDER
 };
+enum SunStatusVisual {
+  SUN_STATUS_VISUAL_UNKNOWN,
+  SUN_STATUS_VISUAL_SUNRISE,
+  SUN_STATUS_VISUAL_DAY,
+  SUN_STATUS_VISUAL_SUNSET,
+  SUN_STATUS_VISUAL_NIGHT
+};
 
 ScreenState currentScreen = SCREEN_TIME;
 unsigned long lastScreenSwitch = 0;
@@ -331,23 +339,14 @@ static lv_obj_t* klipperMmuGateBox[MMU_GATE_MAX] = {};
 static lv_obj_t* klipperMmuGateLabel[MMU_GATE_MAX] = {};
 static uint8_t* btcDayChartCanvasBuf = nullptr;
 static bool btcDayChartCanvasBufInPsram = false;
-static lv_obj_t* weatherCanvas = nullptr;
-static uint8_t* weatherCanvasBuf = nullptr;
-static bool weatherCanvasBufInPsram = false;
+static lv_obj_t* weatherImage = nullptr;
 static WeatherVisual lastWeatherVisual = WEATHER_VISUAL_UNKNOWN;
-static bool weatherCanvasDrawn = false;
+static bool weatherImageDrawn = false;
 static int lastTimeSecondProgress = -1;
 
 struct SunStatusIcon {
   lv_obj_t* root;
-  lv_obj_t* disk;
-  lv_obj_t* shade;
-  lv_obj_t* rayTop;
-  lv_obj_t* rayRight;
-  lv_obj_t* rayBottom;
-  lv_obj_t* rayLeft;
-  lv_obj_t* starTop;
-  lv_obj_t* starBottom;
+  SunStatusVisual lastVisual;
 };
 
 static SunStatusIcon timeSunIcon = {};
@@ -377,19 +376,12 @@ void setTimeNormalVisible(bool visible);
 void styleFilledRect(lv_obj_t* obj, uint32_t color, int radius);
 lv_obj_t* createSunRay(lv_obj_t* parent, int x, int y, int w, int h);
 WeatherVisual weatherVisualFromCode(int code);
-void weatherCanvasSetPixel(int x, int y, uint32_t color);
-void weatherCanvasFillRect(int x, int y, int w, int h, uint32_t color);
-void weatherCanvasFillCircle(int cx, int cy, int r, uint32_t color);
-void drawWeatherSun(int cx, int cy);
-void drawWeatherCloud(int x, int y, uint32_t color);
-void drawWeatherRain();
-void drawWeatherSnow();
-void drawWeatherFog();
-void drawWeatherLightning();
-lv_obj_t* createWeatherCanvas(lv_obj_t* parent);
-void updateWeatherCanvas(int code);
-void setRayColorAndVisibility(SunStatusIcon& icon, uint32_t color, bool visible);
-void updateSunStatusIcon(SunStatusIcon& icon, bool nightMode, int sunStrength, int moonProgress);
+const lv_image_dsc_t* weatherImageForVisual(WeatherVisual visual);
+lv_obj_t* createWeatherImage(lv_obj_t* parent);
+void updateWeatherImage(int code);
+const lv_image_dsc_t* sunStatusImageForVisual(SunStatusVisual visual);
+SunStatusVisual sunStatusVisualFromTime(int nowMinute, int sunriseMinute, int sunsetMinute);
+void updateSunStatusIcon(SunStatusIcon& icon, SunStatusVisual visual);
 void updateSunStatusIcon(const struct tm& timeinfo);
 void createTimeScreen();
 void createCryptoScreen();

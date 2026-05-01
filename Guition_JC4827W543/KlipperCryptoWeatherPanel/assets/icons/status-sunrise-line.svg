@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
+  <title>Status Sunrise Line</title>
+  <g fill="none" stroke="#f4f8ff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7 31.5h28"/>
+    <path d="M12 26.5a9 9 0 0 1 18 0"/>
+    <path d="M21 8.5v5"/>
+    <path d="M10.5 16.5l3.5 3.5"/>
+    <path d="M31.5 16.5 28 20"/>
+    <path d="M16 36.5h10"/>
+    <path d="M21 23.5v-7"/>
+    <path d="m17.5 20 3.5-3.5 3.5 3.5"/>
+  </g>
+</svg>

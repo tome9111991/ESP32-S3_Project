@@ -12,8 +12,8 @@ void createTimeScreen() {
   lv_obj_set_size(timeLabel, 220, 64);
   lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 65);
 
-  weatherIconRoot = createWeatherCanvas(timeScreen);
-  updateWeatherCanvas(weatherCode);
+  weatherIconRoot = createWeatherImage(timeScreen);
+  updateWeatherImage(weatherCode);
 
   timeDivider = createDivider(timeScreen, 112, 164, TIME_SECOND_BAR_W, COLOR_DIM);
   timeSecondFill = createDivider(timeDivider, 0, 0, 0, COLOR_CYAN);
@@ -259,7 +259,7 @@ void refreshTimeUi() {
     setTimeNormalVisible(true);
     setHidden(timeSunIcon.root, true);
     updateTimeSecondProgress(-1);
-    updateWeatherCanvas(code);
+    updateWeatherImage(code);
     String tempText = temp + TEMP_UNIT;
     setLabelTextIfChanged(timeLabel, "--:--");
     setLabelTextIfChanged(weekdayLabel, "Zeit wird synchronisiert");
@@ -276,7 +276,7 @@ void refreshTimeUi() {
   setTimeNormalVisible(true);
   updateSunStatusIcon(timeinfo);
   updateTimeSecondProgress(timeinfo.tm_sec);
-  updateWeatherCanvas(code);
+  updateWeatherImage(code);
   String tempText = temp + TEMP_UNIT;
   setLabelTextIfChanged(timeLabel, timeStringBuff);
   setLabelTextIfChanged(weekdayLabel, WEEKDAYS_DE[timeinfo.tm_wday]);

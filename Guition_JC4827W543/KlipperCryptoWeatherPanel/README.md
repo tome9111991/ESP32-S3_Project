@@ -55,8 +55,10 @@ Use an ESP32-S3 board profile that matches your Guition display module. Typical 
 - Board: ESP32S3 Dev Module
 - USB CDC On Boot: Enabled
 - Flash Size: 4MB
-- Partition Scheme: No OTA (2MB APP/2MB SPIFFS)
+- Partition Scheme: Huge APP (3MB No OTA/1MB SPIFFS)
 - PSRAM: OPI PSRAM
+
+The sketch does not currently use SPIFFS. The Huge APP partition is preferred because this project is flashed manually over USB and does not need OTA update slots.
 
 ## Configuration
 
@@ -145,10 +147,11 @@ git commit -m "Initial ESP32-S3 HMI dashboard"
 | `lv_conf.h` | Local LVGL configuration |
 | `config_private.example.h` | Safe template for local secrets/settings |
 | `assets/icons/` | Editable SVG source assets |
+| `src/ui_assets/` | Converted LVGL C image assets used by the sketch |
 
 ## Notes
 
 - The UI text is mostly German because this dashboard was built for a German local setup.
-- Weather icons are drawn on an LVGL canvas at runtime; the SVG files in `assets/icons/` are editable source assets.
+- Weather icons use converted LVGL C image assets from `src/ui_assets/`; the SVG files in `assets/icons/` stay as editable source assets.
 - The Klipper screen appears only when Moonraker or Klipper status data is reachable.
 - API retry intervals and screen timing constants are defined near the top of `Guition_JC4827W543.ino`.

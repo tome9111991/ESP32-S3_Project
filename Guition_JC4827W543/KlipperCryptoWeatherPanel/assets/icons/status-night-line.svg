@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
+  <title>Status Night Line</title>
+  <g fill="none" stroke="#f4f8ff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28.5 31.5A12 12 0 0 1 19.5 9a10 10 0 1 0 13 13 12 12 0 0 1-4 9.5z"/>
+    <path d="M31.5 7.5v4"/>
+    <path d="M29.5 9.5h4"/>
+    <path d="M35.5 27.5v3"/>
+    <path d="M34 29h3"/>
+    <path d="M11 32.5h9"/>
+  </g>
+</svg>
