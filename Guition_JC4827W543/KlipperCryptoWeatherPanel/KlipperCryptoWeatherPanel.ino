@@ -30,7 +30,6 @@
 
 #include <LovyanGFX.hpp>
 #include <lgfx/v1/panel/Panel_NV3041A.hpp>
-#include <lgfx/v1/lv_font/font_fmt_txt.h> // Explizit den Guard hier nochmal absichern
 #include <ArduinoJson.h>
 
 #ifndef RGB565
@@ -286,11 +285,12 @@ enum SunStatusVisual {
 ScreenState currentScreen = SCREEN_TIME;
 unsigned long lastScreenSwitch = 0;
 unsigned long lastUiRefresh = 0;
-const unsigned long screenInterval = 10000; // 10 Sekunden pro Screen
+const unsigned long defaultScreenInterval = 10000; // 10 Sekunden fuer alle normalen Screens
+const unsigned long timeScreenInterval = 25000;    // Uhrzeit-Screen 25 Sekunden anzeigen
 const unsigned long uiRefreshInterval = 500;
 const unsigned long brightnessRefreshInterval = 30000;
 const uint8_t dayBrightness = 160;
-const uint8_t nightBrightness = 6;
+const uint8_t nightBrightness = 8;
 uint8_t currentBrightness = dayBrightness;
 unsigned long lastBrightnessRefresh = 0;
 
@@ -357,6 +357,7 @@ static uint32_t lvTickMillis();
 const char* resetReasonName(esp_reset_reason_t reason);
 void printBootDiagnostics();
 void printRuntimeHealth();
+bool getLocalTimeFast(struct tm& timeinfo);
 void configureTimeOnce();
 void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap);
 void setDisplayBrightness(uint8_t brightness);
@@ -463,6 +464,10 @@ bool fetchBtcCandles();
 void fetchDataTask(void *pvParameters);
 void initLvglDisplay();
 
+unsigned long currentScreenInterval() {
+  return currentScreen == SCREEN_TIME ? timeScreenInterval : defaultScreenInterval;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -551,7 +556,7 @@ void loop() {
     switchScreen(nextScreenState(currentScreen));
   }
 
-  if (now - lastScreenSwitch > screenInterval) {
+  if (now - lastScreenSwitch > currentScreenInterval()) {
     lastScreenSwitch = now;
     switchScreen(nextScreenState(currentScreen));
   }

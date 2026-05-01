@@ -9,8 +9,11 @@ void createTimeScreen() {
   lv_label_set_text(timeLocationLabel, "Leipzig");
 
   timeLabel = createLabel(timeScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(timeLabel, 220, 64);
-  lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 65);
+  lv_obj_set_size(timeLabel, 260, 64);
+  lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 76);
+  lv_obj_set_style_text_outline_stroke_color(timeLabel, lv_color_hex(COLOR_TEXT), 0);
+  lv_obj_set_style_text_outline_stroke_width(timeLabel, 1, 0);
+  lv_obj_set_style_text_outline_stroke_opa(timeLabel, LV_OPA_70, 0);
 
   weatherIconRoot = createWeatherImage(timeScreen);
   updateWeatherImage(weatherCode);
@@ -50,9 +53,9 @@ void createCryptoScreen() {
   String titleText = cryptoPairTitle();
   lv_label_set_text(title, titleText.c_str());
 
-  cryptoPriceLabel = createLabel(cryptoScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(cryptoPriceLabel, 440, 58);
-  lv_obj_align(cryptoPriceLabel, LV_ALIGN_TOP_MID, 0, 96);
+  cryptoPriceLabel = createLabel(cryptoScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(cryptoPriceLabel, 440, 70);
+  lv_obj_align(cryptoPriceLabel, LV_ALIGN_TOP_MID, 0, 88);
 
   createDivider(cryptoScreen, 88, 174, 304, COLOR_BTC);
 
@@ -255,7 +258,7 @@ void refreshTimeUi() {
   xSemaphoreGive(dataMutex);
 
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
+  if (!getLocalTimeFast(timeinfo)) {
     setTimeNormalVisible(true);
     setHidden(timeSunIcon.root, true);
     updateTimeSecondProgress(-1);

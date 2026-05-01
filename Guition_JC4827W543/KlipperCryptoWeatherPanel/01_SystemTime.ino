@@ -59,6 +59,16 @@ void printRuntimeHealth() {
   );
 }
 
+bool getLocalTimeFast(struct tm& timeinfo) {
+  time_t now = time(nullptr);
+  if (now < 100000) {
+    return false;
+  }
+
+  localtime_r(&now, &timeinfo);
+  return true;
+}
+
 void configureTimeOnce() {
   if (timeConfigured) {
     return;
@@ -201,7 +211,7 @@ int calculateSunStrength(const struct tm& timeinfo, int sunriseMinute, int sunse
 
 void updateBrightnessBySun() {
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo, 10)) {
+  if (!getLocalTimeFast(timeinfo)) {
     return;
   }
 

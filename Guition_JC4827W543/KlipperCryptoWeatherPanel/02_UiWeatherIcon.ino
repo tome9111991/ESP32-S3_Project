@@ -72,6 +72,10 @@ void setHidden(lv_obj_t* obj, bool hidden) {
     return;
   }
 
+  if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == hidden) {
+    return;
+  }
+
   if (hidden) {
     lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -171,7 +175,7 @@ const lv_image_dsc_t* weatherImageForVisual(WeatherVisual visual) {
 lv_obj_t* createWeatherImage(lv_obj_t* parent) {
   weatherImage = lv_image_create(parent);
   lv_obj_set_size(weatherImage, WEATHER_ICON_W, WEATHER_ICON_H);
-  lv_obj_set_pos(weatherImage, 304, 72);
+  lv_obj_set_pos(weatherImage, 304, 76);
   lv_obj_clear_flag(weatherImage, LV_OBJ_FLAG_SCROLLABLE);
   return weatherImage;
 }
@@ -197,7 +201,9 @@ SunStatusIcon createSunStatusIcon(lv_obj_t* parent) {
 
   icon.root = lv_image_create(parent);
   lv_obj_set_size(icon.root, 42, 42);
-  lv_obj_set_pos(icon.root, 416, 13);
+  lv_obj_set_pos(icon.root, 430, 10);
+  lv_image_set_pivot(icon.root, 21, 21);
+  lv_image_set_scale(icon.root, 180);
   lv_obj_clear_flag(icon.root, LV_OBJ_FLAG_SCROLLABLE);
   icon.lastVisual = SUN_STATUS_VISUAL_UNKNOWN;
   lv_image_set_src(icon.root, &icon_status_day_line);
