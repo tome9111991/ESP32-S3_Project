@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="48" viewBox="0 0 56 48">
+  <title>Weather Cloudy</title>
+  <g fill="#aeb8c5">
+    <circle cx="16" cy="28" r="9"/>
+    <circle cx="29" cy="22" r="13"/>
+    <circle cx="42" cy="29" r="9"/>
+    <rect x="9" y="29" width="40" height="13" rx="6.5"/>
+  </g>
+  <g fill="#8490a0">
+    <circle cx="21" cy="20" r="7"/>
+    <rect x="16" y="24" width="25" height="10" rx="5"/>
+  </g>
+</svg>
