@@ -4,6 +4,16 @@ Arduino/LVGL dashboard for the Guition JC4827W543 ESP32-S3 display. The sketch r
 
 The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.ino` in the Arduino IDE, not the numbered `.ino` tabs directly.
 
+## Screenshots
+
+| Time and weather | Live crypto price |
+| --- | --- |
+| <img src="images/time.png" alt="Time and weather screen on the Guition display" width="420"> | <img src="images/btcprice.png" alt="BTC/USD live price screen on the Guition display" width="420"> |
+
+| Crypto candle chart | Klipper printer status |
+| --- | --- |
+| <img src="images/chart.png" alt="BTC 90-day candle chart screen on the Guition display" width="420"> | <img src="images/klipper.png" alt="Klipper and Moonraker printer status screen on the Guition display" width="420"> |
+
 ## Features
 
 - 480 x 272 LVGL v9 UI for the Guition JC4827W543 display
@@ -126,7 +136,7 @@ Recommended first commit:
 
 ```powershell
 git init
-git add .gitignore *.ino *.h README.md assets
+git add .gitignore *.ino *.h README.md assets images
 git status --short
 git commit -m "Initial ESP32-S3 HMI dashboard"
 ```
@@ -147,6 +157,7 @@ git commit -m "Initial ESP32-S3 HMI dashboard"
 | `lv_conf.h` | Local LVGL configuration |
 | `config_private.example.h` | Safe template for local secrets/settings |
 | `assets/icons/` | Editable SVG source assets |
+| `images/` | README screenshots of the display and UI screens |
 | `src/ui_assets/` | Converted LVGL C image assets used by the sketch |
 
 ## Notes
