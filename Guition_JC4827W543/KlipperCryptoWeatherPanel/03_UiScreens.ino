@@ -18,21 +18,21 @@ void createTimeScreen() {
   weatherIconRoot = createWeatherImage(timeScreen);
   updateWeatherImage(weatherCode);
 
-  timeDivider = createDivider(timeScreen, 112, 164, TIME_SECOND_BAR_W, COLOR_DIM);
+  timeDivider = createDivider(timeScreen, 112, 160, TIME_SECOND_BAR_W, COLOR_DIM);
   timeSecondFill = createDivider(timeDivider, 0, 0, 0, COLOR_CYAN);
   setHidden(timeSecondFill, true);
 
   weekdayLabel = createLabel(timeScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(weekdayLabel, 440, 34);
-  lv_obj_align(weekdayLabel, LV_ALIGN_TOP_MID, 0, 176);
+  lv_obj_align(weekdayLabel, LV_ALIGN_TOP_MID, 0, 172);
 
   dateLabel = createLabel(timeScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(dateLabel, 440, 26);
-  lv_obj_align(dateLabel, LV_ALIGN_TOP_MID, 0, 207);
+  lv_obj_align(dateLabel, LV_ALIGN_TOP_MID, 0, 203);
 
   tempLabel = createLabel(timeScreen, &lv_font_montserrat_32, COLOR_CYAN, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(tempLabel, 440, 42);
-  lv_obj_align(tempLabel, LV_ALIGN_TOP_MID, 0, 228);
+  lv_obj_align(tempLabel, LV_ALIGN_TOP_MID, 6, 224);
 
   timeStatusTitle = createLabel(timeScreen, &lv_font_montserrat_32, COLOR_ORANGE, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(timeStatusTitle, 440, 44);
@@ -80,7 +80,7 @@ void createBtcDayScreen() {
 
   btcDayPriceLabel = createLabel(btcDayScreen, &lv_font_montserrat_32, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(btcDayPriceLabel, 440, 42);
-  lv_obj_align(btcDayPriceLabel, LV_ALIGN_TOP_MID, 0, 38);
+  lv_obj_align(btcDayPriceLabel, LV_ALIGN_TOP_MID, 0, 42);
 
   const size_t chartBufferBytes = LV_CANVAS_BUF_SIZE(BTC_CHART_W, BTC_CHART_CANVAS_H, 16, LV_DRAW_BUF_STRIDE_ALIGN);
   btcDayChartCanvasBuf = (uint8_t*)heap_caps_malloc(chartBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -94,22 +94,22 @@ void createBtcDayScreen() {
     Serial.printf("BTC Chart Canvas Buffer: %u Bytes in %s\n", (unsigned)chartBufferBytes, btcDayChartCanvasBufInPsram ? "PSRAM" : "internem RAM");
     btcDayChartCanvas = lv_canvas_create(btcDayScreen);
     lv_canvas_set_buffer(btcDayChartCanvas, btcDayChartCanvasBuf, BTC_CHART_W, BTC_CHART_CANVAS_H, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(btcDayChartCanvas, 34, 84);
+    lv_obj_set_pos(btcDayChartCanvas, 34, 88);
     lv_obj_clear_flag(btcDayChartCanvas, LV_OBJ_FLAG_SCROLLABLE);
     lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
   }
 
   btcDayRangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(btcDayRangeLabel, 220, 24);
-  lv_obj_set_pos(btcDayRangeLabel, 34, 214);
+  lv_obj_set_pos(btcDayRangeLabel, 34, 218);
 
   btcDayCandleLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_BTC, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(btcDayCandleLabel, 180, 24);
-  lv_obj_set_pos(btcDayCandleLabel, 266, 214);
+  lv_obj_set_pos(btcDayCandleLabel, 266, 218);
 
   btcDayVolumeLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(btcDayVolumeLabel, 440, 24);
-  lv_obj_align(btcDayVolumeLabel, LV_ALIGN_TOP_MID, 0, 240);
+  lv_obj_align(btcDayVolumeLabel, LV_ALIGN_TOP_MID, 0, 244);
 }
 
 void createKlipperScreen() {
@@ -366,15 +366,15 @@ void setKlipperOfflineLayout(uint32_t stateColor) {
 
   lv_obj_set_size(klipperProgressLabel, 260, 62);
   lv_obj_set_pos(klipperProgressLabel, 172, 70);
-  lv_obj_set_size(klipperFileLabel, 390, 62);
+  lv_obj_set_size(klipperFileLabel, 390, 56);
   lv_obj_set_pos(klipperFileLabel, 45, 154);
   lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_WRAP);
   lv_obj_set_size(klipperDurationLabel, 190, 28);
-  lv_obj_set_pos(klipperDurationLabel, 60, 218);
+  lv_obj_set_pos(klipperDurationLabel, 60, 214);
   lv_obj_set_size(klipperStatusLabel, 210, 28);
-  lv_obj_set_pos(klipperStatusLabel, 210, 218);
+  lv_obj_set_pos(klipperStatusLabel, 210, 214);
   lv_obj_set_size(klipperMmuLabel, 420, 22);
-  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 246);
+  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 244);
 
   setHidden(klipperNozzleTitleLabel, true);
   setHidden(klipperNozzleLabel, true);
