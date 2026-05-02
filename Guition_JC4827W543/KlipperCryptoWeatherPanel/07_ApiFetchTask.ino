@@ -130,6 +130,18 @@ bool fetchBtcPrice() {
         float livePrice = price.toFloat();
 
         xSemaphoreTake(dataMutex, portMAX_DELAY);
+        if (currentBtcLivePrice > 0.0f && livePrice > 0.0f) {
+          if (livePrice > currentBtcLivePrice) {
+            currentBtcPriceDirection = 1;
+          } else if (livePrice < currentBtcLivePrice) {
+            currentBtcPriceDirection = -1;
+          }
+        } else {
+          currentBtcPriceDirection = 0;
+        }
+        if (livePrice > 0.0f) {
+          currentBtcLivePrice = livePrice;
+        }
         currentBtcPrice = cryptoPricePrefixText() + price;
         currentBtcStatus = cryptoOkStatus();
         xSemaphoreGive(dataMutex);

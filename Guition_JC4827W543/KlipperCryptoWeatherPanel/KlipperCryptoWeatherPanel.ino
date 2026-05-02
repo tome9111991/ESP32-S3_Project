@@ -13,6 +13,7 @@
 #define LV_CONF_INCLUDE_SIMPLE
 #include <lvgl.h>
 #include "ui_assets.h"
+#include "ui_font_time_digits.h"
 
 // LVGL v9 compatibility for LovyanGFX
 #ifndef LV_ATTRIBUTE_LARGE_CONST
@@ -186,6 +187,8 @@ SemaphoreHandle_t dataMutex;
 SemaphoreHandle_t networkMutex;
 TaskHandle_t fetchTaskHandle = NULL;
 String currentBtcPrice = "Laden...";
+float currentBtcLivePrice = 0.0f;
+int currentBtcPriceDirection = 0;
 String currentBtcStatus = String(cryptoServiceName) + " " + cryptoQuoteSymbol;
 String btcDayChange = "1D --";
 String btcDayRange = "H --  L --";

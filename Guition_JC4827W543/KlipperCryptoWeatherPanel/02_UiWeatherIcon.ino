@@ -175,7 +175,7 @@ const lv_image_dsc_t* weatherImageForVisual(WeatherVisual visual) {
 lv_obj_t* createWeatherImage(lv_obj_t* parent) {
   weatherImage = lv_image_create(parent);
   lv_obj_set_size(weatherImage, WEATHER_ICON_W, WEATHER_ICON_H);
-  lv_obj_set_pos(weatherImage, 304, 76);
+  lv_obj_set_pos(weatherImage, 360, 82);
   lv_obj_clear_flag(weatherImage, LV_OBJ_FLAG_SCROLLABLE);
   return weatherImage;
 }

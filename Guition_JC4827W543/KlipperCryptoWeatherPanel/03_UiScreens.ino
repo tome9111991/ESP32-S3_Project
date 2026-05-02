@@ -8,9 +8,9 @@ void createTimeScreen() {
   lv_obj_set_pos(timeLocationLabel, 60, 20);
   lv_label_set_text(timeLocationLabel, "Leipzig");
 
-  timeLabel = createLabel(timeScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(timeLabel, 260, 64);
-  lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 76);
+  timeLabel = createLabel(timeScreen, &ui_font_time_digits_96, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(timeLabel, 320, 104);
+  lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 50);
   lv_obj_set_style_text_outline_stroke_color(timeLabel, lv_color_hex(COLOR_TEXT), 0);
   lv_obj_set_style_text_outline_stroke_width(timeLabel, 1, 0);
   lv_obj_set_style_text_outline_stroke_opa(timeLabel, LV_OPA_70, 0);
@@ -273,17 +273,25 @@ void refreshTimeUi() {
 
   char timeStringBuff[10];
   char dateStringBuff[20];
+  char weekdayDateStringBuff[40];
   strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M", &timeinfo);
   strftime(dateStringBuff, sizeof(dateStringBuff), "%d.%m.%Y", &timeinfo);
+  snprintf(
+    weekdayDateStringBuff,
+    sizeof(weekdayDateStringBuff),
+    "%s | %s",
+    WEEKDAYS_DE[timeinfo.tm_wday],
+    dateStringBuff
+  );
 
   setTimeNormalVisible(true);
+  setHidden(dateLabel, true);
   updateSunStatusIcon(timeinfo);
   updateTimeSecondProgress(timeinfo.tm_sec);
   updateWeatherImage(code);
   String tempText = temp + TEMP_UNIT;
   setLabelTextIfChanged(timeLabel, timeStringBuff);
-  setLabelTextIfChanged(weekdayLabel, WEEKDAYS_DE[timeinfo.tm_wday]);
-  setLabelTextIfChanged(dateLabel, dateStringBuff);
+  setLabelTextIfChanged(weekdayLabel, weekdayDateStringBuff);
   setLabelTextIfChanged(tempLabel, tempText.c_str());
 }
 
@@ -334,6 +342,7 @@ void refreshBtcDayUi() {
   String candle = btcCandleStatus;
   bool positive = btcDayChangePositive;
   bool ready = btcDayDataReady;
+  int priceDirection = currentBtcPriceDirection;
   uint32_t candleTime = (btcCandles != nullptr && btcCandleCount > 0) ? btcCandles[btcCandleCount - 1].time : 0;
   xSemaphoreGive(dataMutex);
 
@@ -341,11 +350,23 @@ void refreshBtcDayUi() {
     candle = formatBtcCandleCountdown(candleTime);
   }
 
-  setLabelTextIfChanged(btcDayPriceLabel, price.c_str());
+  String chartPrice = price;
+  if (priceDirection > 0) {
+    chartPrice = String(LV_SYMBOL_UP " ") + price;
+  } else if (priceDirection < 0) {
+    chartPrice = String(LV_SYMBOL_DOWN " ") + price;
+  }
+
+  setLabelTextIfChanged(btcDayPriceLabel, chartPrice.c_str());
   setLabelTextIfChanged(btcDayChangeLabel, change.c_str());
   setLabelTextIfChanged(btcDayRangeLabel, range.c_str());
   setLabelTextIfChanged(btcDayVolumeLabel, volume.c_str());
   setLabelTextIfChanged(btcDayCandleLabel, candle.c_str());
+  lv_obj_set_style_text_color(
+    btcDayPriceLabel,
+    lv_color_hex(priceDirection > 0 ? COLOR_GREEN : (priceDirection < 0 ? COLOR_LOSS : COLOR_TEXT)),
+    0
+  );
   lv_obj_set_style_text_color(
     btcDayChangeLabel,
     lv_color_hex(!ready ? COLOR_MUTED : (positive ? COLOR_GREEN : COLOR_LOSS)),
