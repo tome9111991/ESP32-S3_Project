@@ -8,6 +8,8 @@ void updateWifiState() {
       Serial.print("WLAN verbunden, IP: ");
       Serial.println(WiFi.localIP());
       Serial.printf("RSSI: %d dBm, Kanal: %d\n", WiFi.RSSI(), WiFi.channel());
+    }
+    if (!timeConfigured) {
       configureTimeOnce();
     }
     return;
@@ -151,6 +153,26 @@ String extractJsonString(const String& payload, const String& key) {
   }
 
   return payload.substring(start, end);
+}
+
+String weatherStationNameForSource(JsonArrayConst sources, int sourceId) {
+  if (sourceId < 0) {
+    return "";
+  }
+
+  for (JsonObjectConst source : sources) {
+    int id = source["id"] | -1;
+    if (id != sourceId) {
+      continue;
+    }
+
+    const char* name = source["station_name"] | "";
+    String stationName = String(name);
+    stationName.trim();
+    return stationName;
+  }
+
+  return "";
 }
 
 int weatherCodeFromText(String text) {

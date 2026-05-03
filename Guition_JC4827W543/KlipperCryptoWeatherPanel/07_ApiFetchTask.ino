@@ -55,9 +55,42 @@ bool fetchWeatherValue() {
   if (httpCodeWeather == HTTP_CODE_OK) {
     String payload = readHttpPayloadChunked(http, 2048);
     yieldFetchTask();
-    String temp = extractJsonNumber(payload, "temperature");
-    String iconText = extractJsonString(payload, "icon");
-    String conditionText = extractJsonString(payload, "condition");
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+    if (error) {
+      xSemaphoreTake(dataMutex, portMAX_DELAY);
+      weatherStatus = "DWD: JSON";
+      xSemaphoreGive(dataMutex);
+      Serial.print("DWD JSON Parse Fehler: ");
+      Serial.println(error.c_str());
+      Serial.println(payload.substring(0, 240));
+      http.end();
+      return false;
+    }
+
+    JsonVariantConst weather = doc["weather"];
+    JsonVariantConst tempValue = weather["temperature"];
+    String temp;
+    if (tempValue.is<double>() || tempValue.is<long>() || tempValue.is<unsigned long>()) {
+      temp = String(tempValue.as<float>(), 1);
+    } else {
+      temp = jsonStringValue(tempValue);
+    }
+    temp.trim();
+
+    String iconText = jsonStringValue(weather["icon"]);
+    String conditionText = jsonStringValue(weather["condition"]);
+
+    int stationSourceId = jsonIntValue(weather["fallback_source_ids"]["temperature"], -1);
+    if (stationSourceId < 0) {
+      stationSourceId = jsonIntValue(weather["source_id"], -1);
+    }
+    String stationName = weatherStationNameForSource(doc["sources"].as<JsonArrayConst>(), stationSourceId);
+    if (stationName.length() == 0) {
+      stationName = weatherStationNameForSource(doc["sources"].as<JsonArrayConst>(), jsonIntValue(weather["source_id"], -1));
+    }
+
     if (temp.length() > 0) {
       int parsedWeatherCode = weatherCodeFromText(iconText);
       if (parsedWeatherCode < 0) {
@@ -69,9 +102,12 @@ bool fetchWeatherValue() {
       if (parsedWeatherCode >= 0) {
         weatherCode = parsedWeatherCode;
       }
+      if (stationName.length() > 0) {
+        weatherLocation = stationName;
+      }
       weatherStatus = "WETTER: DWD";
       xSemaphoreGive(dataMutex);
-      Serial.println(String("DWD Temperatur: ") + temp + " C, icon=" + iconText + ", condition=" + conditionText);
+      Serial.println(String("DWD Temperatur: ") + temp + " C, station=" + stationName + ", icon=" + iconText + ", condition=" + conditionText);
       http.end();
       return true;
     }

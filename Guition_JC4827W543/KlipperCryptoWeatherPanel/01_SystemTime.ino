@@ -69,12 +69,27 @@ bool getLocalTimeFast(struct tm& timeinfo) {
   return true;
 }
 
-void configureTimeOnce() {
+bool configureTimeOnce() {
   if (timeConfigured) {
-    return;
+    return true;
   }
   if (WiFi.status() != WL_CONNECTED) {
-    return;
+    return false;
+  }
+
+  bool mutexTaken = false;
+  if (networkMutex != NULL) {
+    if (xSemaphoreTake(networkMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+      return false;
+    }
+    mutexTaken = true;
+  }
+
+  if (timeConfigured || WiFi.status() != WL_CONNECTED) {
+    if (mutexTaken) {
+      xSemaphoreGive(networkMutex);
+    }
+    return timeConfigured;
   }
 
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
@@ -82,6 +97,11 @@ void configureTimeOnce() {
   tzset();
   timeConfigured = true;
   Serial.println("NTP/Zeitkonfiguration gestartet");
+
+  if (mutexTaken) {
+    xSemaphoreGive(networkMutex);
+  }
+  return true;
 }
 
 void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {

@@ -6,7 +6,7 @@ void createTimeScreen() {
   timeLocationLabel = createLabel(timeScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(timeLocationLabel, 220, 24);
   lv_obj_set_pos(timeLocationLabel, 60, 20);
-  lv_label_set_text(timeLocationLabel, "Leipzig");
+  lv_label_set_text(timeLocationLabel, weatherLocation.c_str());
 
   timeLabel = createLabel(timeScreen, &ui_font_time_digits_96, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(timeLabel, 320, 104);
@@ -254,6 +254,7 @@ void refreshTimeUi() {
   xSemaphoreTake(dataMutex, portMAX_DELAY);
   String temp = currentTemp;
   String status = weatherStatus;
+  String location = weatherLocation;
   int code = weatherCode;
   xSemaphoreGive(dataMutex);
 
@@ -264,6 +265,7 @@ void refreshTimeUi() {
     updateTimeSecondProgress(-1);
     updateWeatherImage(code);
     String tempText = temp + TEMP_UNIT;
+    setLabelTextIfChanged(timeLocationLabel, location.c_str());
     setLabelTextIfChanged(timeLabel, "--:--");
     updateWeatherImagePositionForTime("--:--");
     setLabelTextIfChanged(weekdayLabel, "Zeit wird synchronisiert");
@@ -291,6 +293,7 @@ void refreshTimeUi() {
   updateTimeSecondProgress(timeinfo.tm_sec);
   updateWeatherImage(code);
   String tempText = temp + TEMP_UNIT;
+  setLabelTextIfChanged(timeLocationLabel, location.c_str());
   setLabelTextIfChanged(timeLabel, timeStringBuff);
   updateWeatherImagePositionForTime(timeStringBuff);
   setLabelTextIfChanged(weekdayLabel, weekdayDateStringBuff);
