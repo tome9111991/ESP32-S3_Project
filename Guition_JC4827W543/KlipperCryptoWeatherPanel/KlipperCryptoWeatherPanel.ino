@@ -383,6 +383,7 @@ WeatherVisual weatherVisualFromCode(int code);
 const lv_image_dsc_t* weatherImageForVisual(WeatherVisual visual);
 lv_obj_t* createWeatherImage(lv_obj_t* parent);
 void updateWeatherImage(int code);
+void updateWeatherImagePositionForTime(const char* timeText);
 const lv_image_dsc_t* sunStatusImageForVisual(SunStatusVisual visual);
 SunStatusVisual sunStatusVisualFromTime(int nowMinute, int sunriseMinute, int sunsetMinute);
 void updateSunStatusIcon(SunStatusIcon& icon, SunStatusVisual visual);

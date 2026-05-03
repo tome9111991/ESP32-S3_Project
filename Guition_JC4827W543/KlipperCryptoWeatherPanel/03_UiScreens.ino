@@ -10,7 +10,7 @@ void createTimeScreen() {
 
   timeLabel = createLabel(timeScreen, &ui_font_time_digits_96, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(timeLabel, 320, 104);
-  lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 50);
+  lv_obj_align(timeLabel, LV_ALIGN_TOP_MID, 0, 58);
   lv_obj_set_style_text_outline_stroke_color(timeLabel, lv_color_hex(COLOR_TEXT), 0);
   lv_obj_set_style_text_outline_stroke_width(timeLabel, 1, 0);
   lv_obj_set_style_text_outline_stroke_opa(timeLabel, LV_OPA_70, 0);
@@ -18,13 +18,13 @@ void createTimeScreen() {
   weatherIconRoot = createWeatherImage(timeScreen);
   updateWeatherImage(weatherCode);
 
-  timeDivider = createDivider(timeScreen, 112, 160, TIME_SECOND_BAR_W, COLOR_DIM);
+  timeDivider = createDivider(timeScreen, 112, 168, TIME_SECOND_BAR_W, COLOR_DIM);
   timeSecondFill = createDivider(timeDivider, 0, 0, 0, COLOR_CYAN);
   setHidden(timeSecondFill, true);
 
   weekdayLabel = createLabel(timeScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(weekdayLabel, 440, 34);
-  lv_obj_align(weekdayLabel, LV_ALIGN_TOP_MID, 0, 172);
+  lv_obj_align(weekdayLabel, LV_ALIGN_TOP_MID, 0, 180);
 
   dateLabel = createLabel(timeScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(dateLabel, 440, 26);
@@ -265,6 +265,7 @@ void refreshTimeUi() {
     updateWeatherImage(code);
     String tempText = temp + TEMP_UNIT;
     setLabelTextIfChanged(timeLabel, "--:--");
+    updateWeatherImagePositionForTime("--:--");
     setLabelTextIfChanged(weekdayLabel, "Zeit wird synchronisiert");
     setLabelTextIfChanged(dateLabel, status.c_str());
     setLabelTextIfChanged(tempLabel, tempText.c_str());
@@ -291,6 +292,7 @@ void refreshTimeUi() {
   updateWeatherImage(code);
   String tempText = temp + TEMP_UNIT;
   setLabelTextIfChanged(timeLabel, timeStringBuff);
+  updateWeatherImagePositionForTime(timeStringBuff);
   setLabelTextIfChanged(weekdayLabel, weekdayDateStringBuff);
   setLabelTextIfChanged(tempLabel, tempText.c_str());
 }
