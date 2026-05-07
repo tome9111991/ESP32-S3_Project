@@ -27,6 +27,68 @@ String buildBrightSkyUrl() {
     String(locationLongitude, 6);
 }
 
+bool weatherHasRecentSunshine(JsonVariantConst weather) {
+  float sunshine30 = weather["sunshine_30"] | 0.0f;
+  float sunshine60 = weather["sunshine_60"] | 0.0f;
+
+  // Bright Sky can still report "cloudy" while DWD sunshine counters show sun.
+  return sunshine30 >= 5.0f || sunshine60 >= 10.0f;
+}
+
+bool weatherHasRecentPrecipitation(JsonVariantConst weather) {
+  float precipitation10 = weather["precipitation_10"] | 0.0f;
+  float precipitation30 = weather["precipitation_30"] | 0.0f;
+  float precipitation60 = weather["precipitation_60"] | 0.0f;
+
+  return precipitation10 > 0.0f || precipitation30 >= 0.1f || precipitation60 >= 0.1f;
+}
+
+int weatherPriorityCodeFromCondition(String text) {
+  text.toLowerCase();
+
+  if (text.indexOf("thunder") >= 0 || text.indexOf("storm") >= 0 || text.indexOf("gewitter") >= 0) {
+    return 95;
+  }
+  if (text.indexOf("snow") >= 0 || text.indexOf("sleet") >= 0 || text.indexOf("hail") >= 0 || text.indexOf("schnee") >= 0) {
+    return 71;
+  }
+  if (text.indexOf("rain") >= 0 || text.indexOf("drizzle") >= 0 || text.indexOf("regen") >= 0) {
+    return 61;
+  }
+  if (text.indexOf("fog") >= 0 || text.indexOf("mist") >= 0 || text.indexOf("nebel") >= 0) {
+    return 45;
+  }
+
+  return -1;
+}
+
+int weatherCodeFromBrightSky(JsonVariantConst weather, const String& iconText, const String& conditionText) {
+  int parsedWeatherCode = weatherPriorityCodeFromCondition(conditionText);
+  if (parsedWeatherCode >= 0) {
+    return parsedWeatherCode;
+  }
+
+  parsedWeatherCode = weatherPriorityCodeFromCondition(iconText);
+  if (parsedWeatherCode >= 0) {
+    return parsedWeatherCode;
+  }
+
+  if (weatherHasRecentPrecipitation(weather)) {
+    return 61;
+  }
+
+  parsedWeatherCode = weatherCodeFromText(iconText);
+  if (parsedWeatherCode < 0) {
+    parsedWeatherCode = weatherCodeFromText(conditionText);
+  }
+
+  if (parsedWeatherCode == 3 && weatherHasRecentSunshine(weather)) {
+    parsedWeatherCode = 2;
+  }
+
+  return parsedWeatherCode;
+}
+
 bool fetchWeatherValue() {
   WiFiClientSecure weatherClient;
   weatherClient.setInsecure();
@@ -92,10 +154,7 @@ bool fetchWeatherValue() {
     }
 
     if (temp.length() > 0) {
-      int parsedWeatherCode = weatherCodeFromText(iconText);
-      if (parsedWeatherCode < 0) {
-        parsedWeatherCode = weatherCodeFromText(conditionText);
-      }
+      int parsedWeatherCode = weatherCodeFromBrightSky(weather, iconText, conditionText);
 
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       currentTemp = temp;
@@ -107,7 +166,7 @@ bool fetchWeatherValue() {
       }
       weatherStatus = "WETTER: DWD";
       xSemaphoreGive(dataMutex);
-      Serial.println(String("DWD Temperatur: ") + temp + " C, station=" + stationName + ", icon=" + iconText + ", condition=" + conditionText);
+      Serial.println(String("DWD Temperatur: ") + temp + " C, station=" + stationName + ", icon=" + iconText + ", condition=" + conditionText + ", precipitation10=" + String((float)(weather["precipitation_10"] | 0.0f), 2) + ", precipitation30=" + String((float)(weather["precipitation_30"] | 0.0f), 2) + ", precipitation60=" + String((float)(weather["precipitation_60"] | 0.0f), 2) + ", sunshine30=" + String((float)(weather["sunshine_30"] | 0.0f), 1) + ", sunshine60=" + String((float)(weather["sunshine_60"] | 0.0f), 1) + ", code=" + String(parsedWeatherCode));
       http.end();
       return true;
     }

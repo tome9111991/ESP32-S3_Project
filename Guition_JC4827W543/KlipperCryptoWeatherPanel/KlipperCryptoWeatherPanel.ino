@@ -295,6 +295,7 @@ const unsigned long uiRefreshInterval = 500;
 const unsigned long brightnessRefreshInterval = 30000;
 const uint8_t dayBrightness = 160;
 const uint8_t nightBrightness = 8;
+const int sunriseBrightnessDelayMinutes = 90; // Display morgens erst 90 Minuten nach Sonnenaufgang hell schalten
 uint8_t currentBrightness = dayBrightness;
 unsigned long lastBrightnessRefresh = 0;
 
@@ -420,6 +421,9 @@ String extractJsonNumber(const String& payload, const String& key);
 String extractJsonString(const String& payload, const String& key);
 String weatherStationNameForSource(JsonArrayConst sources, int sourceId);
 int weatherCodeFromText(String text);
+bool weatherHasRecentPrecipitation(JsonVariantConst weather);
+int weatherPriorityCodeFromCondition(String text);
+int weatherCodeFromBrightSky(JsonVariantConst weather, const String& iconText, const String& conditionText);
 String cryptoProductId();
 String cryptoPairTitle();
 String cryptoDayTitle();

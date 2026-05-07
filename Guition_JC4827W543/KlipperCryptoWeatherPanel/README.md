@@ -20,7 +20,7 @@ The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.i
 - LovyanGFX driver setup for the NV3041A panel
 - Wi-Fi reconnect handling and serial health diagnostics
 - NTP time sync with CET/CEST timezone handling
-- Day/night brightness switching based on calculated sunrise and sunset
+- Day/night brightness switching based on calculated sunrise and sunset, with a morning delay before day brightness
 - Current weather from Bright Sky / DWD data, no weather API key required
 - Live crypto spot price from Coinbase
 - 90-day daily candle chart from Coinbase Exchange candles

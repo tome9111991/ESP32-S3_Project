@@ -242,17 +242,21 @@ void updateBrightnessBySun() {
   }
 
   const int nowMinute = (timeinfo.tm_hour * 60) + timeinfo.tm_min;
-  const bool nightMode = (nowMinute < sunriseMinute || nowMinute >= sunsetMinute);
+  const int brightnessDayStartMinute =
+    min(sunsetMinute, clampMinuteOfDay(sunriseMinute + sunriseBrightnessDelayMinutes));
+  const bool nightMode = (nowMinute < brightnessDayStartMinute || nowMinute >= sunsetMinute);
   const uint8_t targetBrightness = nightMode ? nightBrightness : dayBrightness;
 
   if (currentBrightness != targetBrightness) {
     setDisplayBrightness(targetBrightness);
     Serial.printf(
-      "Display-Helligkeit: %s (%u), Sonnenaufgang %02d:%02d, Sonnenuntergang %02d:%02d\n",
+      "Display-Helligkeit: %s (%u), Sonnenaufgang %02d:%02d, hell ab %02d:%02d, Sonnenuntergang %02d:%02d\n",
       nightMode ? "Nacht" : "Tag",
       targetBrightness,
       sunriseMinute / 60,
       sunriseMinute % 60,
+      brightnessDayStartMinute / 60,
+      brightnessDayStartMinute % 60,
       sunsetMinute / 60,
       sunsetMinute % 60
     );
