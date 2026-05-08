@@ -9,6 +9,8 @@
 // Standort fuer Wetterdaten und Sonnenstand.
 #define LOCATION_LATITUDE 52.000000f
 #define LOCATION_LONGITUDE 13.000000f
+// POSIX-Zeitzone fuer die lokale Uhrzeit. Deutschland: CET/CEST.
+#define TIMEZONE_POSIX "CET-1CEST,M3.5.0,M10.5.0/3"
 
 // Optionale Anzeige-/API-Einstellungen.
 #define CRYPTO_BASE_SYMBOL "BTC"

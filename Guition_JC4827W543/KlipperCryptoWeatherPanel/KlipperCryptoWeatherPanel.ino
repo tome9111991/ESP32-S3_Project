@@ -137,6 +137,9 @@ const char* WEEKDAYS_DE[] = {
 #ifndef LOCATION_LONGITUDE
   #error "LOCATION_LONGITUDE fehlt. Kopiere config_private.example.h nach config_private.h und trage deine Daten ein."
 #endif
+#ifndef TIMEZONE_POSIX
+  #error "TIMEZONE_POSIX fehlt. Kopiere config_private.example.h nach config_private.h und trage deine Zeitzone ein."
+#endif
 #ifndef CRYPTO_BASE_SYMBOL
   #define CRYPTO_BASE_SYMBOL "BTC"
 #endif
@@ -159,6 +162,7 @@ const char* password = WIFI_PASSWORD;
 // Bright Sky liefert DWD-Daten ohne API-Key.
 const float locationLatitude = LOCATION_LATITUDE;
 const float locationLongitude = LOCATION_LONGITUDE;
+const char* timezonePosix = TIMEZONE_POSIX;
 // Coinbase Crypto-Paar. Fuer SOL/EUR z.B. cryptoBaseSymbol="SOL", cryptoQuoteSymbol="EUR".
 const char* cryptoBaseSymbol = CRYPTO_BASE_SYMBOL;
 const char* cryptoQuoteSymbol = CRYPTO_QUOTE_SYMBOL;

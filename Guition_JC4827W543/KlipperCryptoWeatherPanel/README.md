@@ -86,6 +86,7 @@ Then edit `config_private.h`:
 
 #define LOCATION_LATITUDE 52.000000f
 #define LOCATION_LONGITUDE 13.000000f
+#define TIMEZONE_POSIX "CET-1CEST,M3.5.0,M10.5.0/3"
 
 #define CRYPTO_BASE_SYMBOL "BTC"
 #define CRYPTO_QUOTE_SYMBOL "USD"
@@ -97,7 +98,7 @@ Then edit `config_private.h`:
 
 `config_private.h` is ignored by Git and should not be uploaded. Keep only `config_private.example.h` in the repository.
 
-The time screen label is currently set to `BERLIN` in `03_UiScreens.ino`. Change that label if you use another location.
+`TIMEZONE_POSIX` controls the local time conversion after NTP sync. The example value uses Germany/Central Europe with daylight saving time.
 
 ## External Services
 

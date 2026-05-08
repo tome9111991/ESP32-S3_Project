@@ -93,7 +93,7 @@ bool configureTimeOnce() {
   }
 
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+  setenv("TZ", timezonePosix, 1);
   tzset();
   timeConfigured = true;
   Serial.println("NTP/Zeitkonfiguration gestartet");
