@@ -1,0 +1,15 @@
+# Lokale private Konfiguration
+**/config_private.h
+
+# Arduino/build artifacts
+build/
+*.bin
+*.elf
+*.map
+*.hex
+
+# Editor/OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="48" viewBox="0 0 56 48">
+  <title>Weather Thunder</title>
+  <g fill="#aeb8c5">
+    <circle cx="17" cy="20" r="8"/>
+    <circle cx="30" cy="15" r="12"/>
+    <circle cx="43" cy="21" r="8"/>
+    <rect x="10" y="21" width="40" height="12" rx="6"/>
+  </g>
+  <path fill="#ffa500" d="M32 27h9l-7 9h6L29 47l3-10h-6z"/>
+</svg>

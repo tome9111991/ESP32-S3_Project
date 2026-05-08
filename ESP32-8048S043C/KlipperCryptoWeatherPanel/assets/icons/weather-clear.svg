@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="48" viewBox="0 0 56 48">
+  <title>Weather Clear</title>
+  <g fill="#ffd166">
+    <circle cx="28" cy="24" r="10"/>
+    <rect x="26" y="3" width="4" height="9" rx="2"/>
+    <rect x="26" y="36" width="4" height="9" rx="2"/>
+    <rect x="7" y="22" width="9" height="4" rx="2"/>
+    <rect x="40" y="22" width="9" height="4" rx="2"/>
+    <rect x="13" y="9" width="8" height="4" rx="2" transform="rotate(45 17 11)"/>
+    <rect x="35" y="35" width="8" height="4" rx="2" transform="rotate(45 39 37)"/>
+    <rect x="35" y="9" width="8" height="4" rx="2" transform="rotate(-45 39 11)"/>
+    <rect x="13" y="35" width="8" height="4" rx="2" transform="rotate(-45 17 37)"/>
+  </g>
+</svg>
