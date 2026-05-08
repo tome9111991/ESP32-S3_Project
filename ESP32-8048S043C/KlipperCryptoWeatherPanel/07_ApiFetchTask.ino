@@ -20,6 +20,12 @@ String readHttpPayloadChunked(HTTPClient& http, size_t reserveBytes) {
   return String(payload);
 }
 
+void configureSecureClient(WiFiClientSecure& client) {
+  client.setInsecure();
+  client.setTimeout(8000);
+  client.setHandshakeTimeout(15);
+}
+
 String buildBrightSkyUrl() {
   return String("https://api.brightsky.dev/current_weather?lat=") +
     String(locationLatitude, 6) +
@@ -91,7 +97,7 @@ int weatherCodeFromBrightSky(JsonVariantConst weather, const String& iconText, c
 
 bool fetchWeatherValue() {
   WiFiClientSecure weatherClient;
-  weatherClient.setInsecure();
+  configureSecureClient(weatherClient);
 
   HTTPClient http;
   String weatherUrl = buildBrightSkyUrl();
@@ -187,7 +193,7 @@ bool fetchWeatherValue() {
 
 bool fetchBtcPrice() {
   WiFiClientSecure btcClient;
-  btcClient.setInsecure();
+  configureSecureClient(btcClient);
 
   HTTPClient http;
   String url = cryptoSpotUrl();
@@ -1131,7 +1137,7 @@ bool fetchBtcCandles() {
   }
 
   WiFiClientSecure candleClient;
-  candleClient.setInsecure();
+  configureSecureClient(candleClient);
 
   String candlesUrl = buildBtcCandlesUrl();
 
@@ -1200,19 +1206,72 @@ bool fetchBtcCandles() {
 // --- TASK: API ABFRAGEN ---
 void fetchDataTask(void *pvParameters) {
   unsigned long nextBtcFetch = 0;
-  unsigned long nextBtcCandleFetch = 20000;
-  unsigned long nextWeatherFetch = 10000;
-  unsigned long nextKlipperFetch = 5000;
+  unsigned long nextBtcCandleFetch = 0;
+  unsigned long nextWeatherFetch = 0;
+  unsigned long nextKlipperFetch = 0;
   unsigned long nextKlipperNameFetch = 0;
+  unsigned long lastApiRequest = 0;
   unsigned long lastWifiWaitLog = 0;
+  bool scheduleInitialized = false;
 
   for (;;) {
     wifiConnected = (WiFi.status() == WL_CONNECTED);
 
     if (wifiConnected) {
       unsigned long now = millis();
+      if (wifiConnectedSince == 0) {
+        wifiConnectedSince = now;
+      }
+
+      if (!scheduleInitialized) {
+        const unsigned long startAt = now + wifiStableBeforeFetchInterval;
+        nextBtcFetch = startAt;
+        nextBtcCandleFetch = startAt + 5000;
+        nextWeatherFetch = startAt + 10000;
+        nextKlipperNameFetch = startAt + 17000;
+        nextKlipperFetch = startAt + 24000;
+        lastApiRequest = 0;
+        scheduleInitialized = true;
+        Serial.println("FetchData: API-Abfragen gestaffelt geplant");
+      }
+
+      if (now - wifiConnectedSince < wifiStableBeforeFetchInterval) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
+      }
+
+      if (lastApiRequest != 0 && now - lastApiRequest < apiRequestGapInterval) {
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
+      }
+
+      if (!internetAvailable && (lastInternetProbe == 0 || now - lastInternetProbe >= internetProbeRetryInterval)) {
+        if (networkMutex != NULL) {
+          xSemaphoreTake(networkMutex, portMAX_DELAY);
+        }
+        lastInternetProbe = millis();
+        checkInternetConnectivity();
+        if (networkMutex != NULL) {
+          xSemaphoreGive(networkMutex);
+        }
+        lastApiRequest = millis();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
+      }
 
       if ((long)(now - nextBtcFetch) >= 0) {
+        if (!internetAvailable) {
+          xSemaphoreTake(dataMutex, portMAX_DELAY);
+          currentBtcStatus = String(cryptoBaseSymbol) + " NET WARTET";
+          if (currentBtcPrice == "Laden...") {
+            currentBtcPrice = String(cryptoBaseSymbol) + " --";
+          }
+          xSemaphoreGive(dataMutex);
+          nextBtcFetch = millis() + btcRetryInterval;
+          vTaskDelay(pdMS_TO_TICKS(250));
+          continue;
+        }
+
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
         }
@@ -1221,22 +1280,47 @@ void fetchDataTask(void *pvParameters) {
           xSemaphoreGive(networkMutex);
         }
         nextBtcFetch = millis() + (btcOk ? btcRefreshInterval : btcRetryInterval);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        lastApiRequest = millis();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
       }
 
       if ((long)(now - nextBtcCandleFetch) >= 0) {
-        if (networkMutex != NULL) {
-          xSemaphoreTake(networkMutex, portMAX_DELAY);
+        if (!internetAvailable) {
+          xSemaphoreTake(dataMutex, portMAX_DELAY);
+          btcCandleStatus = "CANDLE NET WARTET";
+          xSemaphoreGive(dataMutex);
+          nextBtcCandleFetch = millis() + btcCandleRetryInterval;
+        } else if (time(nullptr) < 100000) {
+          xSemaphoreTake(dataMutex, portMAX_DELAY);
+          btcCandleStatus = "CANDLE WARTET ZEIT";
+          xSemaphoreGive(dataMutex);
+          nextBtcCandleFetch = millis() + 10000;
+        } else {
+          if (networkMutex != NULL) {
+            xSemaphoreTake(networkMutex, portMAX_DELAY);
+          }
+          bool candleOk = fetchBtcCandles();
+          if (networkMutex != NULL) {
+            xSemaphoreGive(networkMutex);
+          }
+          nextBtcCandleFetch = millis() + (candleOk ? btcCandleRefreshInterval : btcCandleRetryInterval);
+          lastApiRequest = millis();
         }
-        bool candleOk = fetchBtcCandles();
-        if (networkMutex != NULL) {
-          xSemaphoreGive(networkMutex);
-        }
-        nextBtcCandleFetch = millis() + (candleOk ? btcCandleRefreshInterval : btcCandleRetryInterval);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
       }
 
       if ((long)(now - nextWeatherFetch) >= 0) {
+        if (!internetAvailable) {
+          xSemaphoreTake(dataMutex, portMAX_DELAY);
+          weatherStatus = "DWD NET WARTET";
+          xSemaphoreGive(dataMutex);
+          nextWeatherFetch = millis() + weatherRetryInterval;
+          vTaskDelay(pdMS_TO_TICKS(250));
+          continue;
+        }
+
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
         }
@@ -1245,7 +1329,9 @@ void fetchDataTask(void *pvParameters) {
           xSemaphoreGive(networkMutex);
         }
         nextWeatherFetch = millis() + (weatherOk ? weatherRefreshInterval : weatherRetryInterval);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        lastApiRequest = millis();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
       }
 
       if ((long)(now - nextKlipperNameFetch) >= 0) {
@@ -1257,7 +1343,9 @@ void fetchDataTask(void *pvParameters) {
           xSemaphoreGive(networkMutex);
         }
         nextKlipperNameFetch = millis() + (nameOk ? klipperNameRefreshInterval : klipperNameRetryInterval);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        lastApiRequest = millis();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
       }
 
       if ((long)(now - nextKlipperFetch) >= 0) {
@@ -1269,11 +1357,15 @@ void fetchDataTask(void *pvParameters) {
           xSemaphoreGive(networkMutex);
         }
         nextKlipperFetch = millis() + (klipperOk ? klipperRefreshInterval : klipperRetryInterval);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        lastApiRequest = millis();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
       }
 
-      vTaskDelay(pdMS_TO_TICKS(1000));
+      vTaskDelay(pdMS_TO_TICKS(500));
     } else {
+      scheduleInitialized = false;
+      wifiConnectedSince = 0;
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       klipperHostAvailable = false;
       klipperAvailable = false;

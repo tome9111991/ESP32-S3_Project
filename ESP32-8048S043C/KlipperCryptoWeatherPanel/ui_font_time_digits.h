@@ -3,6 +3,6 @@
 
 #include <lvgl.h>
 
-extern const lv_font_t ui_font_time_digits_96;
+extern const lv_font_t ui_font_time_digits_128;
 
 #endif

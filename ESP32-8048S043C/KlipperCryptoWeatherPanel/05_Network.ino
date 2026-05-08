@@ -5,9 +5,12 @@ void updateWifiState() {
 
   if (connected) {
     if (!wasConnected) {
+      wifiConnectedSince = millis();
       Serial.print("WLAN verbunden, IP: ");
       Serial.println(WiFi.localIP());
       Serial.printf("RSSI: %d dBm, Kanal: %d\n", WiFi.RSSI(), WiFi.channel());
+    } else if (wifiConnectedSince == 0) {
+      wifiConnectedSince = millis();
     }
     if (!timeConfigured) {
       configureTimeOnce();
@@ -15,7 +18,17 @@ void updateWifiState() {
     return;
   }
 
+  if (wasConnected) {
+    wifiConnectedSince = 0;
+    internetAvailable = false;
+    lastInternetProbe = 0;
+  }
+
   unsigned long now = millis();
+  if (lastWifiReconnectAttempt != 0 && now - lastWifiReconnectAttempt < wifiConnectAttemptTimeout) {
+    return;
+  }
+
   if (now - lastWifiReconnectAttempt >= wifiReconnectInterval) {
     if (networkMutex != NULL && xSemaphoreTake(networkMutex, 0) != pdTRUE) {
       return;
@@ -42,6 +55,9 @@ void beginWiFi() {
   WiFi.begin(ssid, password);
   lastWifiReconnectAttempt = millis();
   wifiConnected = (WiFi.status() == WL_CONNECTED);
+  wifiConnectedSince = wifiConnected ? millis() : 0;
+  internetAvailable = false;
+  lastInternetProbe = 0;
   Serial.printf("WLAN-Verbindung gestartet: '%s', Status: %d\n", ssid, WiFi.status());
 
   if (networkMutex != NULL) {
@@ -49,38 +65,49 @@ void beginWiFi() {
   }
 }
 
-bool connectWiFi(unsigned long timeoutMs) {
-  if (networkMutex != NULL) {
-    xSemaphoreTake(networkMutex, portMAX_DELAY);
+bool checkInternetConnectivity() {
+  if (WiFi.status() != WL_CONNECTED) {
+    internetAvailable = false;
+    return false;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.begin(ssid, password);
+  const char* hosts[] = {
+    "api.coinbase.com",
+    "api.brightsky.dev"
+  };
 
-  Serial.printf("Verbinde mit WLAN '%s'", ssid);
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-    Serial.print(".");
-    lv_timer_handler();
-    delay(500);
+  for (size_t i = 0; i < sizeof(hosts) / sizeof(hosts[0]); i++) {
+    IPAddress resolvedIp;
+    int dnsOk = WiFi.hostByName(hosts[i], resolvedIp);
+    if (dnsOk != 1 || resolvedIp == IPAddress(0, 0, 0, 0)) {
+      Serial.printf("Internet Probe: %s DNS fehlgeschlagen\n", hosts[i]);
+      continue;
+    }
+
+    WiFiClient probeClient;
+    probeClient.setTimeout(3000);
+    bool tcpOk = probeClient.connect(hosts[i], 443);
+    probeClient.stop();
+    Serial.printf(
+      "Internet Probe: %s %s (%s), dns=%s, gateway=%s\n",
+      hosts[i],
+      tcpOk ? "OK" : "TCP 443 fehlgeschlagen",
+      resolvedIp.toString().c_str(),
+      WiFi.dnsIP().toString().c_str(),
+      WiFi.gatewayIP().toString().c_str()
+    );
+
+    if (!tcpOk) {
+      yieldFetchTask();
+      continue;
+    }
+
+    internetAvailable = true;
+    return true;
   }
-  Serial.println();
 
-  wifiConnected = (WiFi.status() == WL_CONNECTED);
-  if (wifiConnected) {
-    Serial.print("WLAN verbunden, IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.printf("RSSI: %d dBm, Kanal: %d\n", WiFi.RSSI(), WiFi.channel());
-  } else {
-    Serial.printf("WLAN nicht verbunden. Status: %d\n", WiFi.status());
-  }
-
-  if (networkMutex != NULL) {
-    xSemaphoreGive(networkMutex);
-  }
-
-  return wifiConnected;
+  internetAvailable = false;
+  return false;
 }
 
 String extractJsonNumber(const String& payload, const String& key) {

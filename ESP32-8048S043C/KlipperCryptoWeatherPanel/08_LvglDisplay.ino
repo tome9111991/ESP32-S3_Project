@@ -4,34 +4,13 @@ void initLvglDisplay() {
 
   const uint32_t screenWidth = LCD_W;
   const uint32_t screenHeight = LCD_H;
-  const uint32_t fullBufferPixels = screenWidth * screenHeight;
-  const uint32_t partialBufferRows = 24;
+  const uint32_t colorBytesPerPixel = 2; // RGB565
+  const uint32_t partialBufferRows = 4;
   const uint32_t partialBufferPixels = screenWidth * partialBufferRows;
-  uint32_t bufferBytes = fullBufferPixels * sizeof(lv_color_t);
-  lv_display_render_mode_t renderMode = LV_DISPLAY_RENDER_MODE_FULL;
+  uint32_t bufferBytes = partialBufferPixels * colorBytesPerPixel;
+  lv_display_render_mode_t renderMode = LV_DISPLAY_RENDER_MODE_PARTIAL;
 
-  lvDrawBuf = (lv_color_t*)heap_caps_malloc(bufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  lvDrawBuf2 = nullptr;
-  lvDrawBufDma = false;
-
-  if (lvDrawBuf == nullptr) {
-    bufferBytes = partialBufferPixels * sizeof(lv_color_t);
-    renderMode = LV_DISPLAY_RENDER_MODE_PARTIAL;
-    lvDrawBuf = (lv_color_t*)heap_caps_malloc(bufferBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    lvDrawBuf2 = (lv_color_t*)heap_caps_malloc(bufferBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  }
-
-  if (lvDrawBuf == nullptr) {
-    if (lvDrawBuf2 != nullptr) {
-      heap_caps_free(lvDrawBuf2);
-      lvDrawBuf2 = nullptr;
-    }
-
-    bufferBytes = partialBufferPixels * sizeof(lv_color_t);
-    renderMode = LV_DISPLAY_RENDER_MODE_PARTIAL;
-    lvDrawBuf = (lv_color_t*)heap_caps_malloc(bufferBytes, MALLOC_CAP_8BIT);
-    lvDrawBufDma = false;
-  }
+  lvDrawBuf = (lv_color_t*)heap_caps_malloc(bufferBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
   if (lvDrawBuf == nullptr) {
     Serial.println("LVGL Buffer Init fehlgeschlagen!");
@@ -40,12 +19,13 @@ void initLvglDisplay() {
     }
   }
 
+  lvDrawBufBytes = bufferBytes;
+  lvDrawBufFullMode = (renderMode == LV_DISPLAY_RENDER_MODE_FULL);
+
   Serial.printf(
-    "LVGL Buffer: %u Bytes, %s, %s%s\n",
+    "LVGL Buffer: %u Bytes, %s, RAM, einfach\n",
     (unsigned)bufferBytes,
-    renderMode == LV_DISPLAY_RENDER_MODE_PARTIAL ? "PARTIAL" : "FULL",
-    lvDrawBufDma ? "DMA intern" : "nicht-DMA",
-    lvDrawBuf2 != nullptr ? ", doppelt" : ", einfach"
+    renderMode == LV_DISPLAY_RENDER_MODE_PARTIAL ? "PARTIAL" : "FULL"
   );
 
   lvDisplay = lv_display_create(screenWidth, screenHeight);
@@ -54,7 +34,7 @@ void initLvglDisplay() {
   lv_display_set_buffers(
     lvDisplay,
     lvDrawBuf,
-    lvDrawBuf2,
+    nullptr,
     bufferBytes,
     renderMode
   );

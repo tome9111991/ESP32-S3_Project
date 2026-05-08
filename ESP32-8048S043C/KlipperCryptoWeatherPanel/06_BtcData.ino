@@ -19,6 +19,18 @@ String cryptoPricePrefixText() {
   if (quote.equalsIgnoreCase("USD")) {
     return "$ ";
   }
+  if (quote.equalsIgnoreCase("EUR")) {
+    return "\xe2\x82\xac ";
+  }
+  if (quote.equalsIgnoreCase("GBP")) {
+    return "\xc2\xa3 ";
+  }
+  if (quote.equalsIgnoreCase("JPY")) {
+    return "\xc2\xa5 ";
+  }
+  if (quote.equalsIgnoreCase("BTC")) {
+    return "\xe2\x82\xbf ";
+  }
   return quote + " ";
 }
 

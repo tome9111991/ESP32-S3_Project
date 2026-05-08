@@ -60,7 +60,12 @@ void canvasDrawRect(int x, int y, int w, int h, uint32_t color) {
 }
 
 void drawBtcDayChart() {
-  if (btcDayChartCanvas == nullptr || btcCandles == nullptr || chartBtcCandles == nullptr) {
+  if (
+    currentScreen != SCREEN_BTC_DAY ||
+    btcDayChartCanvas == nullptr ||
+    btcCandles == nullptr ||
+    chartBtcCandles == nullptr
+  ) {
     return;
   }
 

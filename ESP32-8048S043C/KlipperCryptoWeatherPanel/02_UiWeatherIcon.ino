@@ -25,11 +25,11 @@ lv_obj_t* createLabel(lv_obj_t* parent, const lv_font_t* font, uint32_t color, l
 lv_obj_t* createAccent(lv_obj_t* parent, uint32_t color) {
   lv_obj_t* accent = lv_obj_create(parent);
   lv_obj_remove_style_all(accent);
-  lv_obj_set_size(accent, 28, 4);
+  lv_obj_set_size(accent, 36, 5);
   lv_obj_set_style_bg_color(accent, lv_color_hex(color), 0);
   lv_obj_set_style_bg_opa(accent, LV_OPA_COVER, 0);
   lv_obj_set_style_radius(accent, 2, 0);
-  lv_obj_set_pos(accent, 22, 31);
+  lv_obj_set_pos(accent, 42, 58);
   return accent;
 }
 
@@ -204,7 +204,7 @@ int timeTextPixelWidth(const char* text) {
     lv_font_glyph_dsc_t glyph = {};
     uint32_t letter = (uint8_t)*cursor;
     uint32_t nextLetter = (uint8_t)*(cursor + 1);
-    if (lv_font_get_glyph_dsc(&ui_font_time_digits_96, &glyph, letter, nextLetter)) {
+    if (lv_font_get_glyph_dsc(&ui_font_time_digits_128, &glyph, letter, nextLetter)) {
       width += glyph.adv_w;
     }
   }
@@ -216,16 +216,16 @@ void placeWeatherImage(const char* timeText) {
     return;
   }
 
-  int weatherX = 360;
+  int weatherX = 505;
   const int timeWidth = timeTextPixelWidth(timeText);
   if (timeLabel != nullptr && timeWidth > 0) {
     const int timeRight = lv_obj_get_x(timeLabel) + ((lv_obj_get_width(timeLabel) + timeWidth) / 2);
-    const int visualGap = 15;
+    const int visualGap = 20;
     weatherX = timeRight + visualGap - weatherVisualLeftInset(lastWeatherVisual);
   }
 
   lv_obj_set_size(weatherImage, WEATHER_ICON_W, WEATHER_ICON_H);
-  lv_obj_set_pos(weatherImage, weatherX, 90);
+  lv_obj_set_pos(weatherImage, weatherX, 142);
 }
 
 lv_obj_t* createWeatherImage(lv_obj_t* parent) {
@@ -260,10 +260,10 @@ SunStatusIcon createSunStatusIcon(lv_obj_t* parent) {
   SunStatusIcon icon = {};
 
   icon.root = lv_image_create(parent);
-  lv_obj_set_size(icon.root, 42, 42);
-  lv_obj_set_pos(icon.root, 430, 10);
-  lv_image_set_pivot(icon.root, 21, 21);
-  lv_image_set_scale(icon.root, 180);
+  lv_obj_set_size(icon.root, 52, 52);
+  lv_obj_set_pos(icon.root, 708, 34);
+  lv_image_set_pivot(icon.root, 26, 26);
+  lv_image_set_scale(icon.root, 220);
   lv_obj_clear_flag(icon.root, LV_OBJ_FLAG_SCROLLABLE);
   icon.lastVisual = SUN_STATUS_VISUAL_UNKNOWN;
   lv_image_set_src(icon.root, &icon_status_day_line);

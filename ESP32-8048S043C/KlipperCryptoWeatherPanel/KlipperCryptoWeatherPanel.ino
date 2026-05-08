@@ -7,7 +7,6 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <esp_cache.h>
 #include <esp_heap_caps.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
@@ -15,9 +14,18 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#if __has_include(<esp_arduino_version.h>)
+  #include <esp_arduino_version.h>
+#endif
+
+#ifndef ESP_ARDUINO_VERSION_MAJOR
+  #define ESP_ARDUINO_VERSION_MAJOR 3
+#endif
+
 #define LV_CONF_INCLUDE_SIMPLE
 #include <lvgl.h>
 #include "ui_assets.h"
+#include "ui_font_price_digits.h"
 #include "ui_font_time_digits.h"
 
 // Compatibility for generated LVGL assets/fonts.
@@ -37,10 +45,17 @@ static HardwareSerial& DebugSerial = Serial0;
 static constexpr int LCD_W = 800;
 static constexpr int LCD_H = 480;
 static constexpr int LCD_BL = 2;
-static constexpr int LCD_PCLK_HZ = 16000000;
+static constexpr bool LCD_BL_ACTIVE_HIGH = true;
+static constexpr int LCD_BL_PWM_FREQ_HZ = 1000;
+static constexpr int LCD_BL_PWM_RESOLUTION_BITS = 8;
+static constexpr uint32_t LCD_BL_PWM_MAX_DUTY = 255;
+static constexpr uint32_t LCD_BL_PWM_MIN_VISIBLE_DUTY = 44;
+static constexpr int LCD_BL_PWM_CHANNEL = 0;
+static constexpr int LCD_PCLK_HZ = 14000000;
 static constexpr int LCD_BOUNCE_LINES = 10;
-static constexpr int UI_LOGICAL_W = 480;
-static constexpr int UI_LOGICAL_H = 272;
+static constexpr bool LCD_ROTATE_180 = true;
+static constexpr int UI_LOGICAL_W = LCD_W;
+static constexpr int UI_LOGICAL_H = LCD_H;
 static constexpr int UI_OFFSET_X = (LCD_W - UI_LOGICAL_W) / 2;
 static constexpr int UI_OFFSET_Y = (LCD_H - UI_LOGICAL_H) / 2;
 
@@ -48,8 +63,54 @@ static esp_lcd_panel_handle_t panel = nullptr;
 static SemaphoreHandle_t colorDoneSem = nullptr;
 static lv_display_t* lvDisplay = nullptr;
 static lv_color_t* lvDrawBuf = nullptr;
-static lv_color_t* lvDrawBuf2 = nullptr;
-static bool lvDrawBufDma = false;
+static uint32_t lvDrawBufBytes = 0;
+static bool lvDrawBufFullMode = false;
+static volatile uint32_t lvFlushCount = 0;
+static volatile uint32_t lvFlushTimeoutCount = 0;
+static volatile uint32_t lvFlushErrorCount = 0;
+static bool backlightPwmReady = false;
+
+static uint32_t backlightDutyForBrightness(uint8_t brightness) {
+  uint32_t duty = 0;
+  if (brightness > 0) {
+    duty = LCD_BL_PWM_MIN_VISIBLE_DUTY +
+      (((uint32_t)brightness * (LCD_BL_PWM_MAX_DUTY - LCD_BL_PWM_MIN_VISIBLE_DUTY)) / 255U);
+  }
+  if (!LCD_BL_ACTIVE_HIGH) {
+    duty = LCD_BL_PWM_MAX_DUTY - duty;
+  }
+  return duty;
+}
+
+static bool initBacklightPwm(uint8_t initialBrightness) {
+  const uint32_t duty = backlightDutyForBrightness(initialBrightness);
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  if (!ledcAttach(LCD_BL, LCD_BL_PWM_FREQ_HZ, LCD_BL_PWM_RESOLUTION_BITS)) {
+    Serial.println("Backlight PWM Init fehlgeschlagen");
+    return false;
+  }
+  ledcWrite(LCD_BL, duty);
+#else
+  ledcSetup(LCD_BL_PWM_CHANNEL, LCD_BL_PWM_FREQ_HZ, LCD_BL_PWM_RESOLUTION_BITS);
+  ledcAttachPin(LCD_BL, LCD_BL_PWM_CHANNEL);
+  ledcWrite(LCD_BL_PWM_CHANNEL, duty);
+#endif
+  return true;
+}
+
+static void writeBacklightLevel(uint8_t brightness) {
+  if (!backlightPwmReady) {
+    return;
+  }
+
+  const uint32_t duty = backlightDutyForBrightness(brightness);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(LCD_BL, duty);
+#else
+  ledcWrite(LCD_BL_PWM_CHANNEL, duty);
+#endif
+}
 
 static bool IRAM_ATTR onColorTransferDone(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t*, void*) {
   BaseType_t highTaskWoken = pdFALSE;
@@ -112,7 +173,7 @@ static bool initBoardDisplay() {
   cfg.flags.disp_active_low = true;
   cfg.flags.refresh_on_demand = false;
   cfg.flags.fb_in_psram = true;
-  cfg.flags.double_fb = true;
+  cfg.flags.double_fb = false;
   cfg.flags.no_fb = false;
   cfg.flags.bb_invalidate_cache = false;
 
@@ -142,9 +203,17 @@ static bool initBoardDisplay() {
     return false;
   }
 
+  if (LCD_ROTATE_180) {
+    err = esp_lcd_panel_mirror(panel, true, true);
+    if (err != ESP_OK) {
+      Serial.printf("esp_lcd_panel_mirror fehlgeschlagen: 0x%X\n", err);
+    }
+  }
+
   esp_lcd_panel_disp_on_off(panel, true);
   pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, HIGH);
+  digitalWrite(LCD_BL, LCD_BL_ACTIVE_HIGH ? HIGH : LOW);
+  backlightPwmReady = initBacklightPwm(255);
   return true;
 }
 
@@ -212,24 +281,24 @@ const char* timezonePosix = TIMEZONE_POSIX;
 // Coinbase Crypto-Paar. Fuer SOL/EUR z.B. cryptoBaseSymbol="SOL", cryptoQuoteSymbol="EUR".
 const char* cryptoBaseSymbol = CRYPTO_BASE_SYMBOL;
 const char* cryptoQuoteSymbol = CRYPTO_QUOTE_SYMBOL;
-const char* cryptoPricePrefix = CRYPTO_PRICE_PREFIX; // leer = automatisch: USD "$ ", EUR "EUR ", sonst Quote-Code
+const char* cryptoPricePrefix = CRYPTO_PRICE_PREFIX; // leer = automatisch: USD/EUR/GBP/JPY/BTC Symbol, sonst Quote-Code
 const char* cryptoServiceName = CRYPTO_SERVICE_NAME;
 const char* klipperBaseUrl = KLIPPER_BASE_URL;
 const unsigned long btcRefreshInterval = 60000; // 60 Sekunden
-const unsigned long btcRetryInterval = 10000; // 10 Sekunden bei Fehlern
+const unsigned long btcRetryInterval = 30000; // 30 Sekunden bei Fehlern
 const unsigned long btcCandleRefreshInterval = 300000; // 5 Minuten
 const unsigned long btcCandleRetryInterval = 60000; // 60 Sekunden bei Fehlern
 const unsigned long weatherRefreshInterval = 300000; // 5 Minuten
-const unsigned long weatherRetryInterval = 60000; // 60 Sekunden bei Fehlern
+const unsigned long weatherRetryInterval = 120000; // 2 Minuten bei Fehlern
 const unsigned long klipperRefreshInterval = 7000; // 7 Sekunden
-const unsigned long klipperRetryInterval = 15000; // 15 Sekunden bei Fehlern
+const unsigned long klipperRetryInterval = 30000; // 30 Sekunden bei Fehlern
 const unsigned long klipperNameRefreshInterval = 300000; // 5 Minuten
-const unsigned long klipperNameRetryInterval = 60000; // 60 Sekunden bei Fehlern
+const unsigned long klipperNameRetryInterval = 120000; // 2 Minuten bei Fehlern
 const uint32_t BTC_CANDLE_SECONDS = 86400; // Tageskerzen
 const int WEATHER_ICON_W = 56;
 const int WEATHER_ICON_H = 48;
 const int DIVIDER_H = 4;
-const int TIME_SECOND_BAR_W = 256;
+const int TIME_SECOND_BAR_W = 360;
 const int MMU_GATE_MAX = 8;
 
 // --- GLOBALE VARIABLEN (Thread-Safe) ---
@@ -278,12 +347,19 @@ int klipperMmuGateStatus[MMU_GATE_MAX] = {
 };
 volatile bool wifiConnected = false;
 bool timeConfigured = false;
+volatile unsigned long wifiConnectedSince = 0;
+bool internetAvailable = false;
+unsigned long lastInternetProbe = 0;
 unsigned long lastWifiReconnectAttempt = 0;
 const unsigned long wifiReconnectInterval = 10000;
+const unsigned long wifiConnectAttemptTimeout = 30000;
+const unsigned long wifiStableBeforeFetchInterval = 8000;
+const unsigned long apiRequestGapInterval = 1500;
+const unsigned long internetProbeRetryInterval = 30000;
 unsigned long lastHealthLog = 0;
 const unsigned long healthLogInterval = 60000;
-const uint32_t fetchTaskStackSize = 16384;
-const UBaseType_t fetchTaskPriority = 0;
+const uint32_t fetchTaskStackSize = 24576;
+const UBaseType_t fetchTaskPriority = 1;
 // Auf diesem Setup nicht auf Core 0 legen: dort laufen WLAN/TCPIP-Anteile und IDLE0-WDT.
 const BaseType_t fetchTaskCore = 1;
 
@@ -298,10 +374,10 @@ struct BtcCandle {
 
 const int BTC_CANDLE_CAPACITY = 300;
 const int BTC_DAY_CANDLE_COUNT = 90; // 90 Tageskerzen
-const int BTC_CHART_W = 412;
-const int BTC_CHART_H = 112;
-const int BTC_CHART_CANVAS_H = 124;
-const int BTC_CHART_PROGRESS_Y = 118;
+const int BTC_CHART_W = 720;
+const int BTC_CHART_H = 250;
+const int BTC_CHART_CANVAS_H = 264;
+const int BTC_CHART_PROGRESS_Y = 258;
 const int BTC_CHART_PROGRESS_H = 5;
 BtcCandle* btcCandles = nullptr;
 BtcCandle* parsedBtcCandles = nullptr;
@@ -342,9 +418,11 @@ unsigned long lastUiRefresh = 0;
 const unsigned long defaultScreenInterval = 10000; // 10 Sekunden fuer alle normalen Screens
 const unsigned long timeScreenInterval = 25000;    // Uhrzeit-Screen 25 Sekunden anzeigen
 const unsigned long uiRefreshInterval = 500;
+const unsigned long screenTransitionDuration = 180;
+const unsigned long screenSwitchSettleInterval = 450; // Chart erst nach Screenwechsel/Animation neu zeichnen
 const unsigned long brightnessRefreshInterval = 30000;
-const uint8_t dayBrightness = 160;
-const uint8_t nightBrightness = 8;
+const uint8_t dayBrightness = 176;
+const uint8_t nightBrightness = 24;
 const int sunriseBrightnessDelayMinutes = 90; // Display morgens erst 90 Minuten nach Sonnenaufgang hell schalten
 uint8_t currentBrightness = dayBrightness;
 unsigned long lastBrightnessRefresh = 0;
@@ -411,6 +489,7 @@ void yieldFetchTask();
 static uint32_t lvTickMillis();
 const char* resetReasonName(esp_reset_reason_t reason);
 void printBootDiagnostics();
+void printDisplayDiagnostics();
 void printRuntimeHealth();
 bool getLocalTimeFast(struct tm& timeinfo);
 bool configureTimeOnce();
@@ -470,7 +549,7 @@ void canvasDrawRect(int x, int y, int w, int h, uint32_t color);
 void drawBtcDayChart();
 void updateWifiState();
 void beginWiFi();
-bool connectWiFi(unsigned long timeoutMs);
+bool checkInternetConnectivity();
 String extractJsonNumber(const String& payload, const String& key);
 String extractJsonString(const String& payload, const String& key);
 String weatherStationNameForSource(JsonArrayConst sources, int sourceId);
@@ -485,6 +564,7 @@ String cryptoPricePrefixText();
 String cryptoSpotUrl();
 String cryptoCandlesBaseUrl();
 String cryptoOkStatus();
+void configureSecureClient(WiFiClientSecure& client);
 void formatQuoteCompact(float value, char* buffer, size_t bufferSize);
 void updateBtcDayStatsLocked();
 bool parseNextNumber(const String& payload, int& index, double& value);
@@ -567,6 +647,7 @@ void setup() {
     }
   }
   setDisplayBrightness(dayBrightness);
+  printDisplayDiagnostics();
 
   initLvglDisplay();
   createUi();
@@ -625,7 +706,11 @@ void loop() {
   }
 
   lv_timer_handler();
-  if (currentScreen == SCREEN_BTC_DAY && now - lastBtcChartDraw >= btcChartDrawInterval) {
+  if (
+    currentScreen == SCREEN_BTC_DAY &&
+    now - lastScreenSwitch >= screenSwitchSettleInterval &&
+    now - lastBtcChartDraw >= btcChartDrawInterval
+  ) {
     lastBtcChartDraw = now;
     drawBtcDayChart();
   }

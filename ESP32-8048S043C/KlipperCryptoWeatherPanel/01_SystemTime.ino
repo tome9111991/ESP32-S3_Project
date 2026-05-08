@@ -44,10 +44,42 @@ void printBootDiagnostics() {
   );
 }
 
+void printDisplayDiagnostics() {
+  const char* rotationMode = LCD_ROTATE_180 ? "Panel mirror" : "aus";
+
+  Serial.printf(
+    "Display: %dx%d RGB565, rotation=%u (%s), LVGL byte-swap=%s, RGB565 red=0x%04X green=0x%04X blue=0x%04X\n",
+    LCD_W,
+    LCD_H,
+    LCD_ROTATE_180 ? 180 : 0,
+    rotationMode,
+    "aus",
+    RGB565(255, 0, 0),
+    RGB565(0, 255, 0),
+    RGB565(0, 0, 255)
+  );
+  Serial.printf(
+    "Display: UI %dx%d nativ bei Offset %d,%d, PCLK=%d Hz, Bounce=%d Zeilen\n",
+    UI_LOGICAL_W,
+    UI_LOGICAL_H,
+    UI_OFFSET_X,
+    UI_OFFSET_Y,
+    LCD_PCLK_HZ,
+    LCD_BOUNCE_LINES
+  );
+  Serial.printf(
+    "Backlight: GPIO%d %s, Sollwert %u, minDuty %u\n",
+    LCD_BL,
+    backlightPwmReady ? "PWM" : "PWM Init fehlgeschlagen",
+    currentBrightness,
+    (unsigned)LCD_BL_PWM_MIN_VISIBLE_DUTY
+  );
+}
+
 void printRuntimeHealth() {
   UBaseType_t fetchStackWatermark = fetchTaskHandle != NULL ? uxTaskGetStackHighWaterMark(fetchTaskHandle) : 0;
   Serial.printf(
-    "Health: heap=%u min=%u maxAlloc=%u internalLargest=%u psramFree=%u fetchStackWatermark=%u wifi=%d rssi=%d\n",
+    "Health: heap=%u min=%u maxAlloc=%u internalLargest=%u psramFree=%u fetchStackWatermark=%u wifi=%d rssi=%d lvBuf=%u/%s flush=%u timeout=%u err=%u\n",
     ESP.getFreeHeap(),
     ESP.getMinFreeHeap(),
     ESP.getMaxAllocHeap(),
@@ -55,7 +87,12 @@ void printRuntimeHealth() {
     ESP.getFreePsram(),
     (unsigned)fetchStackWatermark,
     WiFi.status(),
-    WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0
+    WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
+    (unsigned)lvDrawBufBytes,
+    lvDrawBufFullMode ? "FULL" : "PARTIAL",
+    (unsigned)lvFlushCount,
+    (unsigned)lvFlushTimeoutCount,
+    (unsigned)lvFlushErrorCount
   );
 }
 
@@ -103,6 +140,8 @@ bool configureTimeOnce() {
 }
 
 void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
+  lvFlushCount++;
+
   int32_t x1 = area->x1;
   int32_t y1 = area->y1;
   int32_t x2 = area->x2;
@@ -126,30 +165,26 @@ void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
     + (x1 - area->x1);
   const bool contiguous = (srcWidth == (int32_t)w);
 
-  auto drawBitmapAndWait = [](int32_t bx1, int32_t by1, int32_t bx2, int32_t by2, const uint16_t* bitmap, size_t bytes) {
-    esp_cache_msync(
-      (void*)bitmap,
-      bytes,
-      ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED
-    );
-
+  auto drawBitmapAndWait = [](int32_t bx1, int32_t by1, int32_t bx2, int32_t by2, const uint16_t* bitmap) {
     xSemaphoreTake(colorDoneSem, 0);
     esp_err_t err = esp_lcd_panel_draw_bitmap(panel, bx1, by1, bx2, by2, bitmap);
     if (err != ESP_OK) {
+      lvFlushErrorCount++;
       Serial.printf("esp_lcd_panel_draw_bitmap fehlgeschlagen: 0x%X\n", err);
       return;
     }
 
     if (xSemaphoreTake(colorDoneSem, pdMS_TO_TICKS(200)) != pdTRUE) {
+      lvFlushTimeoutCount++;
       Serial.println("LVGL Flush Timeout");
     }
   };
 
   if (contiguous) {
-    drawBitmapAndWait(x1, y1, x2 + 1, y2 + 1, pixels, ((size_t)w * h) * sizeof(uint16_t));
+    drawBitmapAndWait(x1, y1, x2 + 1, y2 + 1, pixels);
   } else {
     for (uint32_t row = 0; row < h; row++) {
-      drawBitmapAndWait(x1, y1 + row, x2 + 1, y1 + row + 1, pixels + (row * srcWidth), w * sizeof(uint16_t));
+      drawBitmapAndWait(x1, y1 + row, x2 + 1, y1 + row + 1, pixels + (row * srcWidth));
     }
   }
 
@@ -157,8 +192,8 @@ void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
 }
 
 void setDisplayBrightness(uint8_t brightness) {
-  digitalWrite(LCD_BL, brightness > 0 ? HIGH : LOW);
   currentBrightness = brightness;
+  writeBacklightLevel(brightness);
 }
 
 int clampMinuteOfDay(int minute) {

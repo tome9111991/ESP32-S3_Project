@@ -17,11 +17,11 @@ The project is written as a multi-tab Arduino sketch. Open `KlipperCryptoWeather
 ## Features
 
 - 800 x 480 LVGL v9 display target for ESP32-8048S043C
-- Original 480 x 272 dashboard layout centered on the 800 x 480 panel
+- Native 800 x 480 dashboard layout for the ESP32-8048S043C panel
 - `esp_lcd` RGB panel setup with double framebuffer in PSRAM
 - Wi-Fi reconnect handling and serial health diagnostics
 - NTP time sync with CET/CEST timezone handling
-- Day/night brightness switching based on calculated sunrise and sunset, with a morning delay before day brightness
+- Day/night dimming based on calculated sunrise and sunset, with a morning delay before day brightness
 - Current weather from Bright Sky / DWD data, no weather API key required
 - Live crypto spot price from Coinbase
 - 90-day daily candle chart from Coinbase Exchange candles
@@ -167,3 +167,6 @@ git commit -m "Initial ESP32-S3 HMI dashboard"
 - Weather icons use converted LVGL C image assets from `src/ui_assets/`; the SVG files in `assets/icons/` stay as editable source assets.
 - The Klipper screen appears only when Moonraker or Klipper status data is reachable.
 - API retry intervals and screen timing constants are defined near the top of `KlipperCryptoWeatherPanel.ino`.
+- Current ESP32-8048S043C board-test direction: use the native 800 x 480 UI, rotate the display 180 degrees in the LVGL flush path, continue observing PSRAM use, and verify real panel colors as RGB565 without byte swap.
+- Backlight uses Arduino LEDC PWM on GPIO 2 with 1000 Hz / 8 bit, matching the ESPHome-style configuration for this board more closely. Non-zero brightness is clamped to a minimum visible PWM duty (`LCD_BL_PWM_MIN_VISIBLE_DUTY`) so night mode does not switch the panel fully off.
+- Network/NTP currently uses `configTzTime()` and appeared functional in the first board test.
