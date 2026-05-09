@@ -17,6 +17,8 @@ LV_IMAGE_DECLARE(icon_status_sunrise_line);
 LV_IMAGE_DECLARE(icon_status_day_line);
 LV_IMAGE_DECLARE(icon_status_sunset_line);
 LV_IMAGE_DECLARE(icon_status_night_line);
+LV_IMAGE_DECLARE(icon_status_offline);
+LV_IMAGE_DECLARE(icon_settings);
 
 #ifdef __cplusplus
 }

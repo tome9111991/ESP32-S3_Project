@@ -13,6 +13,7 @@
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <Wire.h>
 
 #if __has_include(<esp_arduino_version.h>)
   #include <esp_arduino_version.h>
@@ -46,10 +47,10 @@ static constexpr int LCD_W = 800;
 static constexpr int LCD_H = 480;
 static constexpr int LCD_BL = 2;
 static constexpr bool LCD_BL_ACTIVE_HIGH = true;
-static constexpr int LCD_BL_PWM_FREQ_HZ = 1000;
+static constexpr int LCD_BL_PWM_FREQ_HZ = 250;
 static constexpr int LCD_BL_PWM_RESOLUTION_BITS = 8;
 static constexpr uint32_t LCD_BL_PWM_MAX_DUTY = 255;
-static constexpr uint32_t LCD_BL_PWM_MIN_VISIBLE_DUTY = 44;
+static constexpr uint32_t LCD_BL_PWM_MIN_VISIBLE_DUTY = 12;
 static constexpr int LCD_BL_PWM_CHANNEL = 0;
 static constexpr int LCD_PCLK_HZ = 14000000;
 static constexpr int LCD_BOUNCE_LINES = 10;
@@ -295,8 +296,8 @@ const unsigned long klipperRetryInterval = 30000; // 30 Sekunden bei Fehlern
 const unsigned long klipperNameRefreshInterval = 300000; // 5 Minuten
 const unsigned long klipperNameRetryInterval = 120000; // 2 Minuten bei Fehlern
 const uint32_t BTC_CANDLE_SECONDS = 86400; // Tageskerzen
-const int WEATHER_ICON_W = 56;
-const int WEATHER_ICON_H = 48;
+const int WEATHER_ICON_W = 93;
+const int WEATHER_ICON_H = 80;
 const int DIVIDER_H = 4;
 const int TIME_SECOND_BAR_W = 360;
 const int MMU_GATE_MAX = 8;
@@ -421,11 +422,37 @@ const unsigned long uiRefreshInterval = 500;
 const unsigned long screenTransitionDuration = 180;
 const unsigned long screenSwitchSettleInterval = 450; // Chart erst nach Screenwechsel/Animation neu zeichnen
 const unsigned long brightnessRefreshInterval = 30000;
+const unsigned long touchPollInterval = 20;
+const unsigned long touchReleaseInterval = 120;
+const unsigned long touchLongPressInterval = 3000;
 const uint8_t dayBrightness = 176;
-const uint8_t nightBrightness = 24;
+const uint8_t nightBrightness = 12;
 const int sunriseBrightnessDelayMinutes = 90; // Display morgens erst 90 Minuten nach Sonnenaufgang hell schalten
 uint8_t currentBrightness = dayBrightness;
 unsigned long lastBrightnessRefresh = 0;
+
+static constexpr int TOUCH_SDA = 19;
+static constexpr int TOUCH_SCL = 20;
+static constexpr int TOUCH_RST = 38;
+static constexpr int TOUCH_INT = 18;
+static constexpr uint16_t GT911_STATUS_REG = 0x814E;
+static constexpr uint16_t GT911_POINT_REG = 0x814F;
+static constexpr uint16_t GT911_PRODUCT_ID_REG = 0x8140;
+static constexpr float TOUCH_CAL_X_RX = 1.65867031f;
+static constexpr float TOUCH_CAL_X_RY = -0.02261823f;
+static constexpr float TOUCH_CAL_X_C = 2.12817001f;
+static constexpr float TOUCH_CAL_Y_RX = 0.02082564f;
+static constexpr float TOUCH_CAL_Y_RY = 1.79517055f;
+static constexpr float TOUCH_CAL_Y_C = 10.62223816f;
+static uint8_t touchAddress = 0;
+static bool touchPressed = false;
+static bool touchLongPressHandled = false;
+static int16_t touchStartX = 0;
+static int16_t touchLastX = 0;
+static int16_t touchLastY = 0;
+static unsigned long touchPressedAt = 0;
+static unsigned long touchLastSeenAt = 0;
+static unsigned long lastTouchPoll = 0;
 
 static lv_obj_t* bootScreen = nullptr;
 static lv_obj_t* timeScreen = nullptr;
@@ -456,6 +483,7 @@ static lv_obj_t* klipperDivider = nullptr;
 static lv_obj_t* klipperOfflineRing = nullptr;
 static lv_obj_t* klipperOfflineStem = nullptr;
 static lv_obj_t* klipperOfflineLine = nullptr;
+static lv_obj_t* klipperOfflineIcon = nullptr;
 static lv_obj_t* klipperTitleLabel = nullptr;
 static lv_obj_t* klipperStateLabel = nullptr;
 static lv_obj_t* klipperFileLabel = nullptr;
@@ -539,7 +567,16 @@ void refreshUi();
 bool isKlipperScreenAvailable();
 lv_obj_t* screenForState(ScreenState state);
 ScreenState nextScreenState(ScreenState state);
+ScreenState previousScreenState(ScreenState state);
 void switchScreen(ScreenState nextScreen);
+void switchScreenFromTouch(ScreenState nextScreen);
+bool initTouchInput();
+void handleTouchInput();
+void onTouchLongPress(int16_t x, int16_t y);
+bool isPopupMenuOpen();
+void openPopupMenu();
+void closePopupMenu();
+void handlePopupMenuTouch(int16_t x, int16_t y);
 int priceToChartY(float price, float low, float high, int y, int h);
 void canvasSetPixel(int x, int y, uint32_t color);
 void canvasFillRect(int x, int y, int w, int h, uint32_t color);
@@ -650,6 +687,7 @@ void setup() {
   printDisplayDiagnostics();
 
   initLvglDisplay();
+  initTouchInput();
   createUi();
   lv_timer_handler();
 
@@ -678,9 +716,11 @@ void setup() {
 
 void loop() {
   updateWifiState();
+  handleTouchInput();
 
   unsigned long now = millis();
-  if (now - lastUiRefresh >= uiRefreshInterval) {
+  bool popupMenuOpen = isPopupMenuOpen();
+  if (!popupMenuOpen && now - lastUiRefresh >= uiRefreshInterval) {
     lastUiRefresh = now;
     refreshUi();
   }
@@ -695,18 +735,19 @@ void loop() {
     printRuntimeHealth();
   }
 
-  if (currentScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
+  if (!popupMenuOpen && currentScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
     lastScreenSwitch = now;
     switchScreen(nextScreenState(currentScreen));
   }
 
-  if (now - lastScreenSwitch > currentScreenInterval()) {
+  if (!popupMenuOpen && now - lastScreenSwitch > currentScreenInterval()) {
     lastScreenSwitch = now;
     switchScreen(nextScreenState(currentScreen));
   }
 
   lv_timer_handler();
   if (
+    !popupMenuOpen &&
     currentScreen == SCREEN_BTC_DAY &&
     now - lastScreenSwitch >= screenSwitchSettleInterval &&
     now - lastBtcChartDraw >= btcChartDrawInterval

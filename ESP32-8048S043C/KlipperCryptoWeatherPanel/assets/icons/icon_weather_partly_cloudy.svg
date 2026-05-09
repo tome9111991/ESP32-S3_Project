@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Partly Cloudy</title>
+  <rect width="93" height="80" fill="#080c10"/>
+  <g fill="none" stroke="#ffd166" stroke-width="4" stroke-linecap="round">
+    <path d="M34 9v8"/>
+    <path d="M34 43v8"/>
+    <path d="M9 30h8"/>
+    <path d="M51 30h8"/>
+    <path d="M16 12l6 6"/>
+    <path d="M46 42l6 6"/>
+    <path d="M52 12l-6 6"/>
+    <path d="M22 42l-6 6"/>
+  </g>
+  <circle cx="34" cy="30" r="14" fill="#ffd166"/>
+  <path fill="#8f9bad" d="M38 62h31c9 0 16-6 16-14 0-7-6-13-15-14-4-8-12-13-22-13-11 0-20 7-23 17-7 1-12 6-12 13 0 6 5 11 13 11h12z"/>
+  <path fill="#d9e2ec" d="M31 62h36c10 0 18-6 18-15 0-8-7-14-17-14-4-8-12-13-22-13-11 0-20 7-23 17-7 1-12 7-12 13 0 7 6 12 14 12h6z"/>
+</svg>

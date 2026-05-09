@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <title>Settings</title>
+  <rect width="48" height="48" fill="#5dd6ff"/>
+  <g fill="none" stroke="#0c0f14" stroke-width="4" stroke-linecap="round">
+    <path d="M8 14h9"/>
+    <path d="M27 14h13"/>
+    <path d="M8 24h19"/>
+    <path d="M37 24h3"/>
+    <path d="M8 34h14"/>
+    <path d="M32 34h8"/>
+  </g>
+  <g fill="#0c0f14">
+    <circle cx="22" cy="14" r="5"/>
+    <circle cx="32" cy="24" r="5"/>
+    <circle cx="27" cy="34" r="5"/>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70" viewBox="0 0 70 70">
+  <title>Status Moon</title>
+  <rect width="70" height="70" fill="#080c10"/>
+  <path fill="#aeb8ff" d="M45 53c-14 0-25-11-25-25 0-8 4-16 11-20-2 4-3 8-3 12 0 14 11 25 25 25 3 0 6-.5 9-1.6C58 49.4 51.8 53 45 53z"/>
+  <g fill="#f4f8ff">
+    <circle cx="52" cy="18" r="2.4"/>
+    <circle cx="58" cy="29" r="1.8"/>
+  </g>
+</svg>

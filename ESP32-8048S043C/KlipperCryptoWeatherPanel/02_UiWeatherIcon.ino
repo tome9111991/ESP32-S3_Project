@@ -179,18 +179,18 @@ const lv_image_dsc_t* weatherImageForVisual(WeatherVisual visual) {
 int weatherVisualLeftInset(WeatherVisual visual) {
   switch (visual) {
     case WEATHER_VISUAL_CLEAR:
-      return 7;
+      return 12;
     case WEATHER_VISUAL_PARTLY:
-      return 5;
+      return 8;
     case WEATHER_VISUAL_CLOUD:
     case WEATHER_VISUAL_UNKNOWN:
-      return 9;
+      return 15;
     case WEATHER_VISUAL_RAIN:
     case WEATHER_VISUAL_SNOW:
     case WEATHER_VISUAL_FOG:
     case WEATHER_VISUAL_THUNDER:
     default:
-      return 10;
+      return 17;
   }
 }
 
@@ -204,7 +204,7 @@ int timeTextPixelWidth(const char* text) {
     lv_font_glyph_dsc_t glyph = {};
     uint32_t letter = (uint8_t)*cursor;
     uint32_t nextLetter = (uint8_t)*(cursor + 1);
-    if (lv_font_get_glyph_dsc(&ui_font_time_digits_128, &glyph, letter, nextLetter)) {
+    if (lv_font_get_glyph_dsc(&ui_font_time_digits_160, &glyph, letter, nextLetter)) {
       width += glyph.adv_w;
     }
   }
@@ -216,16 +216,16 @@ void placeWeatherImage(const char* timeText) {
     return;
   }
 
-  int weatherX = 505;
+  int weatherX = 600;
   const int timeWidth = timeTextPixelWidth(timeText);
   if (timeLabel != nullptr && timeWidth > 0) {
     const int timeRight = lv_obj_get_x(timeLabel) + ((lv_obj_get_width(timeLabel) + timeWidth) / 2);
-    const int visualGap = 20;
+    const int visualGap = 33;
     weatherX = timeRight + visualGap - weatherVisualLeftInset(lastWeatherVisual);
   }
 
   lv_obj_set_size(weatherImage, WEATHER_ICON_W, WEATHER_ICON_H);
-  lv_obj_set_pos(weatherImage, weatherX, 142);
+  lv_obj_set_pos(weatherImage, weatherX, 184);
 }
 
 lv_obj_t* createWeatherImage(lv_obj_t* parent) {
@@ -260,9 +260,9 @@ SunStatusIcon createSunStatusIcon(lv_obj_t* parent) {
   SunStatusIcon icon = {};
 
   icon.root = lv_image_create(parent);
-  lv_obj_set_size(icon.root, 52, 52);
+  lv_obj_set_size(icon.root, 70, 70);
   lv_obj_set_pos(icon.root, 708, 34);
-  lv_image_set_pivot(icon.root, 26, 26);
+  lv_image_set_pivot(icon.root, 35, 35);
   lv_image_set_scale(icon.root, 220);
   lv_obj_clear_flag(icon.root, LV_OBJ_FLAG_SCROLLABLE);
   icon.lastVisual = SUN_STATUS_VISUAL_UNKNOWN;

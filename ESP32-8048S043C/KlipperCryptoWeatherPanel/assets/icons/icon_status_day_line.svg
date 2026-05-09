@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70" viewBox="0 0 70 70">
+  <title>Status Day Line</title>
+  <rect width="70" height="70" fill="#080c10"/>
+  <g fill="none" stroke="#f4f8ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="35" cy="35" r="12"/>
+    <path d="M35 8v9"/>
+    <path d="M35 53v9"/>
+    <path d="M8 35h9"/>
+    <path d="M53 35h9"/>
+    <path d="M16 16l6.5 6.5"/>
+    <path d="M47.5 47.5L54 54"/>
+    <path d="M54 16l-6.5 6.5"/>
+    <path d="M22.5 47.5L16 54"/>
+  </g>
+</svg>

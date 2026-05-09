@@ -3,14 +3,14 @@ void createTimeScreen() {
   timeAccent = createAccent(timeScreen, COLOR_CYAN);
   timeSunIcon = createSunStatusIcon(timeScreen);
 
-  timeLocationLabel = createLabel(timeScreen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(timeLocationLabel, 460, 34);
+  timeLocationLabel = createLabel(timeScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(timeLocationLabel, 460, 40);
   lv_obj_set_pos(timeLocationLabel, 96, 38);
   lv_label_set_text(timeLocationLabel, weatherLocation.c_str());
 
-  timeLabel = createLabel(timeScreen, &ui_font_time_digits_128, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(timeLabel, 570, 146);
-  lv_obj_set_pos(timeLabel, 76, 86);
+  timeLabel = createLabel(timeScreen, &ui_font_time_digits_160, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(timeLabel, 620, 176);
+  lv_obj_set_pos(timeLabel, 90, 102);
   lv_obj_set_style_text_outline_stroke_color(timeLabel, lv_color_hex(COLOR_TEXT), 0);
   lv_obj_set_style_text_outline_stroke_width(timeLabel, 1, 0);
   lv_obj_set_style_text_outline_stroke_opa(timeLabel, LV_OPA_70, 0);
@@ -18,37 +18,37 @@ void createTimeScreen() {
   weatherIconRoot = createWeatherImage(timeScreen);
   updateWeatherImage(weatherCode);
 
-  timeDivider = createDivider(timeScreen, 220, 252, TIME_SECOND_BAR_W, COLOR_DIM);
+  timeDivider = createDivider(timeScreen, 220, 292, TIME_SECOND_BAR_W, COLOR_DIM);
   timeSecondFill = createDivider(timeDivider, 0, 0, 0, COLOR_CYAN);
   setHidden(timeSecondFill, true);
 
-  weekdayLabel = createLabel(timeScreen, &lv_font_montserrat_32, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(weekdayLabel, 720, 44);
-  lv_obj_align(weekdayLabel, LV_ALIGN_TOP_MID, 0, 292);
+  weekdayLabel = createLabel(timeScreen, &lv_font_montserrat_40, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(weekdayLabel, 720, 52);
+  lv_obj_align(weekdayLabel, LV_ALIGN_TOP_MID, 0, 322);
 
-  dateLabel = createLabel(timeScreen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(dateLabel, 720, 34);
-  lv_obj_align(dateLabel, LV_ALIGN_TOP_MID, 0, 330);
+  dateLabel = createLabel(timeScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(dateLabel, 720, 40);
+  lv_obj_align(dateLabel, LV_ALIGN_TOP_MID, 0, 364);
 
-  tempLabel = createLabel(timeScreen, &lv_font_montserrat_40, COLOR_CYAN, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(tempLabel, 720, 56);
-  lv_obj_align(tempLabel, LV_ALIGN_TOP_MID, 6, 370);
+  tempLabel = createLabel(timeScreen, &lv_font_montserrat_48, COLOR_CYAN, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(tempLabel, 720, 64);
+  lv_obj_align(tempLabel, LV_ALIGN_TOP_MID, 6, 400);
 
-  timeStatusTitle = createLabel(timeScreen, &lv_font_montserrat_32, COLOR_ORANGE, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(timeStatusTitle, 720, 48);
+  timeStatusTitle = createLabel(timeScreen, &lv_font_montserrat_48, COLOR_ORANGE, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(timeStatusTitle, 720, 64);
   lv_obj_align(timeStatusTitle, LV_ALIGN_CENTER, 0, -18);
 
-  timeStatusDetail = createLabel(timeScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(timeStatusDetail, 720, 36);
-  lv_obj_align(timeStatusDetail, LV_ALIGN_CENTER, 0, 28);
+  timeStatusDetail = createLabel(timeScreen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(timeStatusDetail, 720, 42);
+  lv_obj_align(timeStatusDetail, LV_ALIGN_CENTER, 0, 38);
 }
 
 void createCryptoScreen() {
   cryptoScreen = createScreen();
   createAccent(cryptoScreen, COLOR_BTC);
 
-  lv_obj_t* title = createLabel(cryptoScreen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(title, 460, 34);
+  lv_obj_t* title = createLabel(cryptoScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(title, 460, 40);
   lv_obj_set_pos(title, 96, 40);
   String titleText = cryptoPairTitle();
   lv_label_set_text(title, titleText.c_str());
@@ -59,8 +59,8 @@ void createCryptoScreen() {
 
   createDivider(cryptoScreen, 210, 260, 380, COLOR_BTC);
 
-  cryptoStatusLabel = createLabel(cryptoScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(cryptoStatusLabel, 720, 36);
+  cryptoStatusLabel = createLabel(cryptoScreen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(cryptoStatusLabel, 720, 42);
   lv_obj_align(cryptoStatusLabel, LV_ALIGN_TOP_MID, 0, 316);
 }
 
@@ -68,18 +68,18 @@ void createBtcDayScreen() {
   btcDayScreen = createScreen();
   createAccent(btcDayScreen, COLOR_BTC);
 
-  lv_obj_t* title = createLabel(btcDayScreen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(title, 390, 34);
+  lv_obj_t* title = createLabel(btcDayScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(title, 390, 40);
   lv_obj_set_pos(title, 96, 40);
   String titleText = cryptoDayTitle();
   lv_label_set_text(title, titleText.c_str());
 
-  btcDayChangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(btcDayChangeLabel, 260, 38);
+  btcDayChangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_40, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(btcDayChangeLabel, 260, 50);
   lv_obj_set_pos(btcDayChangeLabel, 500, 36);
 
-  btcDayPriceLabel = createLabel(btcDayScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(btcDayPriceLabel, 720, 54);
+  btcDayPriceLabel = createLabel(btcDayScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(btcDayPriceLabel, 720, 64);
   lv_obj_align(btcDayPriceLabel, LV_ALIGN_TOP_MID, 0, 86);
 
   const size_t chartBufferBytes = LV_CANVAS_BUF_SIZE(BTC_CHART_W, BTC_CHART_CANVAS_H, 16, LV_DRAW_BUF_STRIDE_ALIGN);
@@ -99,16 +99,16 @@ void createBtcDayScreen() {
     lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
   }
 
-  btcDayRangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(btcDayRangeLabel, 340, 28);
+  btcDayRangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(btcDayRangeLabel, 360, 32);
   lv_obj_set_pos(btcDayRangeLabel, 40, 414);
 
-  btcDayCandleLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_BTC, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(btcDayCandleLabel, 260, 28);
-  lv_obj_set_pos(btcDayCandleLabel, 500, 414);
+  btcDayCandleLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_BTC, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(btcDayCandleLabel, 300, 32);
+  lv_obj_set_pos(btcDayCandleLabel, 460, 414);
 
-  btcDayVolumeLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(btcDayVolumeLabel, 720, 28);
+  btcDayVolumeLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(btcDayVolumeLabel, 720, 32);
   lv_obj_align(btcDayVolumeLabel, LV_ALIGN_TOP_MID, 0, 446);
 }
 
@@ -116,13 +116,13 @@ void createKlipperScreen() {
   klipperScreen = createScreen();
   klipperAccent = createAccent(klipperScreen, COLOR_GREEN);
 
-  klipperTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(klipperTitleLabel, 420, 34);
+  klipperTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(klipperTitleLabel, 420, 40);
   lv_obj_set_pos(klipperTitleLabel, 96, 40);
   lv_label_set_text(klipperTitleLabel, "KLIPPER");
 
-  klipperStateLabel = createLabel(klipperScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(klipperStateLabel, 260, 54);
+  klipperStateLabel = createLabel(klipperScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(klipperStateLabel, 260, 62);
   lv_obj_set_pos(klipperStateLabel, 500, 30);
 
   klipperProgressArc = lv_arc_create(klipperScreen);
@@ -147,6 +147,13 @@ void createKlipperScreen() {
   klipperDivider = createDivider(klipperScreen, 210, 258, 380, COLOR_GREEN);
   setHidden(klipperDivider, true);
 
+  klipperOfflineIcon = lv_image_create(klipperScreen);
+  lv_image_set_src(klipperOfflineIcon, &icon_status_offline);
+  lv_obj_set_size(klipperOfflineIcon, 147, 147);
+  lv_obj_set_pos(klipperOfflineIcon, 94, 119);
+  lv_obj_clear_flag(klipperOfflineIcon, LV_OBJ_FLAG_SCROLLABLE);
+  setHidden(klipperOfflineIcon, true);
+
   klipperOfflineRing = lv_obj_create(klipperScreen);
   lv_obj_remove_style_all(klipperOfflineRing);
   lv_obj_set_size(klipperOfflineRing, 118, 118);
@@ -167,53 +174,53 @@ void createKlipperScreen() {
   klipperOfflineLine = createDivider(klipperScreen, 286, 204, 360, COLOR_DIM);
   setHidden(klipperOfflineLine, true);
 
-  klipperFileLabel = createLabel(klipperScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(klipperFileLabel, 700, 36);
+  klipperFileLabel = createLabel(klipperScreen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(klipperFileLabel, 700, 42);
   lv_obj_align(klipperFileLabel, LV_ALIGN_TOP_MID, 0, 262);
 
-  klipperNozzleTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(klipperNozzleTitleLabel, 110, 34);
+  klipperNozzleTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(klipperNozzleTitleLabel, 120, 40);
   lv_obj_set_pos(klipperNozzleTitleLabel, 130, 320);
   lv_label_set_text(klipperNozzleTitleLabel, "Nozzle");
 
-  klipperNozzleLabel = createLabel(klipperScreen, &lv_font_montserrat_24, COLOR_CYAN, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(klipperNozzleLabel, 160, 34);
-  lv_obj_set_pos(klipperNozzleLabel, 240, 320);
+  klipperNozzleLabel = createLabel(klipperScreen, &lv_font_montserrat_30, COLOR_CYAN, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(klipperNozzleLabel, 180, 40);
+  lv_obj_set_pos(klipperNozzleLabel, 250, 320);
 
-  klipperBedTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(klipperBedTitleLabel, 90, 34);
-  lv_obj_set_pos(klipperBedTitleLabel, 430, 320);
+  klipperBedTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(klipperBedTitleLabel, 100, 40);
+  lv_obj_set_pos(klipperBedTitleLabel, 440, 320);
   lv_label_set_text(klipperBedTitleLabel, "Bett");
 
-  klipperBedLabel = createLabel(klipperScreen, &lv_font_montserrat_24, COLOR_CYAN, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(klipperBedLabel, 150, 34);
-  lv_obj_set_pos(klipperBedLabel, 520, 320);
+  klipperBedLabel = createLabel(klipperScreen, &lv_font_montserrat_30, COLOR_CYAN, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(klipperBedLabel, 150, 40);
+  lv_obj_set_pos(klipperBedLabel, 550, 320);
 
-  klipperDurationLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(klipperDurationLabel, 300, 30);
-  lv_obj_set_pos(klipperDurationLabel, 130, 358);
+  klipperDurationLabel = createLabel(klipperScreen, &lv_font_montserrat_28, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(klipperDurationLabel, 300, 36);
+  lv_obj_set_pos(klipperDurationLabel, 130, 362);
 
-  klipperStatusLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(klipperStatusLabel, 340, 30);
-  lv_obj_set_pos(klipperStatusLabel, 330, 358);
+  klipperStatusLabel = createLabel(klipperScreen, &lv_font_montserrat_28, COLOR_DIM, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(klipperStatusLabel, 340, 36);
+  lv_obj_set_pos(klipperStatusLabel, 330, 362);
 
-  klipperMmuLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(klipperMmuLabel, 700, 26);
-  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 398);
+  klipperMmuLabel = createLabel(klipperScreen, &lv_font_montserrat_28, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(klipperMmuLabel, 700, 32);
+  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 402);
 
   const int gateW = 70;
-  const int gateH = 30;
+  const int gateH = 36;
   const int gateGap = 10;
   const int gateStartX = 85;
   for (int i = 0; i < MMU_GATE_MAX; i++) {
     klipperMmuGateBox[i] = lv_obj_create(klipperScreen);
     styleFilledRect(klipperMmuGateBox[i], COLOR_DIM, 3);
     lv_obj_set_size(klipperMmuGateBox[i], gateW, gateH);
-    lv_obj_set_pos(klipperMmuGateBox[i], gateStartX + (i * (gateW + gateGap)), 432);
+    lv_obj_set_pos(klipperMmuGateBox[i], gateStartX + (i * (gateW + gateGap)), 438);
     lv_obj_set_style_border_width(klipperMmuGateBox[i], 0, 0);
     lv_obj_set_style_border_color(klipperMmuGateBox[i], lv_color_hex(COLOR_TEXT), 0);
 
-    klipperMmuGateLabel[i] = createLabel(klipperMmuGateBox[i], &lv_font_montserrat_18, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+    klipperMmuGateLabel[i] = createLabel(klipperMmuGateBox[i], &lv_font_montserrat_28, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
     lv_obj_set_size(klipperMmuGateLabel[i], gateW, gateH);
     lv_obj_set_pos(klipperMmuGateLabel[i], 0, 0);
     String gateLabel = "T" + String(i);
@@ -223,8 +230,8 @@ void createKlipperScreen() {
 
 void createBootScreen() {
   bootScreen = createScreen();
-  lv_obj_t* bootLabel = createLabel(bootScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(bootLabel, 720, 56);
+  lv_obj_t* bootLabel = createLabel(bootScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(bootLabel, 720, 64);
   lv_obj_align(bootLabel, LV_ALIGN_CENTER, 0, 0);
   lv_label_set_text(bootLabel, "Booting");
 }
@@ -436,8 +443,9 @@ void setKlipperOfflineLayout(uint32_t stateColor) {
   lv_obj_set_style_bg_color(klipperAccent, lv_color_hex(stateColor), 0);
   setHidden(klipperProgressArc, true);
   setHidden(klipperDivider, true);
-  setHidden(klipperOfflineRing, false);
-  setHidden(klipperOfflineStem, false);
+  setHidden(klipperOfflineIcon, false);
+  setHidden(klipperOfflineRing, true);
+  setHidden(klipperOfflineStem, true);
   setHidden(klipperOfflineLine, false);
   lv_obj_set_style_border_color(klipperOfflineRing, lv_color_hex(stateColor), 0);
   lv_obj_set_style_bg_color(klipperOfflineStem, lv_color_hex(stateColor), 0);
@@ -445,14 +453,14 @@ void setKlipperOfflineLayout(uint32_t stateColor) {
 
   lv_obj_set_size(klipperProgressLabel, 360, 72);
   lv_obj_set_pos(klipperProgressLabel, 300, 144);
-  lv_obj_set_size(klipperFileLabel, 460, 84);
+  lv_obj_set_size(klipperFileLabel, 460, 96);
   lv_obj_set_pos(klipperFileLabel, 260, 226);
   lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_WRAP);
-  lv_obj_set_size(klipperDurationLabel, 280, 30);
+  lv_obj_set_size(klipperDurationLabel, 280, 36);
   lv_obj_set_pos(klipperDurationLabel, 160, 342);
-  lv_obj_set_size(klipperStatusLabel, 300, 30);
+  lv_obj_set_size(klipperStatusLabel, 300, 36);
   lv_obj_set_pos(klipperStatusLabel, 360, 342);
-  lv_obj_set_size(klipperMmuLabel, 700, 26);
+  lv_obj_set_size(klipperMmuLabel, 700, 32);
   lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 392);
 
   setHidden(klipperNozzleTitleLabel, true);
@@ -470,21 +478,22 @@ void setKlipperOnlineLayout() {
   lv_obj_set_size(klipperProgressArc, 154, 154);
   lv_obj_align(klipperProgressArc, LV_ALIGN_TOP_MID, 0, 88);
   setHidden(klipperDivider, true);
+  setHidden(klipperOfflineIcon, true);
   setHidden(klipperOfflineRing, true);
   setHidden(klipperOfflineStem, true);
   setHidden(klipperOfflineLine, true);
 
   lv_obj_set_size(klipperProgressLabel, 260, 66);
   lv_obj_align(klipperProgressLabel, LV_ALIGN_TOP_MID, 0, 130);
-  lv_obj_set_size(klipperFileLabel, 700, 36);
+  lv_obj_set_size(klipperFileLabel, 700, 42);
   lv_obj_align(klipperFileLabel, LV_ALIGN_TOP_MID, 0, 262);
   lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_DOT);
-  lv_obj_set_size(klipperDurationLabel, 300, 30);
-  lv_obj_set_pos(klipperDurationLabel, 130, 358);
-  lv_obj_set_size(klipperStatusLabel, 340, 30);
-  lv_obj_set_pos(klipperStatusLabel, 330, 358);
-  lv_obj_set_size(klipperMmuLabel, 700, 26);
-  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 398);
+  lv_obj_set_size(klipperDurationLabel, 300, 36);
+  lv_obj_set_pos(klipperDurationLabel, 130, 362);
+  lv_obj_set_size(klipperStatusLabel, 340, 36);
+  lv_obj_set_pos(klipperStatusLabel, 330, 362);
+  lv_obj_set_size(klipperMmuLabel, 700, 32);
+  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 402);
 
   setHidden(klipperNozzleTitleLabel, false);
   setHidden(klipperNozzleLabel, false);
@@ -677,6 +686,19 @@ ScreenState nextScreenState(ScreenState state) {
   return SCREEN_TIME;
 }
 
+ScreenState previousScreenState(ScreenState state) {
+  if (state == SCREEN_TIME) {
+    return isKlipperScreenAvailable() ? SCREEN_KLIPPER : SCREEN_BTC_DAY;
+  }
+  if (state == SCREEN_KLIPPER) {
+    return SCREEN_BTC_DAY;
+  }
+  if (state == SCREEN_BTC_DAY) {
+    return SCREEN_CRYPTO;
+  }
+  return SCREEN_TIME;
+}
+
 void switchScreen(ScreenState nextScreen) {
   if (nextScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
     nextScreen = SCREEN_TIME;
@@ -699,4 +721,9 @@ void switchScreen(ScreenState nextScreen) {
   if (currentScreen == SCREEN_BTC_DAY) {
     lastBtcChartDraw = millis();
   }
+}
+
+void switchScreenFromTouch(ScreenState nextScreen) {
+  lastScreenSwitch = millis();
+  switchScreen(nextScreen);
 }

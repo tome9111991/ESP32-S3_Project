@@ -8,10 +8,10 @@ $cppPath = Join-Path $root "ui_font_time_digits.cpp"
 
 $fontFamilyName = "Bahnschrift"
 $fontStyle = [System.Drawing.FontStyle]::Regular
-$emSize = 160
-$boxH = 128
-$lineHeight = 132
-$baseLine = 5
+$emSize = 200
+$boxH = 160
+$lineHeight = 166
+$baseLine = 6
 $padX = 2
 $glyphs = @(" ", "-", ":", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
 
@@ -105,7 +105,7 @@ $header = @"
 
 #include <lvgl.h>
 
-extern const lv_font_t ui_font_time_digits_128;
+extern const lv_font_t ui_font_time_digits_160;
 
 #endif
 "@
@@ -182,7 +182,7 @@ const void* getGlyphBitmap(lv_font_glyph_dsc_t* dsc, lv_draw_buf_t*) {
 
 }  // namespace
 
-const lv_font_t ui_font_time_digits_128 = {
+const lv_font_t ui_font_time_digits_160 = {
   getGlyphDsc,
   getGlyphBitmap,
   nullptr,
