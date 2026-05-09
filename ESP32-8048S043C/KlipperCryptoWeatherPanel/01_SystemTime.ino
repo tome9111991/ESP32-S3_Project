@@ -45,13 +45,13 @@ void printBootDiagnostics() {
 }
 
 void printDisplayDiagnostics() {
-  const char* rotationMode = LCD_ROTATE_180 ? "Panel mirror" : "aus";
+  const char* rotationMode = displayRotate180 ? "Panel mirror" : "aus";
 
   Serial.printf(
     "Display: %dx%d RGB565, rotation=%u (%s), LVGL byte-swap=%s, RGB565 red=0x%04X green=0x%04X blue=0x%04X\n",
     LCD_W,
     LCD_H,
-    LCD_ROTATE_180 ? 180 : 0,
+    displayRotate180 ? 180 : 0,
     rotationMode,
     "aus",
     RGB565(255, 0, 0),
@@ -79,13 +79,15 @@ void printDisplayDiagnostics() {
 void printRuntimeHealth() {
   UBaseType_t fetchStackWatermark = fetchTaskHandle != NULL ? uxTaskGetStackHighWaterMark(fetchTaskHandle) : 0;
   Serial.printf(
-    "Health: heap=%u min=%u maxAlloc=%u internalLargest=%u psramFree=%u fetchStackWatermark=%u wifi=%d rssi=%d lvBuf=%u/%s flush=%u timeout=%u err=%u\n",
+    "Health: heap=%u min=%u maxAlloc=%u internalLargest=%u psramFree=%u psramLargest=%u fetchStackWatermark=%u fetchStack=%s wifi=%d rssi=%d lvBuf=%u/%s flush=%u timeout=%u err=%u\n",
     ESP.getFreeHeap(),
     ESP.getMinFreeHeap(),
     ESP.getMaxAllocHeap(),
     heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
     ESP.getFreePsram(),
+    ESP.getMaxAllocPsram(),
     (unsigned)fetchStackWatermark,
+    fetchTaskStackInPsram ? "PSRAM" : "intern",
     WiFi.status(),
     WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
     (unsigned)lvDrawBufBytes,

@@ -1,4 +1,10 @@
 void updateWifiState() {
+  if (!wifiCredentialsConfigured() || isWifiSetupScreenActive()) {
+    wifiConnected = false;
+    wifiConnectedSince = 0;
+    return;
+  }
+
   bool connected = (WiFi.status() == WL_CONNECTED);
   bool wasConnected = wifiConnected;
   wifiConnected = connected;
@@ -36,8 +42,9 @@ void updateWifiState() {
 
     lastWifiReconnectAttempt = now;
     Serial.printf("WLAN getrennt, neuer Verbindungsversuch. Status: %d\n", WiFi.status());
-    WiFi.disconnect();
-    WiFi.begin(ssid, password);
+    WiFi.disconnect(false, false);
+    delay(100);
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
 
     if (networkMutex != NULL) {
       xSemaphoreGive(networkMutex);
@@ -46,19 +53,28 @@ void updateWifiState() {
 }
 
 void beginWiFi() {
+  if (!wifiCredentialsConfigured()) {
+    Serial.println("WLAN-Verbindung nicht gestartet: keine SSID konfiguriert");
+    wifiConnected = false;
+    wifiConnectedSince = 0;
+    return;
+  }
+
   if (networkMutex != NULL) {
     xSemaphoreTake(networkMutex, portMAX_DELAY);
   }
 
+  WiFi.disconnect(false, false);
+  delay(100);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.begin(ssid, password);
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
   lastWifiReconnectAttempt = millis();
   wifiConnected = (WiFi.status() == WL_CONNECTED);
   wifiConnectedSince = wifiConnected ? millis() : 0;
   internetAvailable = false;
   lastInternetProbe = 0;
-  Serial.printf("WLAN-Verbindung gestartet: '%s', Status: %d\n", ssid, WiFi.status());
+  Serial.printf("WLAN-Verbindung gestartet: '%s', Status: %d\n", wifiSsid.c_str(), WiFi.status());
 
   if (networkMutex != NULL) {
     xSemaphoreGive(networkMutex);

@@ -124,7 +124,7 @@ bool fetchWeatherValue() {
     String payload = readHttpPayloadChunked(http, 2048);
     yieldFetchTask();
 
-    JsonDocument doc;
+    JsonDocument doc(&psramJsonAllocator);
     DeserializationError error = deserializeJson(doc, payload);
     if (error) {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
@@ -629,11 +629,11 @@ bool fetchKlipperFileMetadata(const String& filename, float& estimatedSeconds) {
     String payload = readHttpPayloadChunked(http, 4096);
     yieldFetchTask();
 
-    JsonDocument filter;
+    JsonDocument filter(&psramJsonAllocator);
     filter["result"]["estimated_time"] = true;
     filter["estimated_time"] = true;
 
-    JsonDocument doc;
+    JsonDocument doc(&psramJsonAllocator);
     DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
     if (!error) {
       String estimatedText = jsonNumberText(doc["result"]["estimated_time"]);
@@ -718,7 +718,7 @@ bool fetchKlipperPrinterName() {
   if (httpCodeName == HTTP_CODE_OK) {
     String payload = readHttpPayloadChunked(http, 512);
     yieldFetchTask();
-    JsonDocument doc;
+    JsonDocument doc(&psramJsonAllocator);
     DeserializationError error = deserializeJson(doc, payload);
     String name;
     if (!error) {
@@ -781,7 +781,7 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
     String payload = readHttpPayloadChunked(http, 1024);
     yieldFetchTask();
 
-    JsonDocument doc;
+    JsonDocument doc(&psramJsonAllocator);
     DeserializationError error = deserializeJson(doc, payload);
     if (error) {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
@@ -887,7 +887,7 @@ bool fetchKlipperPrinterInfo(String& klippyState, String& klippyMessage) {
     String payload = readHttpPayloadChunked(http, 2048);
     yieldFetchTask();
 
-    JsonDocument doc;
+    JsonDocument doc(&psramJsonAllocator);
     DeserializationError error = deserializeJson(doc, payload);
     if (error) {
       Serial.print("Klipper Printer Info JSON Parse Fehler: ");
@@ -972,7 +972,7 @@ bool fetchKlipperStatus() {
     String payload = readHttpPayloadChunked(http, 4096);
     yieldFetchTask();
 
-    JsonDocument doc;
+    JsonDocument doc(&psramJsonAllocator);
     DeserializationError error = deserializeJson(doc, payload);
     if (error) {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
@@ -1215,6 +1215,18 @@ void fetchDataTask(void *pvParameters) {
   bool scheduleInitialized = false;
 
   for (;;) {
+    if (cleanRebootRequested) {
+      scheduleInitialized = false;
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+
+    if (isWifiSetupScreenActive()) {
+      scheduleInitialized = false;
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+
     wifiConnected = (WiFi.status() == WL_CONNECTED);
 
     if (wifiConnected) {

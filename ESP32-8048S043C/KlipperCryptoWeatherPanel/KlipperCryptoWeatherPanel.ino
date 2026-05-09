@@ -3,6 +3,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <StreamString.h>
+#include <LittleFS.h>
 #include <time.h>
 #include <math.h>
 #include <stdlib.h>
@@ -36,6 +37,31 @@
 
 #include <ArduinoJson.h>
 
+class PsramJsonAllocator : public ArduinoJson::Allocator {
+ public:
+  void* allocate(size_t size) override {
+    void* ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ptr == nullptr) {
+      ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
+    }
+    return ptr;
+  }
+
+  void deallocate(void* ptr) override {
+    heap_caps_free(ptr);
+  }
+
+  void* reallocate(void* ptr, size_t newSize) override {
+    void* newPtr = heap_caps_realloc(ptr, newSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (newPtr == nullptr) {
+      newPtr = heap_caps_realloc(ptr, newSize, MALLOC_CAP_8BIT);
+    }
+    return newPtr;
+  }
+};
+
+static PsramJsonAllocator psramJsonAllocator;
+
 #ifndef RGB565
   #define RGB565(r, g, b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #endif
@@ -54,7 +80,8 @@ static constexpr uint32_t LCD_BL_PWM_MIN_VISIBLE_DUTY = 12;
 static constexpr int LCD_BL_PWM_CHANNEL = 0;
 static constexpr int LCD_PCLK_HZ = 14000000;
 static constexpr int LCD_BOUNCE_LINES = 10;
-static constexpr bool LCD_ROTATE_180 = true;
+static constexpr bool DISPLAY_ROTATE_180_DEFAULT = true;
+bool displayRotate180 = DISPLAY_ROTATE_180_DEFAULT;
 static constexpr int UI_LOGICAL_W = LCD_W;
 static constexpr int UI_LOGICAL_H = LCD_H;
 static constexpr int UI_OFFSET_X = (LCD_W - UI_LOGICAL_W) / 2;
@@ -204,7 +231,7 @@ static bool initBoardDisplay() {
     return false;
   }
 
-  if (LCD_ROTATE_180) {
+  if (displayRotate180) {
     err = esp_lcd_panel_mirror(panel, true, true);
     if (err != ESP_OK) {
       Serial.printf("esp_lcd_panel_mirror fehlgeschlagen: 0x%X\n", err);
@@ -239,13 +266,14 @@ const char* WEEKDAYS_DE[] = {
 };
 
 // --- KONFIGURATION ---
-#include "config_private.h"
-
+#if __has_include("config_private.h")
+  #include "config_private.h"
+#endif
 #ifndef WIFI_SSID
-  #error "WIFI_SSID fehlt. Kopiere config_private.example.h nach config_private.h und trage deine Daten ein."
+  #define WIFI_SSID ""
 #endif
 #ifndef WIFI_PASSWORD
-  #error "WIFI_PASSWORD fehlt. Kopiere config_private.example.h nach config_private.h und trage deine Daten ein."
+  #define WIFI_PASSWORD ""
 #endif
 #ifndef LOCATION_LATITUDE
   #error "LOCATION_LATITUDE fehlt. Kopiere config_private.example.h nach config_private.h und trage deine Daten ein."
@@ -272,8 +300,8 @@ const char* WEEKDAYS_DE[] = {
   #define KLIPPER_BASE_URL "http://mainsail"
 #endif
 
-const char* ssid = WIFI_SSID;
-const char* password = WIFI_PASSWORD;
+String wifiSsid = String(WIFI_SSID);
+String wifiPassword = String(WIFI_PASSWORD);
 
 // Bright Sky liefert DWD-Daten ohne API-Key.
 const float locationLatitude = LOCATION_LATITUDE;
@@ -306,6 +334,8 @@ const int MMU_GATE_MAX = 8;
 SemaphoreHandle_t dataMutex;
 SemaphoreHandle_t networkMutex;
 TaskHandle_t fetchTaskHandle = NULL;
+bool fetchTaskStackInPsram = false;
+bool settingsStorageReady = false;
 String currentBtcPrice = "Laden...";
 float currentBtcLivePrice = 0.0f;
 int currentBtcPriceDirection = 0;
@@ -347,6 +377,9 @@ int klipperMmuGateStatus[MMU_GATE_MAX] = {
   -1, -1, -1, -1, -1, -1, -1, -1
 };
 volatile bool wifiConnected = false;
+volatile bool cleanRebootRequested = false;
+bool wifiSetupActive = false;
+bool settingsMenuActive = false;
 bool timeConfigured = false;
 volatile unsigned long wifiConnectedSince = 0;
 bool internetAvailable = false;
@@ -359,7 +392,7 @@ const unsigned long apiRequestGapInterval = 1500;
 const unsigned long internetProbeRetryInterval = 30000;
 unsigned long lastHealthLog = 0;
 const unsigned long healthLogInterval = 60000;
-const uint32_t fetchTaskStackSize = 24576;
+const uint32_t fetchTaskStackSize = 16384;
 const UBaseType_t fetchTaskPriority = 1;
 // Auf diesem Setup nicht auf Core 0 legen: dort laufen WLAN/TCPIP-Anteile und IDLE0-WDT.
 const BaseType_t fetchTaskCore = 1;
@@ -414,6 +447,10 @@ enum SunStatusVisual {
 };
 
 ScreenState currentScreen = SCREEN_TIME;
+bool screenTimeEnabled = true;
+bool screenCryptoEnabled = true;
+bool screenBtcDayEnabled = true;
+bool screenKlipperEnabled = true;
 unsigned long lastScreenSwitch = 0;
 unsigned long lastUiRefresh = 0;
 const unsigned long defaultScreenInterval = 10000; // 10 Sekunden fuer alle normalen Screens
@@ -425,7 +462,11 @@ const unsigned long brightnessRefreshInterval = 30000;
 const unsigned long touchPollInterval = 20;
 const unsigned long touchReleaseInterval = 120;
 const unsigned long touchLongPressInterval = 3000;
-const uint8_t dayBrightness = 176;
+const unsigned long touchLongPressFeedbackDelay = 180;
+static constexpr uint8_t DAY_BRIGHTNESS_MIN = 32;
+static constexpr uint8_t DAY_BRIGHTNESS_MAX = 255;
+static constexpr uint8_t DAY_BRIGHTNESS_DEFAULT = 176;
+uint8_t dayBrightness = DAY_BRIGHTNESS_DEFAULT;
 const uint8_t nightBrightness = 12;
 const int sunriseBrightnessDelayMinutes = 90; // Display morgens erst 90 Minuten nach Sonnenaufgang hell schalten
 uint8_t currentBrightness = dayBrightness;
@@ -438,21 +479,26 @@ static constexpr int TOUCH_INT = 18;
 static constexpr uint16_t GT911_STATUS_REG = 0x814E;
 static constexpr uint16_t GT911_POINT_REG = 0x814F;
 static constexpr uint16_t GT911_PRODUCT_ID_REG = 0x8140;
-static constexpr float TOUCH_CAL_X_RX = 1.65867031f;
-static constexpr float TOUCH_CAL_X_RY = -0.02261823f;
-static constexpr float TOUCH_CAL_X_C = 2.12817001f;
-static constexpr float TOUCH_CAL_Y_RX = 0.02082564f;
-static constexpr float TOUCH_CAL_Y_RY = 1.79517055f;
-static constexpr float TOUCH_CAL_Y_C = 10.62223816f;
+// Standardwerte; werden ggf. durch Werte aus /touch_cal.json ueberschrieben.
+static float TOUCH_CAL_X_RX = 1.65867031f;
+static float TOUCH_CAL_X_RY = -0.02261823f;
+static float TOUCH_CAL_X_C = 2.12817001f;
+static float TOUCH_CAL_Y_RX = 0.02082564f;
+static float TOUCH_CAL_Y_RY = 1.79517055f;
+static float TOUCH_CAL_Y_C = 10.62223816f;
 static uint8_t touchAddress = 0;
 static bool touchPressed = false;
 static bool touchLongPressHandled = false;
 static int16_t touchStartX = 0;
+static int16_t touchStartY = 0;
 static int16_t touchLastX = 0;
 static int16_t touchLastY = 0;
 static unsigned long touchPressedAt = 0;
 static unsigned long touchLastSeenAt = 0;
 static unsigned long lastTouchPoll = 0;
+static lv_obj_t* touchLongPressFeedbackRoot = nullptr;
+static lv_obj_t* touchLongPressFeedbackArc = nullptr;
+static int touchLongPressFeedbackValue = -1;
 
 static lv_obj_t* bootScreen = nullptr;
 static lv_obj_t* timeScreen = nullptr;
@@ -557,6 +603,27 @@ void createBtcDayScreen();
 void createKlipperScreen();
 void createBootScreen();
 void createUi();
+bool initSettingsStorage();
+bool loadWifiSettingsFromFile();
+bool saveWifiSettingsToFile(const String& ssidValue, const String& passwordValue);
+bool wifiCredentialsConfigured();
+bool isWifiSetupScreenActive();
+void openWifiSetupScreen(const char* message);
+bool isSettingsMenuScreenActive();
+bool isSettingsOverlayActive();
+void openSettingsMenuScreen();
+bool isScreenSettingsScreenActive();
+void openScreenSettingsScreen();
+bool loadScreenSettingsFromFile();
+bool saveScreenSettingsToFile();
+bool isDisplaySettingsScreenActive();
+void openDisplaySettingsScreen();
+bool loadDisplaySettingsFromFile();
+bool saveDisplaySettingsToFile();
+void performCleanReboot();
+void performFactoryReset();
+void startNetworkServices();
+bool startFetchTask();
 void refreshTimeUi();
 void refreshCryptoUi();
 String formatBtcCandleCountdown(uint32_t candleTime);
@@ -565,18 +632,26 @@ int progressPercentFromText(const String& progress);
 void refreshKlipperUi();
 void refreshUi();
 bool isKlipperScreenAvailable();
+bool isScreenEnabled(ScreenState state);
+bool isScreenAvailableForRotation(ScreenState state);
 lv_obj_t* screenForState(ScreenState state);
 ScreenState nextScreenState(ScreenState state);
 ScreenState previousScreenState(ScreenState state);
 void switchScreen(ScreenState nextScreen);
 void switchScreenFromTouch(ScreenState nextScreen);
 bool initTouchInput();
+void initLvglTouchInput();
 void handleTouchInput();
 void onTouchLongPress(int16_t x, int16_t y);
 bool isPopupMenuOpen();
 void openPopupMenu();
 void closePopupMenu();
 void handlePopupMenuTouch(int16_t x, int16_t y);
+bool isTouchCalibrationScreenActive();
+void openTouchCalibrationScreen();
+void handleTouchCalibrationStep();
+bool loadTouchCalibrationFromFile();
+bool saveTouchCalibrationToFile();
 int priceToChartY(float price, float low, float high, int y, int h);
 void canvasSetPixel(int x, int y, uint32_t color);
 void canvasFillRect(int x, int y, int w, int h, uint32_t color);
@@ -649,6 +724,65 @@ unsigned long currentScreenInterval() {
   return currentScreen == SCREEN_TIME ? timeScreenInterval : defaultScreenInterval;
 }
 
+bool startFetchTask() {
+  if (fetchTaskHandle != NULL) {
+    return true;
+  }
+
+  BaseType_t fetchTaskCreated = pdFAIL;
+
+#ifdef CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+  fetchTaskCreated = xTaskCreatePinnedToCoreWithCaps(
+    fetchDataTask,
+    "FetchData",
+    fetchTaskStackSize,
+    NULL,
+    fetchTaskPriority,
+    &fetchTaskHandle,
+    fetchTaskCore,
+    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+  );
+  fetchTaskStackInPsram = (fetchTaskCreated == pdPASS);
+#endif
+
+  if (fetchTaskCreated != pdPASS) {
+    fetchTaskCreated = xTaskCreatePinnedToCore(
+      fetchDataTask,
+      "FetchData",
+      fetchTaskStackSize,
+      NULL,
+      fetchTaskPriority,
+      &fetchTaskHandle,
+      fetchTaskCore
+    );
+    fetchTaskStackInPsram = false;
+  }
+  if (fetchTaskCreated != pdPASS) {
+    Serial.println("FetchData Task Init fehlgeschlagen!");
+    fetchTaskHandle = NULL;
+    return false;
+  }
+
+  Serial.printf(
+    "FetchData Task gestartet: Core %d, Prio %u, Stack %s\n",
+    (int)fetchTaskCore,
+    (unsigned)fetchTaskPriority,
+    fetchTaskStackInPsram ? "PSRAM" : "intern"
+  );
+  return true;
+}
+
+void startNetworkServices() {
+  wifiSetupActive = false;
+  currentScreen = nextScreenState(SCREEN_KLIPPER);
+  refreshUi();
+  lv_screen_load(screenForState(currentScreen));
+  lastScreenSwitch = millis();
+  beginWiFi();
+  configureTimeOnce();
+  startFetchTask();
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -670,6 +804,12 @@ void setup() {
     }
   }
 
+  initSettingsStorage();
+  loadWifiSettingsFromFile();
+  loadTouchCalibrationFromFile();
+  loadDisplaySettingsFromFile();
+  loadScreenSettingsFromFile();
+
   if (!initBtcStorage()) {
     Serial.println("BTC Speicher Init fehlgeschlagen!");
     while (true) {
@@ -688,38 +828,34 @@ void setup() {
 
   initLvglDisplay();
   initTouchInput();
+  initLvglTouchInput();
   createUi();
   lv_timer_handler();
 
-  switchScreen(SCREEN_TIME);
-  lastScreenSwitch = millis();
-
-  beginWiFi();
-
-  configureTimeOnce();
-
-  BaseType_t fetchTaskCreated = xTaskCreatePinnedToCore(
-    fetchDataTask,
-    "FetchData",
-    fetchTaskStackSize,
-    NULL,
-    fetchTaskPriority,
-    &fetchTaskHandle,
-    fetchTaskCore
-  );
-  if (fetchTaskCreated != pdPASS) {
-    Serial.println("FetchData Task Init fehlgeschlagen!");
+  if (wifiCredentialsConfigured()) {
+    startNetworkServices();
   } else {
-    Serial.printf("FetchData Task gestartet: Core %d, Prio %u\n", (int)fetchTaskCore, (unsigned)fetchTaskPriority);
+    openWifiSetupScreen("WLAN-Daten eingeben");
   }
 }
 
 void loop() {
-  updateWifiState();
+  bool setupScreenOpen = isSettingsOverlayActive();
+  if (!setupScreenOpen) {
+    updateWifiState();
+  }
   handleTouchInput();
+  handleTouchCalibrationStep();
+
+  if (setupScreenOpen) {
+    lv_timer_handler();
+    delay(5);
+    return;
+  }
 
   unsigned long now = millis();
   bool popupMenuOpen = isPopupMenuOpen();
+  bool screenRotationPaused = popupMenuOpen || touchPressed;
   if (!popupMenuOpen && now - lastUiRefresh >= uiRefreshInterval) {
     lastUiRefresh = now;
     refreshUi();
@@ -735,12 +871,12 @@ void loop() {
     printRuntimeHealth();
   }
 
-  if (!popupMenuOpen && currentScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
+  if (!screenRotationPaused && !isScreenAvailableForRotation(currentScreen)) {
     lastScreenSwitch = now;
     switchScreen(nextScreenState(currentScreen));
   }
 
-  if (!popupMenuOpen && now - lastScreenSwitch > currentScreenInterval()) {
+  if (!screenRotationPaused && now - lastScreenSwitch > currentScreenInterval()) {
     lastScreenSwitch = now;
     switchScreen(nextScreenState(currentScreen));
   }

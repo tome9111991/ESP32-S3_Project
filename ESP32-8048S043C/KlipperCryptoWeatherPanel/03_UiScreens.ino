@@ -660,6 +660,26 @@ bool isKlipperScreenAvailable() {
   return available;
 }
 
+bool isScreenEnabled(ScreenState state) {
+  if (state == SCREEN_CRYPTO) {
+    return screenCryptoEnabled;
+  }
+  if (state == SCREEN_BTC_DAY) {
+    return screenBtcDayEnabled;
+  }
+  if (state == SCREEN_KLIPPER) {
+    return screenKlipperEnabled;
+  }
+  return screenTimeEnabled;
+}
+
+bool isScreenAvailableForRotation(ScreenState state) {
+  if (!isScreenEnabled(state)) {
+    return false;
+  }
+  return state != SCREEN_KLIPPER || isKlipperScreenAvailable();
+}
+
 lv_obj_t* screenForState(ScreenState state) {
   if (state == SCREEN_CRYPTO) {
     return cryptoScreen;
@@ -673,35 +693,69 @@ lv_obj_t* screenForState(ScreenState state) {
   return timeScreen;
 }
 
+static uint8_t firstAvailableScreenIndexOrFallback() {
+  const ScreenState states[] = {
+    SCREEN_TIME,
+    SCREEN_CRYPTO,
+    SCREEN_BTC_DAY,
+    SCREEN_KLIPPER
+  };
+  const int stateCount = sizeof(states) / sizeof(states[0]);
+  for (int i = 0; i < stateCount; i++) {
+    if (isScreenAvailableForRotation(states[i])) {
+      return (uint8_t)states[i];
+    }
+  }
+  return (uint8_t)SCREEN_TIME;
+}
+
+static int screenStateIndexFromValue(uint8_t state) {
+  if (state == (uint8_t)SCREEN_CRYPTO) {
+    return 1;
+  }
+  if (state == (uint8_t)SCREEN_BTC_DAY) {
+    return 2;
+  }
+  if (state == (uint8_t)SCREEN_KLIPPER) {
+    return 3;
+  }
+  return 0;
+}
+
+static uint8_t stepScreenStateIndex(uint8_t state, int direction) {
+  const ScreenState states[] = {
+    SCREEN_TIME,
+    SCREEN_CRYPTO,
+    SCREEN_BTC_DAY,
+    SCREEN_KLIPPER
+  };
+  const int stateCount = sizeof(states) / sizeof(states[0]);
+  int index = screenStateIndexFromValue(state);
+
+  for (int i = 1; i <= stateCount; i++) {
+    int nextIndex = (index + (direction * i) + stateCount) % stateCount;
+    ScreenState candidate = states[nextIndex];
+    if (isScreenAvailableForRotation(candidate)) {
+      return (uint8_t)candidate;
+    }
+  }
+  return firstAvailableScreenIndexOrFallback();
+}
+
 ScreenState nextScreenState(ScreenState state) {
-  if (state == SCREEN_TIME) {
-    return SCREEN_CRYPTO;
-  }
-  if (state == SCREEN_CRYPTO) {
-    return SCREEN_BTC_DAY;
-  }
-  if (state == SCREEN_BTC_DAY) {
-    return isKlipperScreenAvailable() ? SCREEN_KLIPPER : SCREEN_TIME;
-  }
-  return SCREEN_TIME;
+  return (ScreenState)stepScreenStateIndex((uint8_t)state, 1);
 }
 
 ScreenState previousScreenState(ScreenState state) {
-  if (state == SCREEN_TIME) {
-    return isKlipperScreenAvailable() ? SCREEN_KLIPPER : SCREEN_BTC_DAY;
-  }
-  if (state == SCREEN_KLIPPER) {
-    return SCREEN_BTC_DAY;
-  }
-  if (state == SCREEN_BTC_DAY) {
-    return SCREEN_CRYPTO;
-  }
-  return SCREEN_TIME;
+  return (ScreenState)stepScreenStateIndex((uint8_t)state, -1);
 }
 
 void switchScreen(ScreenState nextScreen) {
-  if (nextScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
-    nextScreen = SCREEN_TIME;
+  if (!isScreenAvailableForRotation(nextScreen)) {
+    nextScreen = nextScreenState(nextScreen);
+  }
+  if (!isScreenAvailableForRotation(nextScreen)) {
+    nextScreen = (ScreenState)firstAvailableScreenIndexOrFallback();
   }
 
   lv_obj_t* targetScreen = screenForState(nextScreen);
