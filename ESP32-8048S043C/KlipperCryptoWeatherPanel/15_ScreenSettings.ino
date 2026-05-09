@@ -1,5 +1,11 @@
 static constexpr const char* SCREEN_SETTINGS_FILE = "/screen_settings.json";
 static constexpr int SCREEN_SETTINGS_OPTION_COUNT = 4;
+static constexpr int SCREEN_SETTINGS_TILE_W = 290;
+static constexpr int SCREEN_SETTINGS_TILE_H = 116;
+static constexpr int SCREEN_SETTINGS_TILE_X = 100;
+static constexpr int SCREEN_SETTINGS_TILE_Y = 126;
+static constexpr int SCREEN_SETTINGS_TILE_GAP_X = 20;
+static constexpr int SCREEN_SETTINGS_TILE_GAP_Y = 18;
 
 static bool screenSettingsActive = false;
 static lv_obj_t* screenSettingsScreen = nullptr;
@@ -318,7 +324,7 @@ static void createScreenSettingsTile(lv_obj_t* parent, uint8_t index, int x, int
   lv_obj_t* tile = lv_obj_create(parent);
   screenSettingsTile[index] = tile;
   styleFilledRect(tile, 0x151b24, 8);
-  lv_obj_set_size(tile, 300, 116);
+  lv_obj_set_size(tile, SCREEN_SETTINGS_TILE_W, SCREEN_SETTINGS_TILE_H);
   lv_obj_set_pos(tile, x, y);
   lv_obj_set_style_border_width(tile, 2, 0);
   lv_obj_set_style_border_color(tile, lv_color_hex(COLOR_DIM), 0);
@@ -328,12 +334,12 @@ static void createScreenSettingsTile(lv_obj_t* parent, uint8_t index, int x, int
   lv_obj_add_event_cb(tile, screenSettingsTileEvent, LV_EVENT_CLICKED, &screenSettingsTileIndex[index]);
 
   screenSettingsTitleLabel[index] = createLabel(tile, &lv_font_montserrat_30, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-  lv_obj_set_size(screenSettingsTitleLabel[index], 260, 38);
+  lv_obj_set_size(screenSettingsTitleLabel[index], SCREEN_SETTINGS_TILE_W - 40, 38);
   lv_obj_set_pos(screenSettingsTitleLabel[index], 20, 20);
   lv_label_set_text(screenSettingsTitleLabel[index], screenSettingsTitleForIndex(index));
   lv_obj_add_flag(screenSettingsTitleLabel[index], LV_OBJ_FLAG_EVENT_BUBBLE);
 
-  screenSettingsUnderline[index] = createDivider(tile, 70, 64, 160, screenSettingsColorForIndex(index));
+  screenSettingsUnderline[index] = createDivider(tile, (SCREEN_SETTINGS_TILE_W - 160) / 2, 64, 160, screenSettingsColorForIndex(index));
   lv_obj_add_flag(screenSettingsUnderline[index], LV_OBJ_FLAG_EVENT_BUBBLE);
 
   lv_obj_t* hint = createLabel(tile, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
@@ -344,7 +350,7 @@ static void createScreenSettingsTile(lv_obj_t* parent, uint8_t index, int x, int
 
   screenSettingsStateLabel[index] = createLabel(tile, &lv_font_montserrat_24, COLOR_CYAN, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(screenSettingsStateLabel[index], 82, 28);
-  lv_obj_set_pos(screenSettingsStateLabel[index], 190, 82);
+  lv_obj_set_pos(screenSettingsStateLabel[index], SCREEN_SETTINGS_TILE_W - 110, 82);
   lv_obj_add_flag(screenSettingsStateLabel[index], LV_OBJ_FLAG_EVENT_BUBBLE);
 
   updateScreenSettingsTile(index);
@@ -354,7 +360,7 @@ static void createScreenSettingsScreen() {
   destroyScreenSettingsScreen();
 
   screenSettingsScreen = createScreen();
-  createAccent(screenSettingsScreen, COLOR_CYAN);
+  createAccent(screenSettingsScreen, COLOR_SETTINGS);
 
   lv_obj_t* title = createLabel(screenSettingsScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(title, 500, 52);
@@ -363,10 +369,25 @@ static void createScreenSettingsScreen() {
 
   createScreenSettingsBackButton(screenSettingsScreen);
 
-  createScreenSettingsTile(screenSettingsScreen, 0, 100, 126);
-  createScreenSettingsTile(screenSettingsScreen, 1, 400, 126);
-  createScreenSettingsTile(screenSettingsScreen, 2, 100, 260);
-  createScreenSettingsTile(screenSettingsScreen, 3, 400, 260);
+  createScreenSettingsTile(screenSettingsScreen, 0, SCREEN_SETTINGS_TILE_X, SCREEN_SETTINGS_TILE_Y);
+  createScreenSettingsTile(
+    screenSettingsScreen,
+    1,
+    SCREEN_SETTINGS_TILE_X + SCREEN_SETTINGS_TILE_W + SCREEN_SETTINGS_TILE_GAP_X,
+    SCREEN_SETTINGS_TILE_Y
+  );
+  createScreenSettingsTile(
+    screenSettingsScreen,
+    2,
+    SCREEN_SETTINGS_TILE_X,
+    SCREEN_SETTINGS_TILE_Y + SCREEN_SETTINGS_TILE_H + SCREEN_SETTINGS_TILE_GAP_Y
+  );
+  createScreenSettingsTile(
+    screenSettingsScreen,
+    3,
+    SCREEN_SETTINGS_TILE_X + SCREEN_SETTINGS_TILE_W + SCREEN_SETTINGS_TILE_GAP_X,
+    SCREEN_SETTINGS_TILE_Y + SCREEN_SETTINGS_TILE_H + SCREEN_SETTINGS_TILE_GAP_Y
+  );
 
   screenSettingsStatusLabel = createLabel(screenSettingsScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(screenSettingsStatusLabel, 680, 34);

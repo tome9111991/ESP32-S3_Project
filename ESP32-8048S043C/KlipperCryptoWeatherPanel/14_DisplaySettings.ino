@@ -242,7 +242,7 @@ static void createDisplaySettingsScreen() {
   destroyDisplaySettingsScreen();
 
   displaySettingsScreen = createScreen();
-  createAccent(displaySettingsScreen, COLOR_CYAN);
+  createAccent(displaySettingsScreen, COLOR_SETTINGS);
 
   lv_obj_t* title = createLabel(displaySettingsScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(title, 500, 52);

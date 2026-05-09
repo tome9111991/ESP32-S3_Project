@@ -9,6 +9,7 @@ static const char* const FACTORY_RESET_FILES[] = {
   "/touch_cal.json",
   "/display_settings.json",
   "/screen_settings.json",
+  "/crypto_settings.json",
 };
 static constexpr size_t FACTORY_RESET_FILE_COUNT =
   sizeof(FACTORY_RESET_FILES) / sizeof(FACTORY_RESET_FILES[0]);
@@ -421,7 +422,7 @@ static void createWifiSetupScreen() {
   }
 
   wifiSetupScreen = createScreen();
-  createAccent(wifiSetupScreen, COLOR_CYAN);
+  createAccent(wifiSetupScreen, COLOR_SETTINGS);
   lv_obj_add_flag(wifiSetupScreen, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(wifiSetupScreen, wifiScreenClickEvent, LV_EVENT_CLICKED, nullptr);
   createWifiSetupText(wifiSetupScreen, &lv_font_montserrat_40, COLOR_TEXT, 96, 26, 560, 52, "WLAN einrichten");

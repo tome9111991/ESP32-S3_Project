@@ -7,7 +7,7 @@ String cryptoPairTitle() {
 }
 
 String cryptoDayTitle() {
-  return String(cryptoBaseSymbol) + " 90D";
+  return String(cryptoBaseSymbol) + " " + cryptoChartTimeframeLabel();
 }
 
 String cryptoPricePrefixText() {
@@ -42,8 +42,116 @@ String cryptoCandlesBaseUrl() {
   return String("https://api.exchange.coinbase.com/products/") + cryptoProductId() + "/candles";
 }
 
+String cryptoStatsUrl() {
+  return String("https://api.exchange.coinbase.com/products/") + cryptoProductId() + "/stats";
+}
+
 String cryptoOkStatus() {
   return String(cryptoServiceName) + " " + cryptoQuoteSymbol;
+}
+
+uint32_t cryptoChartGranularitySeconds() {
+  if (strcmp(cryptoChartTimeframe, "15M") == 0) {
+    return 900;
+  }
+  if (strcmp(cryptoChartTimeframe, "1H") == 0) {
+    return 3600;
+  }
+  if (strcmp(cryptoChartTimeframe, "6H") == 0) {
+    return 21600;
+  }
+  return BTC_CANDLE_SECONDS;
+}
+
+int cryptoChartCandleCount() {
+  return BTC_DAY_CANDLE_COUNT;
+}
+
+const char* cryptoChartTimeframeLabel() {
+  if (strcmp(cryptoChartTimeframe, "15M") == 0 ||
+      strcmp(cryptoChartTimeframe, "1H") == 0 ||
+      strcmp(cryptoChartTimeframe, "6H") == 0 ||
+      strcmp(cryptoChartTimeframe, "1D") == 0) {
+    return cryptoChartTimeframe;
+  }
+  return "1D";
+}
+
+String cryptoChartPriceText(const String& fallbackPrice, float livePrice) {
+  if (isfinite(livePrice) && livePrice > 0.0f) {
+    uint8_t decimals = 2;
+    if (livePrice >= 10000.0f) {
+      decimals = 0;
+    } else if (livePrice < 1.0f) {
+      decimals = 4;
+    }
+    return String(cryptoQuoteSymbol) + " " + String(livePrice, (unsigned int)decimals);
+  }
+
+  String price = fallbackPrice;
+  price.replace("$ ", "");
+  price.replace("\xe2\x82\xac ", "");
+  price.replace("\xc2\xa3 ", "");
+  price.replace("\xc2\xa5 ", "");
+  price.replace("\xe2\x82\xbf ", "");
+  price.trim();
+  bool hasDigit = false;
+  for (int i = 0; i < price.length(); i++) {
+    if (price[i] >= '0' && price[i] <= '9') {
+      hasDigit = true;
+      break;
+    }
+  }
+  if (!hasDigit && price.length() > 0) {
+    return price;
+  }
+  if (price.length() == 0) {
+    price = "--";
+  }
+  return String(cryptoQuoteSymbol) + " " + price;
+}
+
+void resetCryptoDataState(const char* statusText) {
+  if (dataMutex != NULL) {
+    xSemaphoreTake(dataMutex, portMAX_DELAY);
+  }
+  currentBtcPrice = "Laden...";
+  currentBtcLivePrice = 0.0f;
+  currentBtcPriceDirection = 0;
+  currentBtcStatus = statusText != nullptr && statusText[0] != '\0' ? String(statusText) : cryptoOkStatus();
+  btcDayChange = String(cryptoChartTimeframeLabel()) + " --";
+  btcDayTimeRange = "--";
+  btcDayVolume = "VOL --";
+  btcCandleStatus = "CANDLE --";
+  btcDayChangePercent = 0.0f;
+  btcDayChangePositive = true;
+  btcDayDataReady = false;
+  btc24hOpenPrice = 0.0f;
+  btc24hDataReady = false;
+  btcCandleCount = 0;
+  if (dataMutex != NULL) {
+    xSemaphoreGive(dataMutex);
+  }
+  lastBtcChartDraw = 0;
+}
+
+static void formatChartTime(time_t t, bool includeTime, char* buffer, size_t bufferSize) {
+  if (t <= 0 || buffer == nullptr || bufferSize == 0) {
+    if (buffer != nullptr && bufferSize > 0) {
+      buffer[0] = '\0';
+    }
+    return;
+  }
+  struct tm tmInfo;
+  if (localtime_r(&t, &tmInfo) == nullptr) {
+    snprintf(buffer, bufferSize, "--");
+    return;
+  }
+  if (includeTime) {
+    strftime(buffer, bufferSize, "%b %d %H:%M", &tmInfo);
+  } else {
+    strftime(buffer, bufferSize, "%b %d", &tmInfo);
+  }
 }
 
 void formatQuoteCompact(float value, char* buffer, size_t bufferSize) {
@@ -57,8 +165,12 @@ void formatQuoteCompact(float value, char* buffer, size_t bufferSize) {
     snprintf(buffer, bufferSize, "%s%.0fK", prefix.c_str(), value / 1000.0f);
   } else if (value >= 10000.0f) {
     snprintf(buffer, bufferSize, "%s%.1fK", prefix.c_str(), value / 1000.0f);
-  } else {
+  } else if (value >= 100.0f) {
     snprintf(buffer, bufferSize, "%s%.0f", prefix.c_str(), value);
+  } else if (value >= 1.0f) {
+    snprintf(buffer, bufferSize, "%s%.2f", prefix.c_str(), value);
+  } else {
+    snprintf(buffer, bufferSize, "%s%.4f", prefix.c_str(), value);
   }
 }
 
@@ -95,8 +207,8 @@ bool initBtcStorage() {
 
 void updateBtcDayStatsLocked() {
   if (btcCandles == nullptr) {
-    btcDayChange = "1D --";
-    btcDayRange = "H --  L --";
+    btcDayChange = String(cryptoChartTimeframeLabel()) + " --";
+    btcDayTimeRange = "--";
     btcDayVolume = "VOL --";
     btcCandleStatus = "CANDLE RAM";
     btcDayDataReady = false;
@@ -104,15 +216,15 @@ void updateBtcDayStatsLocked() {
   }
 
   if (btcCandleCount < 2) {
-    btcDayChange = "1D --";
-    btcDayRange = "H --  L --";
+    btcDayChange = String(cryptoChartTimeframeLabel()) + " --";
+    btcDayTimeRange = "--";
     btcDayVolume = "VOL --";
     btcCandleStatus = "CANDLE --";
     btcDayDataReady = false;
     return;
   }
 
-  int start = btcCandleCount - BTC_DAY_CANDLE_COUNT;
+  int start = btcCandleCount - cryptoChartCandleCount();
   if (start < 0) {
     start = 0;
   }
@@ -134,13 +246,21 @@ void updateBtcDayStatsLocked() {
 
   btcDayChangePercent = latestCandle.open > 0.0f ? ((latestCandle.close - latestCandle.open) / latestCandle.open) * 100.0f : 0.0f;
   btcDayChangePositive = btcDayChangePercent >= 0.0f;
-  btcDayChange = String(btcDayChangePositive ? "+" : "") + String(btcDayChangePercent, 2) + "%";
+  btcDayChange = String(cryptoChartTimeframeLabel()) + " " + String(btcDayChangePositive ? "+" : "") + String(btcDayChangePercent, 2) + "%";
 
-  char highText[16];
-  char lowText[16];
-  formatQuoteCompact(high, highText, sizeof(highText));
-  formatQuoteCompact(low, lowText, sizeof(lowText));
-  btcDayRange = "H " + String(highText) + "  L " + String(lowText);
+  uint32_t candleSeconds = cryptoChartGranularitySeconds();
+  bool includeTime = candleSeconds < 86400;
+  time_t rangeStart = (time_t)btcCandles[start].time;
+  time_t rangeEnd = (time_t)btcCandles[btcCandleCount - 1].time + (time_t)candleSeconds;
+  char startText[24];
+  char endText[24];
+  formatChartTime(rangeStart, includeTime, startText, sizeof(startText));
+  formatChartTime(rangeEnd, includeTime, endText, sizeof(endText));
+  if (startText[0] == '\0' || endText[0] == '\0') {
+    btcDayTimeRange = "--";
+  } else {
+    btcDayTimeRange = String(startText) + " - " + String(endText);
+  }
   btcDayVolume = "VOL " + String(volume, 1) + " " + cryptoBaseSymbol;
 
   btcCandleStatus = formatBtcCandleCountdown(btcCandles[btcCandleCount - 1].time);
@@ -267,7 +387,8 @@ void updateLiveCandleFromPrice(float price) {
     return;
   }
 
-  uint32_t bucketTime = ((uint32_t)nowTime / BTC_CANDLE_SECONDS) * BTC_CANDLE_SECONDS;
+  uint32_t candleSeconds = cryptoChartGranularitySeconds();
+  uint32_t bucketTime = ((uint32_t)nowTime / candleSeconds) * candleSeconds;
   xSemaphoreTake(dataMutex, portMAX_DELAY);
 
   if (btcCandleCount > 0 && btcCandles[btcCandleCount - 1].time == bucketTime) {

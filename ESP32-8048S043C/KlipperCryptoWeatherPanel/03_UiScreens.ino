@@ -18,8 +18,8 @@ void createTimeScreen() {
   weatherIconRoot = createWeatherImage(timeScreen);
   updateWeatherImage(weatherCode);
 
-  timeDivider = createDivider(timeScreen, 220, 292, TIME_SECOND_BAR_W, COLOR_DIM);
-  timeSecondFill = createDivider(timeDivider, 0, 0, 0, COLOR_CYAN);
+  timeDivider = createDividerSized(timeScreen, TIME_SECOND_BAR_X, 292, TIME_SECOND_BAR_W, PROMINENT_DIVIDER_H, COLOR_DIM);
+  timeSecondFill = createDividerSized(timeDivider, 0, 0, 0, PROMINENT_DIVIDER_H, COLOR_CYAN);
   setHidden(timeSecondFill, true);
 
   weekdayLabel = createLabel(timeScreen, &lv_font_montserrat_40, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
@@ -47,32 +47,36 @@ void createCryptoScreen() {
   cryptoScreen = createScreen();
   createAccent(cryptoScreen, COLOR_BTC);
 
-  lv_obj_t* title = createLabel(cryptoScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(title, 460, 40);
-  lv_obj_set_pos(title, 96, 40);
+  cryptoTitleLabel = createLabel(cryptoScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(cryptoTitleLabel, 460, 40);
+  lv_obj_set_pos(cryptoTitleLabel, 96, 40);
   String titleText = cryptoPairTitle();
-  lv_label_set_text(title, titleText.c_str());
+  lv_label_set_text(cryptoTitleLabel, titleText.c_str());
 
   cryptoPriceLabel = createLabel(cryptoScreen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(cryptoPriceLabel, 720, 96);
   lv_obj_align(cryptoPriceLabel, LV_ALIGN_TOP_MID, 0, 138);
 
-  createDivider(cryptoScreen, 210, 260, 380, COLOR_BTC);
+  createDividerSized(cryptoScreen, CRYPTO_PRICE_BAR_X, 260, CRYPTO_PRICE_BAR_W, PROMINENT_DIVIDER_H, COLOR_BTC);
+
+  cryptoChangeLabel = createLabel(cryptoScreen, &lv_font_montserrat_40, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(cryptoChangeLabel, 720, 56);
+  lv_obj_align(cryptoChangeLabel, LV_ALIGN_TOP_MID, 0, 282);
 
   cryptoStatusLabel = createLabel(cryptoScreen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(cryptoStatusLabel, 720, 42);
-  lv_obj_align(cryptoStatusLabel, LV_ALIGN_TOP_MID, 0, 316);
+  lv_obj_align(cryptoStatusLabel, LV_ALIGN_TOP_MID, 0, 380);
 }
 
 void createBtcDayScreen() {
   btcDayScreen = createScreen();
   createAccent(btcDayScreen, COLOR_BTC);
 
-  lv_obj_t* title = createLabel(btcDayScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(title, 390, 40);
-  lv_obj_set_pos(title, 96, 40);
+  btcDayTitleLabel = createLabel(btcDayScreen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(btcDayTitleLabel, 390, 40);
+  lv_obj_set_pos(btcDayTitleLabel, 96, 40);
   String titleText = cryptoDayTitle();
-  lv_label_set_text(title, titleText.c_str());
+  lv_label_set_text(btcDayTitleLabel, titleText.c_str());
 
   btcDayChangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_40, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(btcDayChangeLabel, 260, 50);
@@ -99,9 +103,9 @@ void createBtcDayScreen() {
     lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
   }
 
-  btcDayRangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(btcDayRangeLabel, 360, 32);
-  lv_obj_set_pos(btcDayRangeLabel, 40, 414);
+  btcDayTimeRangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(btcDayTimeRangeLabel, 400, 32);
+  lv_obj_set_pos(btcDayTimeRangeLabel, 40, 416);
 
   btcDayCandleLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_BTC, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(btcDayCandleLabel, 300, 32);
@@ -110,6 +114,37 @@ void createBtcDayScreen() {
   btcDayVolumeLabel = createLabel(btcDayScreen, &lv_font_montserrat_28, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(btcDayVolumeLabel, 720, 32);
   lv_obj_align(btcDayVolumeLabel, LV_ALIGN_TOP_MID, 0, 446);
+
+  btcDayPriceHighLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(btcDayPriceHighLabel, 96, 22);
+  lv_obj_set_pos(btcDayPriceHighLabel, 660, 146);
+  lv_obj_set_style_bg_color(btcDayPriceHighLabel, lv_color_hex(COLOR_BG), 0);
+  lv_obj_set_style_bg_opa(btcDayPriceHighLabel, LV_OPA_70, 0);
+  lv_obj_set_style_pad_hor(btcDayPriceHighLabel, 4, 0);
+  lv_obj_set_style_pad_ver(btcDayPriceHighLabel, 1, 0);
+  lv_obj_set_style_radius(btcDayPriceHighLabel, 3, 0);
+  lv_label_set_text(btcDayPriceHighLabel, "--");
+
+  btcDayPriceLowLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(btcDayPriceLowLabel, 96, 22);
+  lv_obj_set_pos(btcDayPriceLowLabel, 660, 372);
+  lv_obj_set_style_bg_color(btcDayPriceLowLabel, lv_color_hex(COLOR_BG), 0);
+  lv_obj_set_style_bg_opa(btcDayPriceLowLabel, LV_OPA_70, 0);
+  lv_obj_set_style_pad_hor(btcDayPriceLowLabel, 4, 0);
+  lv_obj_set_style_pad_ver(btcDayPriceLowLabel, 1, 0);
+  lv_obj_set_style_radius(btcDayPriceLowLabel, 3, 0);
+  lv_label_set_text(btcDayPriceLowLabel, "--");
+
+  btcDayPriceLastLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(btcDayPriceLastLabel, 96, 22);
+  lv_obj_set_pos(btcDayPriceLastLabel, 660, 250);
+  lv_obj_set_style_bg_color(btcDayPriceLastLabel, lv_color_hex(COLOR_BTC), 0);
+  lv_obj_set_style_bg_opa(btcDayPriceLastLabel, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_hor(btcDayPriceLastLabel, 4, 0);
+  lv_obj_set_style_pad_ver(btcDayPriceLastLabel, 1, 0);
+  lv_obj_set_style_radius(btcDayPriceLastLabel, 3, 0);
+  lv_label_set_text(btcDayPriceLastLabel, "--");
+  lv_obj_add_flag(btcDayPriceLastLabel, LV_OBJ_FLAG_HIDDEN);
 }
 
 void createKlipperScreen() {
@@ -364,9 +399,31 @@ void refreshCryptoUi() {
   xSemaphoreTake(dataMutex, portMAX_DELAY);
   String price = currentBtcPrice;
   String status = currentBtcStatus;
+  float openPrice = btc24hOpenPrice;
+  bool openReady = btc24hDataReady;
+  float livePrice = currentBtcLivePrice;
   xSemaphoreGive(dataMutex);
 
+  String titleText = cryptoPairTitle();
+  setLabelTextIfChanged(cryptoTitleLabel, titleText.c_str());
   setCryptoPriceText(price);
+
+  String changeText;
+  uint32_t changeColor;
+  if (openReady && openPrice > 0.0f && livePrice > 0.0f) {
+    float pct = (livePrice - openPrice) / openPrice * 100.0f;
+    bool positive = pct >= 0.0f;
+    const char* arrow = positive ? LV_SYMBOL_UP : LV_SYMBOL_DOWN;
+    const char* sign = positive ? "+" : "";
+    changeText = String(arrow) + " 24H " + sign + String(pct, 2) + "%";
+    changeColor = positive ? COLOR_GREEN : COLOR_LOSS;
+  } else {
+    changeText = "24H --";
+    changeColor = COLOR_DIM;
+  }
+  setLabelTextIfChanged(cryptoChangeLabel, changeText.c_str());
+  lv_obj_set_style_text_color(cryptoChangeLabel, lv_color_hex(changeColor), 0);
+
   setLabelTextIfChanged(cryptoStatusLabel, status.c_str());
   lv_obj_set_style_text_color(
     cryptoStatusLabel,
@@ -385,11 +442,12 @@ String formatBtcCandleCountdown(uint32_t candleTime) {
   if (elapsed < 0) {
     elapsed = 0;
   }
-  if (elapsed >= (int)BTC_CANDLE_SECONDS) {
-    elapsed = (int)BTC_CANDLE_SECONDS - 1;
+  int candleSeconds = (int)cryptoChartGranularitySeconds();
+  if (elapsed >= candleSeconds) {
+    elapsed = candleSeconds - 1;
   }
 
-  int remaining = (int)BTC_CANDLE_SECONDS - elapsed;
+  int remaining = candleSeconds - elapsed;
   int remainingHours = remaining / 3600;
   int remainingMinutes = (remaining % 3600) / 60;
   if (remainingHours > 0) {
@@ -402,12 +460,13 @@ void refreshBtcDayUi() {
   xSemaphoreTake(dataMutex, portMAX_DELAY);
   String price = currentBtcPrice;
   String change = btcDayChange;
-  String range = btcDayRange;
+  String timeRange = btcDayTimeRange;
   String volume = btcDayVolume;
   String candle = btcCandleStatus;
   bool positive = btcDayChangePositive;
   bool ready = btcDayDataReady;
   int priceDirection = currentBtcPriceDirection;
+  float livePrice = currentBtcLivePrice;
   uint32_t candleTime = (btcCandles != nullptr && btcCandleCount > 0) ? btcCandles[btcCandleCount - 1].time : 0;
   xSemaphoreGive(dataMutex);
 
@@ -415,16 +474,18 @@ void refreshBtcDayUi() {
     candle = formatBtcCandleCountdown(candleTime);
   }
 
-  String chartPrice = price;
+  String titleText = cryptoDayTitle();
+  String chartPrice = cryptoChartPriceText(price, livePrice);
   if (priceDirection > 0) {
-    chartPrice = String(LV_SYMBOL_UP " ") + price;
+    chartPrice = String(LV_SYMBOL_UP " ") + chartPrice;
   } else if (priceDirection < 0) {
-    chartPrice = String(LV_SYMBOL_DOWN " ") + price;
+    chartPrice = String(LV_SYMBOL_DOWN " ") + chartPrice;
   }
 
+  setLabelTextIfChanged(btcDayTitleLabel, titleText.c_str());
   setLabelTextIfChanged(btcDayPriceLabel, chartPrice.c_str());
   setLabelTextIfChanged(btcDayChangeLabel, change.c_str());
-  setLabelTextIfChanged(btcDayRangeLabel, range.c_str());
+  setLabelTextIfChanged(btcDayTimeRangeLabel, timeRange.c_str());
   setLabelTextIfChanged(btcDayVolumeLabel, volume.c_str());
   setLabelTextIfChanged(btcDayCandleLabel, candle.c_str());
   lv_obj_set_style_text_color(
@@ -443,33 +504,30 @@ void setKlipperOfflineLayout(uint32_t stateColor) {
   lv_obj_set_style_bg_color(klipperAccent, lv_color_hex(stateColor), 0);
   setHidden(klipperProgressArc, true);
   setHidden(klipperDivider, true);
-  setHidden(klipperOfflineIcon, false);
   setHidden(klipperOfflineRing, true);
   setHidden(klipperOfflineStem, true);
-  setHidden(klipperOfflineLine, false);
-  lv_obj_set_style_border_color(klipperOfflineRing, lv_color_hex(stateColor), 0);
-  lv_obj_set_style_bg_color(klipperOfflineStem, lv_color_hex(stateColor), 0);
-  lv_obj_set_style_bg_color(klipperOfflineLine, lv_color_hex(stateColor), 0);
+  setHidden(klipperOfflineLine, true);
 
-  lv_obj_set_size(klipperProgressLabel, 360, 72);
-  lv_obj_set_pos(klipperProgressLabel, 300, 144);
-  lv_obj_set_size(klipperFileLabel, 460, 96);
-  lv_obj_set_pos(klipperFileLabel, 260, 226);
-  lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_WRAP);
-  lv_obj_set_size(klipperDurationLabel, 280, 36);
-  lv_obj_set_pos(klipperDurationLabel, 160, 342);
-  lv_obj_set_size(klipperStatusLabel, 300, 36);
-  lv_obj_set_pos(klipperStatusLabel, 360, 342);
-  lv_obj_set_size(klipperMmuLabel, 700, 32);
-  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 392);
+  setHidden(klipperOfflineIcon, false);
+  lv_obj_align(klipperOfflineIcon, LV_ALIGN_TOP_MID, 0, 104);
+
+  setHidden(klipperProgressLabel, true);
+
+  lv_obj_set_size(klipperFileLabel, 720, 44);
+  lv_obj_align(klipperFileLabel, LV_ALIGN_TOP_MID, 0, 280);
+  lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_DOT);
+  setHidden(klipperFileLabel, false);
+
+  lv_obj_set_size(klipperMmuLabel, 720, 36);
+  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 336);
+  setHidden(klipperMmuLabel, false);
 
   setHidden(klipperNozzleTitleLabel, true);
   setHidden(klipperNozzleLabel, true);
   setHidden(klipperBedTitleLabel, true);
   setHidden(klipperBedLabel, true);
-  setHidden(klipperDurationLabel, false);
-  setHidden(klipperStatusLabel, false);
-  setHidden(klipperMmuLabel, false);
+  setHidden(klipperDurationLabel, true);
+  setHidden(klipperStatusLabel, true);
 }
 
 void setKlipperOnlineLayout() {
@@ -483,11 +541,13 @@ void setKlipperOnlineLayout() {
   setHidden(klipperOfflineStem, true);
   setHidden(klipperOfflineLine, true);
 
+  setHidden(klipperProgressLabel, false);
   lv_obj_set_size(klipperProgressLabel, 260, 66);
   lv_obj_align(klipperProgressLabel, LV_ALIGN_TOP_MID, 0, 130);
   lv_obj_set_size(klipperFileLabel, 700, 42);
   lv_obj_align(klipperFileLabel, LV_ALIGN_TOP_MID, 0, 262);
   lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_color(klipperFileLabel, lv_color_hex(COLOR_MUTED), 0);
   lv_obj_set_size(klipperDurationLabel, 300, 36);
   lv_obj_set_pos(klipperDurationLabel, 130, 362);
   lv_obj_set_size(klipperStatusLabel, 340, 36);
@@ -561,15 +621,12 @@ void refreshKlipperUi() {
     setKlipperOfflineLayout(stateColor);
     setLabelTextIfChanged(klipperTitleLabel, hostAvailable ? printerName.c_str() : "KLIPPER");
     setLabelTextIfChanged(klipperStateLabel, stateText.c_str());
-    setLabelTextIfChanged(klipperProgressLabel, stateText.c_str());
     setLabelTextIfChanged(klipperFileLabel, detailText.c_str());
-    setLabelTextIfChanged(klipperDurationLabel, hostAvailable ? "MAINSAIL OK" : "MAINSAIL --");
-    setLabelTextIfChanged(klipperStatusLabel, status.c_str());
     setLabelTextIfChanged(klipperMmuLabel, hostAvailable ? "Drucker einschalten" : "Warte auf Mainsail");
 
     lv_obj_set_style_text_color(klipperStateLabel, lv_color_hex(stateColor), 0);
-    lv_obj_set_style_text_color(klipperProgressLabel, lv_color_hex(stateColor), 0);
-    lv_obj_set_style_text_color(klipperStatusLabel, lv_color_hex(hostAvailable ? COLOR_MUTED : COLOR_LOSS), 0);
+    lv_obj_set_style_text_color(klipperFileLabel, lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_style_text_color(klipperMmuLabel, lv_color_hex(COLOR_MUTED), 0);
 
     for (int i = 0; i < MMU_GATE_MAX; i++) {
       setHidden(klipperMmuGateBox[i], true);
@@ -677,7 +734,14 @@ bool isScreenAvailableForRotation(ScreenState state) {
   if (!isScreenEnabled(state)) {
     return false;
   }
-  return state != SCREEN_KLIPPER || isKlipperScreenAvailable();
+  if (state == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
+    int othersEnabled = 0;
+    if (screenTimeEnabled) othersEnabled++;
+    if (screenCryptoEnabled) othersEnabled++;
+    if (screenBtcDayEnabled) othersEnabled++;
+    return othersEnabled == 0;
+  }
+  return true;
 }
 
 lv_obj_t* screenForState(ScreenState state) {
@@ -703,6 +767,11 @@ static uint8_t firstAvailableScreenIndexOrFallback() {
   const int stateCount = sizeof(states) / sizeof(states[0]);
   for (int i = 0; i < stateCount; i++) {
     if (isScreenAvailableForRotation(states[i])) {
+      return (uint8_t)states[i];
+    }
+  }
+  for (int i = 0; i < stateCount; i++) {
+    if (isScreenEnabled(states[i])) {
       return (uint8_t)states[i];
     }
   }

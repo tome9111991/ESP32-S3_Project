@@ -59,6 +59,24 @@ void canvasDrawRect(int x, int y, int w, int h, uint32_t color) {
   canvasVLine(x + w - 1, y, h, color);
 }
 
+void canvasDashedHLine(int y, int xFrom, int xTo, int dashOn, int dashOff, uint32_t color) {
+  if (dashOn <= 0) {
+    return;
+  }
+  if (dashOff < 0) {
+    dashOff = 0;
+  }
+  int x = xFrom;
+  while (x < xTo) {
+    int segEnd = x + dashOn;
+    if (segEnd > xTo) {
+      segEnd = xTo;
+    }
+    canvasHLine(x, y, segEnd - x, color);
+    x = segEnd + dashOff;
+  }
+}
+
 void drawBtcDayChart() {
   if (
     currentScreen != SCREEN_BTC_DAY ||
@@ -88,12 +106,17 @@ void drawBtcDayChart() {
   canvasDrawRect(0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
 
   if (!ready || sourceCount < 2) {
+    if (btcDayPriceLastLabel != nullptr) {
+      lv_obj_add_flag(btcDayPriceLastLabel, LV_OBJ_FLAG_HIDDEN);
+    }
+    setLabelTextIfChanged(btcDayPriceHighLabel, "--");
+    setLabelTextIfChanged(btcDayPriceLowLabel, "--");
     lv_display_enable_invalidation(lvDisplay, true);
     lv_obj_invalidate(btcDayChartCanvas);
     return;
   }
 
-  int start = sourceCount - BTC_DAY_CANDLE_COUNT;
+  int start = sourceCount - cryptoChartCandleCount();
   if (start < 0) {
     start = 0;
   }
@@ -109,6 +132,8 @@ void drawBtcDayChart() {
       high = chartBtcCandles[i].high;
     }
   }
+  float rawLow = low;
+  float rawHigh = high;
 
   float padding = (high - low) * 0.08f;
   if (padding < 1.0f) {
@@ -153,19 +178,48 @@ void drawBtcDayChart() {
     }
   }
 
+  const BtcCandle& lastCandle = chartBtcCandles[sourceCount - 1];
+  int yLastClose = priceToChartY(lastCandle.close, low, high, 3, BTC_CHART_H - 6);
+  canvasDashedHLine(yLastClose, 1, BTC_CHART_W - 1, 6, 4, COLOR_BTC);
+
+  char highText[16];
+  char lowText[16];
+  char lastText[16];
+  formatQuoteCompact(rawHigh, highText, sizeof(highText));
+  formatQuoteCompact(rawLow, lowText, sizeof(lowText));
+  formatQuoteCompact(lastCandle.close, lastText, sizeof(lastText));
+  setLabelTextIfChanged(btcDayPriceHighLabel, highText);
+  setLabelTextIfChanged(btcDayPriceLowLabel, lowText);
+  setLabelTextIfChanged(btcDayPriceLastLabel, lastText);
+  if (btcDayPriceLastLabel != nullptr && btcDayChartCanvas != nullptr) {
+    int chartScreenX = lv_obj_get_x(btcDayChartCanvas);
+    int chartScreenY = lv_obj_get_y(btcDayChartCanvas);
+    const int labelW = 96;
+    const int labelH = 22;
+    int labelX = chartScreenX + (BTC_CHART_W - labelW) / 2;
+    int labelY = chartScreenY + yLastClose - labelH / 2;
+    int minY = chartScreenY + 2;
+    int maxY = chartScreenY + BTC_CHART_H - labelH - 2;
+    if (labelY < minY) labelY = minY;
+    if (labelY > maxY) labelY = maxY;
+    lv_obj_set_pos(btcDayPriceLastLabel, labelX, labelY);
+    lv_obj_clear_flag(btcDayPriceLastLabel, LV_OBJ_FLAG_HIDDEN);
+  }
+
   canvasFillRect(0, BTC_CHART_PROGRESS_Y, BTC_CHART_W, BTC_CHART_PROGRESS_H, 0x1d2530);
   time_t nowTime = time(nullptr);
   uint32_t lastCandleTime = chartBtcCandles[sourceCount - 1].time;
+  uint32_t candleSeconds = cryptoChartGranularitySeconds();
   int progressWidth = 0;
   if (nowTime > 100000 && lastCandleTime > 0) {
     int elapsed = (int)(nowTime - lastCandleTime);
     if (elapsed < 0) {
       elapsed = 0;
     }
-    if (elapsed > (int)BTC_CANDLE_SECONDS) {
-      elapsed = (int)BTC_CANDLE_SECONDS;
+    if (elapsed > (int)candleSeconds) {
+      elapsed = (int)candleSeconds;
     }
-    progressWidth = (BTC_CHART_W * elapsed) / (int)BTC_CANDLE_SECONDS;
+    progressWidth = (BTC_CHART_W * elapsed) / (int)candleSeconds;
   }
   canvasFillRect(0, BTC_CHART_PROGRESS_Y, progressWidth, BTC_CHART_PROGRESS_H, COLOR_BTC);
 

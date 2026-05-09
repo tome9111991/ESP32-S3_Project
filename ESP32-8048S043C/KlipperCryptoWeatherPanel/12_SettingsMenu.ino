@@ -15,7 +15,7 @@ bool isSettingsMenuScreenActive() {
 bool isSettingsOverlayActive() {
   return isWifiSetupScreenActive() || isSettingsMenuScreenActive() ||
          isTouchCalibrationScreenActive() || isDisplaySettingsScreenActive() ||
-         isScreenSettingsScreenActive();
+         isScreenSettingsScreenActive() || isCryptoSettingsScreenActive();
 }
 
 static void destroySettingsMenuScreen() {
@@ -72,6 +72,15 @@ static void settingsScreensButtonEvent(lv_event_t* event) {
   settingsMenuActive = false;
   destroySettingsMenuScreen();
   openScreenSettingsScreen();
+}
+
+static void settingsCryptoButtonEvent(lv_event_t* event) {
+  if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    return;
+  }
+  settingsMenuActive = false;
+  destroySettingsMenuScreen();
+  openCryptoSettingsScreen();
 }
 
 static void settingsBackButtonEvent(lv_event_t* event) {
@@ -150,7 +159,7 @@ static void createSettingsMenuScreen() {
   destroySettingsMenuScreen();
 
   settingsMenuScreen = createScreen();
-  createAccent(settingsMenuScreen, COLOR_CYAN);
+  createAccent(settingsMenuScreen, COLOR_SETTINGS);
 
   lv_obj_t* title = createLabel(settingsMenuScreen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(title, 500, 52);
@@ -181,6 +190,17 @@ static void createSettingsMenuScreen() {
     "Screens",
     "Angezeigte Seiten auswaehlen",
     settingsScreensButtonEvent
+  );
+  itemY += SETTINGS_MENU_ITEM_H + SETTINGS_MENU_ITEM_GAP;
+
+  createSettingsMenuItem(
+    list,
+    itemY,
+    COLOR_CYAN,
+    COLOR_BG,
+    "Crypto",
+    "Coin, Waehrung und Chart",
+    settingsCryptoButtonEvent
   );
   itemY += SETTINGS_MENU_ITEM_H + SETTINGS_MENU_ITEM_GAP;
 

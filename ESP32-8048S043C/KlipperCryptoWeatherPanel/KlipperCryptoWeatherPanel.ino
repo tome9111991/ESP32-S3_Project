@@ -203,7 +203,7 @@ static bool initBoardDisplay() {
   cfg.flags.fb_in_psram = true;
   cfg.flags.double_fb = false;
   cfg.flags.no_fb = false;
-  cfg.flags.bb_invalidate_cache = false;
+  cfg.flags.bb_invalidate_cache = true;
 
   esp_err_t err = esp_lcd_new_rgb_panel(&cfg, &panel);
   if (err != ESP_OK) {
@@ -252,6 +252,7 @@ const uint32_t COLOR_DIM = 0x4e5868;
 const uint32_t COLOR_CYAN = 0x5dd6ff;
 const uint32_t COLOR_BTC = 0xf7931a;
 const uint32_t COLOR_GREEN = 0x2ee59d;
+const uint32_t COLOR_SETTINGS = 0xc084fc;
 const uint32_t COLOR_LOSS = 0xff5d6c;
 const uint32_t COLOR_RED = 0xff0000;
 const uint32_t COLOR_ORANGE = 0xffa500;
@@ -296,6 +297,9 @@ const char* WEEKDAYS_DE[] = {
 #ifndef CRYPTO_SERVICE_NAME
   #define CRYPTO_SERVICE_NAME "COINBASE"
 #endif
+#ifndef CRYPTO_CHART_TIMEFRAME
+  #define CRYPTO_CHART_TIMEFRAME "1D"
+#endif
 #ifndef KLIPPER_BASE_URL
   #define KLIPPER_BASE_URL "http://mainsail"
 #endif
@@ -308,15 +312,22 @@ const float locationLatitude = LOCATION_LATITUDE;
 const float locationLongitude = LOCATION_LONGITUDE;
 const char* timezonePosix = TIMEZONE_POSIX;
 // Coinbase Crypto-Paar. Fuer SOL/EUR z.B. cryptoBaseSymbol="SOL", cryptoQuoteSymbol="EUR".
-const char* cryptoBaseSymbol = CRYPTO_BASE_SYMBOL;
-const char* cryptoQuoteSymbol = CRYPTO_QUOTE_SYMBOL;
-const char* cryptoPricePrefix = CRYPTO_PRICE_PREFIX; // leer = automatisch: USD/EUR/GBP/JPY/BTC Symbol, sonst Quote-Code
-const char* cryptoServiceName = CRYPTO_SERVICE_NAME;
+static constexpr size_t CRYPTO_SYMBOL_MAX_LEN = 12;
+static constexpr size_t CRYPTO_PREFIX_MAX_LEN = 12;
+static constexpr size_t CRYPTO_SERVICE_MAX_LEN = 16;
+static constexpr size_t CRYPTO_TIMEFRAME_MAX_LEN = 8;
+char cryptoBaseSymbol[CRYPTO_SYMBOL_MAX_LEN + 1] = CRYPTO_BASE_SYMBOL;
+char cryptoQuoteSymbol[CRYPTO_SYMBOL_MAX_LEN + 1] = CRYPTO_QUOTE_SYMBOL;
+char cryptoPricePrefix[CRYPTO_PREFIX_MAX_LEN + 1] = CRYPTO_PRICE_PREFIX; // leer = automatisch: USD/EUR/GBP/JPY/BTC Symbol, sonst Quote-Code
+char cryptoServiceName[CRYPTO_SERVICE_MAX_LEN + 1] = CRYPTO_SERVICE_NAME;
+char cryptoChartTimeframe[CRYPTO_TIMEFRAME_MAX_LEN + 1] = CRYPTO_CHART_TIMEFRAME;
 const char* klipperBaseUrl = KLIPPER_BASE_URL;
 const unsigned long btcRefreshInterval = 60000; // 60 Sekunden
 const unsigned long btcRetryInterval = 30000; // 30 Sekunden bei Fehlern
 const unsigned long btcCandleRefreshInterval = 300000; // 5 Minuten
 const unsigned long btcCandleRetryInterval = 60000; // 60 Sekunden bei Fehlern
+const unsigned long btcStatsRefreshInterval = 300000; // 5 Minuten (24h-Open)
+const unsigned long btcStatsRetryInterval = 60000; // 60 Sekunden bei Fehlern
 const unsigned long weatherRefreshInterval = 300000; // 5 Minuten
 const unsigned long weatherRetryInterval = 120000; // 2 Minuten bei Fehlern
 const unsigned long klipperRefreshInterval = 7000; // 7 Sekunden
@@ -327,7 +338,11 @@ const uint32_t BTC_CANDLE_SECONDS = 86400; // Tageskerzen
 const int WEATHER_ICON_W = 93;
 const int WEATHER_ICON_H = 80;
 const int DIVIDER_H = 4;
-const int TIME_SECOND_BAR_W = 360;
+const int PROMINENT_DIVIDER_H = 5;
+const int TIME_SECOND_BAR_W = 440;
+const int TIME_SECOND_BAR_X = (UI_LOGICAL_W - TIME_SECOND_BAR_W) / 2;
+const int CRYPTO_PRICE_BAR_W = 460;
+const int CRYPTO_PRICE_BAR_X = (UI_LOGICAL_W - CRYPTO_PRICE_BAR_W) / 2;
 const int MMU_GATE_MAX = 8;
 
 // --- GLOBALE VARIABLEN (Thread-Safe) ---
@@ -341,7 +356,7 @@ float currentBtcLivePrice = 0.0f;
 int currentBtcPriceDirection = 0;
 String currentBtcStatus = String(cryptoServiceName) + " " + cryptoQuoteSymbol;
 String btcDayChange = "1D --";
-String btcDayRange = "H --  L --";
+String btcDayTimeRange = "--";
 String btcDayVolume = "VOL --";
 String btcCandleStatus = "CANDLE --";
 String currentTemp = "--";
@@ -378,6 +393,7 @@ int klipperMmuGateStatus[MMU_GATE_MAX] = {
 };
 volatile bool wifiConnected = false;
 volatile bool cleanRebootRequested = false;
+volatile bool cryptoRefreshRequested = false;
 bool wifiSetupActive = false;
 bool settingsMenuActive = false;
 bool timeConfigured = false;
@@ -423,6 +439,8 @@ int btcCandleCount = 0;
 float btcDayChangePercent = 0.0f;
 bool btcDayChangePositive = true;
 bool btcDayDataReady = false;
+float btc24hOpenPrice = 0.0f;
+bool btc24hDataReady = false;
 unsigned long lastBtcChartDraw = 0;
 const unsigned long btcChartDrawInterval = 1000;
 
@@ -517,13 +535,19 @@ static lv_obj_t* timeSecondFill = nullptr;
 static lv_obj_t* timeStatusTitle = nullptr;
 static lv_obj_t* timeStatusDetail = nullptr;
 static lv_obj_t* cryptoPriceLabel = nullptr;
+static lv_obj_t* cryptoTitleLabel = nullptr;
 static lv_obj_t* cryptoStatusLabel = nullptr;
+static lv_obj_t* cryptoChangeLabel = nullptr;
+static lv_obj_t* btcDayTitleLabel = nullptr;
 static lv_obj_t* btcDayPriceLabel = nullptr;
 static lv_obj_t* btcDayChangeLabel = nullptr;
-static lv_obj_t* btcDayRangeLabel = nullptr;
+static lv_obj_t* btcDayTimeRangeLabel = nullptr;
 static lv_obj_t* btcDayVolumeLabel = nullptr;
 static lv_obj_t* btcDayCandleLabel = nullptr;
 static lv_obj_t* btcDayChartCanvas = nullptr;
+static lv_obj_t* btcDayPriceHighLabel = nullptr;
+static lv_obj_t* btcDayPriceLowLabel = nullptr;
+static lv_obj_t* btcDayPriceLastLabel = nullptr;
 static lv_obj_t* klipperAccent = nullptr;
 static lv_obj_t* klipperDivider = nullptr;
 static lv_obj_t* klipperOfflineRing = nullptr;
@@ -578,6 +602,7 @@ lv_obj_t* createScreen();
 lv_obj_t* createLabel(lv_obj_t* parent, const lv_font_t* font, uint32_t color, lv_text_align_t align);
 lv_obj_t* createAccent(lv_obj_t* parent, uint32_t color);
 lv_obj_t* createDivider(lv_obj_t* parent, int x, int y, int w, uint32_t color);
+lv_obj_t* createDividerSized(lv_obj_t* parent, int x, int y, int w, int h, uint32_t color);
 void updateTimeSecondProgress(int second);
 void setHidden(lv_obj_t* obj, bool hidden);
 bool setLabelTextIfChanged(lv_obj_t* label, const char* text);
@@ -616,6 +641,10 @@ bool isScreenSettingsScreenActive();
 void openScreenSettingsScreen();
 bool loadScreenSettingsFromFile();
 bool saveScreenSettingsToFile();
+bool isCryptoSettingsScreenActive();
+void openCryptoSettingsScreen();
+bool loadCryptoSettingsFromFile();
+bool saveCryptoSettingsToFile();
 bool isDisplaySettingsScreenActive();
 void openDisplaySettingsScreen();
 bool loadDisplaySettingsFromFile();
@@ -676,6 +705,11 @@ String cryptoPricePrefixText();
 String cryptoSpotUrl();
 String cryptoCandlesBaseUrl();
 String cryptoOkStatus();
+uint32_t cryptoChartGranularitySeconds();
+int cryptoChartCandleCount();
+const char* cryptoChartTimeframeLabel();
+String cryptoChartPriceText(const String& fallbackPrice, float livePrice);
+void resetCryptoDataState(const char* statusText);
 void configureSecureClient(WiFiClientSecure& client);
 void formatQuoteCompact(float value, char* buffer, size_t bufferSize);
 void updateBtcDayStatsLocked();
@@ -809,6 +843,7 @@ void setup() {
   loadTouchCalibrationFromFile();
   loadDisplaySettingsFromFile();
   loadScreenSettingsFromFile();
+  loadCryptoSettingsFromFile();
 
   if (!initBtcStorage()) {
     Serial.println("BTC Speicher Init fehlgeschlagen!");

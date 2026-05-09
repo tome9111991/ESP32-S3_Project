@@ -1116,11 +1116,14 @@ String formatUtcIsoTime(time_t value) {
 
 String buildBtcCandlesUrl() {
   time_t nowTime = time(nullptr);
-  const time_t rangeSeconds = (time_t)(BTC_DAY_CANDLE_COUNT + 5) * (time_t)BTC_CANDLE_SECONDS;
+  const uint32_t candleSeconds = cryptoChartGranularitySeconds();
+  const time_t rangeSeconds = (time_t)(cryptoChartCandleCount() + 5) * (time_t)candleSeconds;
   time_t startTime = nowTime - rangeSeconds;
 
   return cryptoCandlesBaseUrl() +
-    "?granularity=86400&start=" +
+    "?granularity=" +
+    String(candleSeconds) +
+    "&start=" +
     formatUtcIsoTime(startTime) +
     "&end=" +
     formatUtcIsoTime(nowTime);
@@ -1203,10 +1206,64 @@ bool fetchBtcCandles() {
   return false;
 }
 
+bool fetchBtcStats() {
+  WiFiClientSecure statsClient;
+  configureSecureClient(statsClient);
+
+  HTTPClient http;
+  String url = cryptoStatsUrl();
+  if (!http.begin(statsClient, url)) {
+    Serial.printf("%s Stats HTTP begin fehlgeschlagen\n", cryptoBaseSymbol);
+    return false;
+  }
+
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setReuse(false);
+  http.setTimeout(8000);
+  http.addHeader("User-Agent", "ESP32-S3-HMI");
+  int httpCodeStats = http.GET();
+  Serial.printf("%s Stats HTTP: %d\n", cryptoBaseSymbol, httpCodeStats);
+  yieldFetchTask();
+
+  if (httpCodeStats == HTTP_CODE_OK) {
+    String payload = readHttpPayloadChunked(http, 512);
+    yieldFetchTask();
+
+    String marker = "\"open\":\"";
+    int openIndex = payload.indexOf(marker);
+    if (openIndex >= 0) {
+      int start = openIndex + marker.length();
+      int end = payload.indexOf("\"", start);
+      if (end > start) {
+        float openPrice = payload.substring(start, end).toFloat();
+        if (openPrice > 0.0f) {
+          xSemaphoreTake(dataMutex, portMAX_DELAY);
+          btc24hOpenPrice = openPrice;
+          btc24hDataReady = true;
+          xSemaphoreGive(dataMutex);
+          Serial.printf("%s 24h Open: %.2f\n", cryptoBaseSymbol, openPrice);
+          http.end();
+          return true;
+        }
+      }
+    }
+
+    Serial.printf("%s Stats Open nicht gefunden:\n", cryptoBaseSymbol);
+    Serial.println(payload.substring(0, 240));
+  } else {
+    Serial.printf("%s Stats Fehler: ", cryptoBaseSymbol);
+    Serial.println(http.errorToString(httpCodeStats));
+  }
+
+  http.end();
+  return false;
+}
+
 // --- TASK: API ABFRAGEN ---
 void fetchDataTask(void *pvParameters) {
   unsigned long nextBtcFetch = 0;
   unsigned long nextBtcCandleFetch = 0;
+  unsigned long nextBtcStatsFetch = 0;
   unsigned long nextWeatherFetch = 0;
   unsigned long nextKlipperFetch = 0;
   unsigned long nextKlipperNameFetch = 0;
@@ -1239,6 +1296,7 @@ void fetchDataTask(void *pvParameters) {
         const unsigned long startAt = now + wifiStableBeforeFetchInterval;
         nextBtcFetch = startAt;
         nextBtcCandleFetch = startAt + 5000;
+        nextBtcStatsFetch = startAt + 7000;
         nextWeatherFetch = startAt + 10000;
         nextKlipperNameFetch = startAt + 17000;
         nextKlipperFetch = startAt + 24000;
@@ -1250,6 +1308,15 @@ void fetchDataTask(void *pvParameters) {
       if (now - wifiConnectedSince < wifiStableBeforeFetchInterval) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         continue;
+      }
+
+      if (cryptoRefreshRequested) {
+        cryptoRefreshRequested = false;
+        nextBtcFetch = now;
+        nextBtcCandleFetch = now;
+        nextBtcStatsFetch = now;
+        lastApiRequest = 0;
+        Serial.println("FetchData: Crypto Refresh angefordert");
       }
 
       if (lastApiRequest != 0 && now - lastApiRequest < apiRequestGapInterval) {
@@ -1317,6 +1384,24 @@ void fetchDataTask(void *pvParameters) {
             xSemaphoreGive(networkMutex);
           }
           nextBtcCandleFetch = millis() + (candleOk ? btcCandleRefreshInterval : btcCandleRetryInterval);
+          lastApiRequest = millis();
+        }
+        vTaskDelay(pdMS_TO_TICKS(250));
+        continue;
+      }
+
+      if ((long)(now - nextBtcStatsFetch) >= 0) {
+        if (!internetAvailable) {
+          nextBtcStatsFetch = millis() + btcStatsRetryInterval;
+        } else {
+          if (networkMutex != NULL) {
+            xSemaphoreTake(networkMutex, portMAX_DELAY);
+          }
+          bool statsOk = fetchBtcStats();
+          if (networkMutex != NULL) {
+            xSemaphoreGive(networkMutex);
+          }
+          nextBtcStatsFetch = millis() + (statsOk ? btcStatsRefreshInterval : btcStatsRetryInterval);
           lastApiRequest = millis();
         }
         vTaskDelay(pdMS_TO_TICKS(250));

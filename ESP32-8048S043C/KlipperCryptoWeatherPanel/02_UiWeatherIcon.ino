@@ -34,9 +34,13 @@ lv_obj_t* createAccent(lv_obj_t* parent, uint32_t color) {
 }
 
 lv_obj_t* createDivider(lv_obj_t* parent, int x, int y, int w, uint32_t color) {
+  return createDividerSized(parent, x, y, w, DIVIDER_H, color);
+}
+
+lv_obj_t* createDividerSized(lv_obj_t* parent, int x, int y, int w, int h, uint32_t color) {
   lv_obj_t* divider = lv_obj_create(parent);
   lv_obj_remove_style_all(divider);
-  lv_obj_set_size(divider, w, DIVIDER_H);
+  lv_obj_set_size(divider, w, h);
   lv_obj_set_style_bg_color(divider, lv_color_hex(color), 0);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
   lv_obj_set_style_radius(divider, 2, 0);
