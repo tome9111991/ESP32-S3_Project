@@ -1,64 +1,65 @@
-# ESP32-8048S043C Coding-Notizen
+# ESP32-8048S043C Coding Notes
 
-Stand: 2026-05-08, aufgeraeumt nach lokalen Display-/Touchtests
+Status: 2026-05-08, cleaned up after local display and touch tests
 
-Diese Notizen gelten fuer das Board `ESP32-8048S043C` mit
-`ESP32-S3-WROOM-1` und 4.3-Zoll-Display `800x480`.
+These notes apply to the `ESP32-8048S043C` board with an `ESP32-S3-WROOM-1`
+module and a 4.3-inch `800x480` display.
 
-## Kurzfazit
+## Summary
 
-- Board: ESP32-8048S043C, 4.3 Zoll HMI/TFT.
-- MCU/Modul: ESP32-S3-WROOM-1, Markierung `MCN16R8`.
-- Lokal bestaetigt: 16 MB Flash, 8 MB PSRAM, 40 MHz Crystal.
-- Display: 800 x 480 RGB565 ueber paralleles RGB-Interface.
-- Touch: GT911 per I2C, lokal Adresse `0x5D`.
-- Backlight: GPIO2, `HIGH` schaltet ein.
-- SD-Karte: SPI, CS GPIO10.
+- Board: ESP32-8048S043C, 4.3-inch HMI/TFT.
+- MCU/module: ESP32-S3-WROOM-1, marking `MCN16R8`.
+- Locally confirmed: 16 MB flash, 8 MB PSRAM, 40 MHz crystal.
+- Display: 800 x 480 RGB565 over a parallel RGB interface.
+- Touch: GT911 over I2C, locally found at address `0x5D`.
+- Backlight: GPIO2, `HIGH` turns it on.
+- SD card: SPI, CS on GPIO10.
 
-Empfohlene Displaybasis fuer fluessige Touch-GUI:
+Recommended display base for smooth touch GUIs:
 
-- `esp_lcd` RGB direkt mit Doublebuffer.
-- Testsketch: `displaytest_esp_lcd_doublefb/displaytest_esp_lcd_doublefb.ino`
-- Lokal deutlich stabiler beim Fingerziehen als Arduino_GFX single framebuffer.
+- Direct `esp_lcd` RGB setup with double buffering.
+- Test sketch: `displaytest_esp_lcd_doublefb/displaytest_esp_lcd_doublefb.ino`
+- Locally much more stable while dragging a finger than Arduino_GFX with a
+  single framebuffer.
 
-Arduino_GFX bleibt brauchbar fuer einfache/statische Tests:
+Arduino_GFX is still useful for simple or static tests:
 
-- Testsketch: `displaytest/displaytest.ino`
-- Display und Touch funktionieren.
-- Nicht ideal fuer schnelle Touch-Spuren, Animationen oder viele Updates,
-  weil die lokale Arduino_GFX-RGB-Klasse nur einen PSRAM-Framebuffer nutzt.
+- Test sketch: `displaytest/displaytest.ino`
+- Display and touch work.
+- Not ideal for fast touch trails, animations, or frequent updates because the
+  local Arduino_GFX RGB class uses only one PSRAM framebuffer.
 
-Nicht als Basis fuer dieses Setup empfohlen:
+Not recommended as the base for this setup:
 
-- direkter LovyanGFX-RGB-Treiber mit Arduino-ESP32 `3.3.8`
-- lokal Problem mit `LCD_CAM interrupt`; Display lief nicht sauber.
+- Direct LovyanGFX RGB driver with Arduino-ESP32 `3.3.8`.
+- Locally hit an `LCD_CAM interrupt` problem; the display did not run cleanly.
 
-Wichtig: Dieses Board ist kein Guition/JC4827W543 und kein NV3041A-QSPI-Panel.
-Keine QSPI-/SPI-Display-Pinbelegung uebernehmen.
+Important: This board is not a Guition/JC4827W543 and not an NV3041A QSPI
+panel. Do not reuse QSPI/SPI display pinouts for this board.
 
-## Arduino-IDE-Startwerte
+## Arduino IDE Starting Values
 
 - Board: `ESP32S3 Dev Module`
 - CPU Frequency: 240 MHz
 - Flash Size: 16 MB
-- Flash Mode: QIO 80 MHz, bei Boot-/Uploadproblemen DIO testen
-- PSRAM: `OPI PSRAM` / `Octal PSRAM` aktivieren
+- Flash Mode: QIO 80 MHz, try DIO if boot/upload is unreliable
+- PSRAM: enable `OPI PSRAM` / `Octal PSRAM`
 - Upload Speed: 921600
-- USB CDC On Boot: Disabled, wenn Serial/Upload ueber CH340/UART laeuft
-- JTAG Adapter: Disabled, wenn nicht genutzt
+- USB CDC On Boot: Disabled when Serial/upload uses CH340/UART
+- JTAG Adapter: Disabled when unused
 - Events Run On: Core 1
 - Arduino Runs On: Core 1
-- Partition Scheme: fuer Tests `16M Flash (3MB APP/9.9MB FATFS)`
+- Partition Scheme: for tests, `16M Flash (3MB APP/9.9MB FATFS)`
 
-PSRAM muss fuer `displaytest_esp_lcd_doublefb` aktiv sein. Zwei
-RGB565-Framebuffer plus Zeichenpuffer brauchen rund 2.3 MB PSRAM:
-`800 * 480 * 2 = 768000 Byte` pro Vollbildpuffer.
+PSRAM must be enabled for `displaytest_esp_lcd_doublefb`. Two RGB565
+framebuffers plus the draw buffer need roughly 2.3 MB PSRAM:
+`800 * 480 * 2 = 768000 bytes` per full framebuffer.
 
-## Display-Pins
+## Display Pins
 
-Kontrollsignale:
+Control signals:
 
-| Funktion | GPIO |
+| Function | GPIO |
 | --- | ---: |
 | LCD_DE | 40 |
 | LCD_VSYNC | 41 |
@@ -66,106 +67,106 @@ Kontrollsignale:
 | LCD_PCLK | 42 |
 | TFT_BL | 2 |
 
-RGB-Datenleitungen:
+RGB data lines:
 
-| Farbe | Bits | GPIOs |
+| Color | Bits | GPIOs |
 | --- | --- | --- |
-| Rot | R0 R1 R2 R3 R4 | 45, 48, 47, 21, 14 |
-| Gruen | G0 G1 G2 G3 G4 G5 | 5, 6, 7, 15, 16, 4 |
-| Blau | B0 B1 B2 B3 B4 | 8, 3, 46, 9, 1 |
+| Red | R0 R1 R2 R3 R4 | 45, 48, 47, 21, 14 |
+| Green | G0 G1 G2 G3 G4 G5 | 5, 6, 7, 15, 16, 4 |
+| Blue | B0 B1 B2 B3 B4 | 8, 3, 46, 9, 1 |
 
-Getestete Timing-Startwerte:
+Tested timing starting values:
 
-- Aufloesung: `800x480`
-- RGB: 16 Bit / RGB565
-- PCLK: `16000000`, bei Instabilitaet `14000000` testen
+- Resolution: `800x480`
+- RGB: 16 bit / RGB565
+- PCLK: `16000000`, test `14000000` if unstable
 - HSYNC: polarity `0`, front `8`, pulse `4`, back `16`
 - VSYNC: polarity `0`, front `4`, pulse `4`, back `4`
 - PCLK active negative: `1`
 - PCLK idle high: `1`
 - DE idle high: `0`
 
-## Empfohlener Displayweg
+## Recommended Display Path
 
-Fuer neue GUI-Arbeit zuerst auf diesem Sketch aufbauen:
+For new GUI work, start from this sketch:
 
 ```text
 displaytest_esp_lcd_doublefb/displaytest_esp_lcd_doublefb.ino
 ```
 
-Der Sketch nutzt:
+The sketch uses:
 
 - `esp_lcd_new_rgb_panel()`
 - `num_fbs = 2`
 - `double_fb = true`
 - `fb_in_psram = true`
 - `esp_lcd_panel_draw_bitmap()`
-- `on_color_trans_done`-Callback, bevor der Zeichenpuffer wiederverwendet wird
+- `on_color_trans_done` callback before reusing the draw buffer
 
-Lokales Ergebnis: stabileres Bild beim Fingerziehen. Reaktion ist etwas
-langsamer als direktes Arduino_GFX-Zeichnen, aber ohne sichtbare Verzerrung.
-Wenn mehr Reaktion noetig ist, zuerst im Sketch `TOUCH_FRAME_INTERVAL_MS` von
-`50` auf `30` oder `25` senken.
+Local result: a more stable image while dragging a finger. Response is slightly
+slower than drawing directly with Arduino_GFX, but without visible distortion.
+If more responsiveness is needed, first lower `TOUCH_FRAME_INTERVAL_MS` in the
+sketch from `50` to `30` or `25`.
 
-Wenn Speicher/Init Probleme macht:
+If memory or initialization problems occur:
 
-- pruefen, ob PSRAM aktiv ist
-- `LCD_BOUNCE_LINES` testweise von `10` auf `0` setzen
-- PCLK von `16000000` auf `14000000` senken
+- verify that PSRAM is enabled
+- test `LCD_BOUNCE_LINES` from `10` down to `0`
+- lower PCLK from `16000000` to `14000000`
 
-## Arduino_GFX-Nutzung
+## Arduino_GFX Use
 
-Arduino_GFX funktioniert lokal fuer Display-/Touch-Grundtests:
+Arduino_GFX works locally for basic display/touch tests:
 
 ```text
 displaytest/displaytest.ino
 ```
 
-Geeignet fuer:
+Suitable for:
 
-- statische Testbilder
-- einfache Statusanzeigen
-- seltene Label-/Wertupdates
+- static test images
+- simple status displays
+- infrequent label/value updates
 
-Nicht ideal fuer:
+Not ideal for:
 
-- Touch-Spuren beim Fingerziehen
-- laufende Animationen
-- haeufige Vollbild- oder Teilbildupdates
+- touch trails while dragging
+- continuous animations
+- frequent full-screen or partial-screen updates
 
-Grund: Die lokale `GFX_Library_for_Arduino` setzt fuer RGB intern
-`num_fbs = 1` und `double_fb = false`. Wenn CPU/Cache in denselben
-PSRAM-Framebuffer schreibt, den LCD_CAM gerade ausliest, koennen Verzerrungen
-auftreten.
+Reason: the local `GFX_Library_for_Arduino` RGB path internally sets
+`num_fbs = 1` and `double_fb = false`. If CPU/cache writes into the same PSRAM
+framebuffer that LCD_CAM is currently reading, visible distortion can occur.
 
-## Touch GT911
+## GT911 Touch
 
-| Funktion | GPIO / Wert |
+| Function | GPIO / Value |
 | --- | --- |
 | I2C SDA | GPIO19 |
 | I2C SCL | GPIO20 |
 | GT911 Reset | GPIO38 |
-| GT911 INT | GPIO18, nicht blind voraussetzen |
-| I2C-Adresse | lokal `0x5D`, Fallback `0x14` sinnvoll |
+| GT911 INT | GPIO18, do not assume it is usable |
+| I2C address | locally `0x5D`, fallback `0x14` is reasonable |
 
-Touchpolling funktioniert. Fuer neue Sketches erstmal ohne Interrupt arbeiten:
+Touch polling works. For new sketches, start without an interrupt:
 
 ```cpp
 Wire.begin(19, 20, 400000);
 ```
 
-Nach dem Lesen des GT911-Statusregisters `0x814E` wieder `0x00` schreiben.
-GPIO18/INT ist bei dieser Boardklasse oft nur mit Hardware-Mod sicher nutzbar.
+After reading the GT911 status register `0x814E`, write `0x00` back to it.
+GPIO18/INT is often only reliably usable on this board class with a hardware
+modification.
 
-Lokal gemessene Touch-Kalibrierung vom 2026-05-08:
+Locally measured touch calibration from 2026-05-08:
 
-- Display bleibt `800x480`.
-- Der GT911 liefert aber Rohwerte nur ungefaehr in diesem Bereich:
-  `raw_x` ca. `27..458`, `raw_y` ca. `24..249`.
-- Rohwerte deshalb nie direkt als Displaypixel verwenden.
-- Nach der Kalibrierung im Sketch
-  `displaytest_esp_lcd_doublefb/displaytest_esp_lcd_doublefb.ino`
-  waren diese Werte passend:
+- The display remains `800x480`.
+- The GT911 raw values are only roughly in this range:
+  `raw_x` about `27..458`, `raw_y` about `24..249`.
+- Never use raw values directly as display pixels.
+- After calibration in
+  `displaytest_esp_lcd_doublefb/displaytest_esp_lcd_doublefb.ino`, these values
+  matched well:
 
 ```cpp
 static constexpr bool TOUCH_USE_SAVED_CALIBRATION = true;
@@ -177,44 +178,44 @@ static constexpr float TOUCH_CAL_Y_RY = 1.79517055f;
 static constexpr float TOUCH_CAL_Y_C = 10.62223816f;
 ```
 
-Mapping nach dem GT911-Rohwertlesen:
+Mapping after reading raw GT911 values:
 
 ```cpp
 screen_x = constrain((int)((TOUCH_CAL_X_RX * raw_x) + (TOUCH_CAL_X_RY * raw_y) + TOUCH_CAL_X_C + 0.5f), 0, LCD_W - 1);
 screen_y = constrain((int)((TOUCH_CAL_Y_RX * raw_x) + (TOUCH_CAL_Y_RY * raw_y) + TOUCH_CAL_Y_C + 0.5f), 0, LCD_H - 1);
 ```
 
-Diese Kalibrierwerte gelten fuer dieses Board mit `800x480` und der aktuell
-getesteten Displayausrichtung. Bei gedrehtem/gespiegeltem Display neu
-kalibrieren oder Mapping anpassen.
+These calibration values apply to this board with `800x480` and the currently
+tested display orientation. Recalibrate or adjust the mapping when the display
+is rotated or mirrored.
 
-## SD-Karte
+## SD Card
 
-| Funktion | GPIO |
+| Function | GPIO |
 | --- | ---: |
 | SD_CS | 10 |
 | SD_MOSI | 11 |
 | SD_SCK | 12 |
 | SD_MISO | 13 |
 
-Diese Pins nicht gleichzeitig fuer andere SPI-Geraete verwenden, ausser mit
-sauberem CS-Handling.
+Do not reuse these pins for other SPI devices unless chip-select handling is
+clean.
 
-## Weitere Pins
+## Other Pins
 
-| GPIO | Nutzung |
+| GPIO | Use |
 | ---: | --- |
-| 0 | BOOT Button, Strapping beachten |
+| 0 | BOOT button, mind strapping |
 | 17 | NC |
-| 18 | CTP_INT nur mit/je nach Hardware-Mod |
-| 33, 34 | NA laut Pinlisten |
+| 18 | CTP_INT only with / depending on hardware modification |
+| 33, 34 | NA according to pin lists |
 | 35, 36, 37 | NC / NA |
 | 43 | U0TXD / CH340 Serial |
 | 44 | U0RXD / CH340 Serial |
 
-## Gemessene Boarddaten
+## Measured Board Data
 
-Lokal per esptool gemessen:
+Measured locally with esptool:
 
 ```text
 Chip type: ESP32-S3 (QFN56), revision v0.2
@@ -227,18 +228,17 @@ Secure Boot: Disabled
 Flash Encryption: Disabled
 ```
 
-## Praktische Regeln
+## Practical Rules
 
-- Fuer fluessige Touch-GUI: `esp_lcd` Doublebuffer als Basis nehmen.
-- Fuer einfache Tests: Arduino_GFX ist okay.
-- Keine schnellen Animationen direkt in einen aktiven single framebuffer
-  zeichnen.
-- Labels/Werte nur aktualisieren, wenn sie sich wirklich geaendert haben.
-- Bei Artefakten zuerst pruefen: PSRAM aktiv, PCLK 16/14 MHz, PCLK invertiert,
-  Porch-Werte, RGB-Pinreihenfolge.
-- LovyanGFX-RGB mit Arduino-ESP32 `3.3.8` hier nicht als Standardweg verwenden.
+- For smooth touch GUIs, use `esp_lcd` double buffering as the base.
+- For simple tests, Arduino_GFX is okay.
+- Do not draw fast animations directly into an active single framebuffer.
+- Update labels/values only when they actually changed.
+- When artifacts appear, first check: PSRAM enabled, PCLK 16/14 MHz, inverted
+  PCLK, porch values, RGB pin order.
+- Do not use LovyanGFX RGB with Arduino-ESP32 `3.3.8` as the default path here.
 
-## Quellen
+## Sources
 
 - ESP3D, Sunton 4.3 ESP32-8048S043C: https://esp3d.io/esp3d-tft/version_1x/hardware/esp32-s3/sunton-43-8048/
 - HomeDing Panel ESP32-8048S043C: https://homeding.github.io/boards/esp32s3/panel-8048S043.htm
