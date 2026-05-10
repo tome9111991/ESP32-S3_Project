@@ -30,6 +30,16 @@ The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.i
 
 ## Hardware
 
+Bill of Materials:
+
+Some links may be affiliate links. If you buy through them, I may earn a small commission at no extra cost to you.
+
+| Qty | Part | Source |
+| ---: | --- | --- |
+| 1 | Guition JC4827W543 ESP32-S3 HMI display | [Amazon](https://amzn.to/4uCGdZd) |
+| 4 | M3x6 cylinder head screws | [Amazon](https://amzn.to/430va00) |
+| 4 | M3 heat-set inserts, 5x4 mm | [Amazon](https://amzn.to/4wgW0P7) |
+
 Target display:
 
 - Guition JC4827W543 ESP32-S3 HMI display
@@ -50,6 +60,8 @@ The display bus and panel pins are configured in `Guition_JC4827W543.ino`:
 | BL | 1 |
 
 The sketch tries to use PSRAM for larger LVGL and chart buffers, with fallbacks to internal RAM where possible. Enable PSRAM in your board settings if your module provides it.
+
+The Amazon listing may only offer the touch version of the Guition JC4827W543. Dimensions, connector positions, and pinout appear to match the tested non-touch version, so it is expected to work, but it has not been tested with this build.
 
 ## Software Requirements
 
