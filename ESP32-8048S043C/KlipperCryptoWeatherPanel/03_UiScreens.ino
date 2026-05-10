@@ -252,14 +252,26 @@ void createKlipperScreen() {
     styleFilledRect(klipperMmuGateBox[i], COLOR_DIM, 3);
     lv_obj_set_size(klipperMmuGateBox[i], gateW, gateH);
     lv_obj_set_pos(klipperMmuGateBox[i], gateStartX + (i * (gateW + gateGap)), 438);
-    lv_obj_set_style_border_width(klipperMmuGateBox[i], 0, 0);
-    lv_obj_set_style_border_color(klipperMmuGateBox[i], lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_style_outline_color(klipperMmuGateBox[i], lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_style_outline_pad(klipperMmuGateBox[i], 2, 0);
+    lv_obj_set_style_outline_width(klipperMmuGateBox[i], 0, 0);
+
+    klipperMmuGateEmptyPts[i][0].x = 0;
+    klipperMmuGateEmptyPts[i][0].y = gateH;
+    klipperMmuGateEmptyPts[i][1].x = gateW;
+    klipperMmuGateEmptyPts[i][1].y = 0;
+    klipperMmuGateEmptyLine[i] = lv_line_create(klipperMmuGateBox[i]);
+    lv_line_set_points(klipperMmuGateEmptyLine[i], klipperMmuGateEmptyPts[i], 2);
+    lv_obj_set_style_line_color(klipperMmuGateEmptyLine[i], lv_color_hex(COLOR_LOSS), 0);
+    lv_obj_set_style_line_width(klipperMmuGateEmptyLine[i], 5, 0);
+    lv_obj_set_style_line_opa(klipperMmuGateEmptyLine[i], LV_OPA_70, 0);
+    lv_obj_set_pos(klipperMmuGateEmptyLine[i], 0, 0);
+    setHidden(klipperMmuGateEmptyLine[i], true);
 
     klipperMmuGateLabel[i] = createLabel(klipperMmuGateBox[i], &lv_font_montserrat_28, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
-    lv_obj_set_size(klipperMmuGateLabel[i], gateW, gateH);
-    lv_obj_set_pos(klipperMmuGateLabel[i], 0, 0);
     String gateLabel = "T" + String(i);
     lv_label_set_text(klipperMmuGateLabel[i], gateLabel.c_str());
+    lv_obj_center(klipperMmuGateLabel[i]);
   }
 }
 
@@ -673,12 +685,15 @@ void refreshKlipperUi() {
     bool gateVisible = mmuAvailable && i < mmuGateCount;
     setHidden(klipperMmuGateBox[i], !gateVisible);
     if (!gateVisible) {
+      setHidden(klipperMmuGateEmptyLine[i], true);
       continue;
     }
 
-    uint32_t gateColor = mmuGateStatus[i] == 0 ? COLOR_DIM : mmuGateColors[i];
+    bool gateEmpty = mmuGateStatus[i] == 0;
+    uint32_t gateColor = gateEmpty ? COLOR_DIM : mmuGateColors[i];
     lv_obj_set_style_bg_color(klipperMmuGateBox[i], lv_color_hex(gateColor), 0);
-    lv_obj_set_style_border_width(klipperMmuGateBox[i], i == mmuGate ? 2 : 0, 0);
+    lv_obj_set_style_outline_width(klipperMmuGateBox[i], i == mmuGate ? 3 : 0, 0);
+    setHidden(klipperMmuGateEmptyLine[i], !gateEmpty);
 
     uint8_t r = (gateColor >> 16) & 0xff;
     uint8_t g = (gateColor >> 8) & 0xff;
