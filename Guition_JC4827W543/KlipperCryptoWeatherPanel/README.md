@@ -36,9 +36,9 @@ Some links may be affiliate links. If you buy through them, I may earn a small c
 
 | Qty | Part | Source |
 | ---: | --- | --- |
-| 1 | Guition JC4827W543 ESP32-S3 HMI display | [Amazon](https://amzn.to/4uCGdZd) |
-| 4 | M3x6 cylinder head screws | [Amazon](https://amzn.to/430va00) |
-| 4 | M3 heat-set inserts, 5x4 mm | [Amazon](https://amzn.to/4wgW0P7) |
+| 1 | Guition JC4827W543 ESP32-S3 HMI display | [AliExpress - tested source](https://s.click.aliexpress.com/e/_c3ckN0VN), select `Without Touch`; [Amazon - untested touch version](https://amzn.to/4uCGdZd) |
+| 4 | M3x6 cylinder head screws | [Amazon](https://amzn.to/430va00), [AliExpress](https://s.click.aliexpress.com/e/_c3xgcUUx), select `50pcs M3x6mm` |
+| 4 | M3 heat-set inserts, 5x4 mm | [Amazon](https://amzn.to/4wgW0P7), [AliExpress](https://s.click.aliexpress.com/e/_c3v6WnvD), `30pcs` |
 
 Target display:
 
@@ -61,7 +61,7 @@ The display bus and panel pins are configured in `Guition_JC4827W543.ino`:
 
 The sketch tries to use PSRAM for larger LVGL and chart buffers, with fallbacks to internal RAM where possible. Enable PSRAM in your board settings if your module provides it.
 
-The Amazon listing may only offer the touch version of the Guition JC4827W543. Dimensions, connector positions, and pinout appear to match the tested non-touch version, so it is expected to work, but it has not been tested with this build.
+The tested AliExpress board variant is `Without Touch`. The Amazon listing may only offer the touch version of the Guition JC4827W543. Dimensions, connector positions, and pinout appear to match the tested non-touch version, so it is expected to work, but it has not been tested with this build.
 
 ## Software Requirements
 
