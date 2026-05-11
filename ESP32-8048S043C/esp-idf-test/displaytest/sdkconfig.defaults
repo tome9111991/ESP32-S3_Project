@@ -53,10 +53,9 @@ CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 
-# --- Partition-Table (groß genug für OTA + Assets später) ---------------------
-# Fürs erste Default; sobald du WebUI/LVGL-Assets brauchst, eigene CSV:
-# CONFIG_PARTITION_TABLE_CUSTOM=y
-# CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# --- Partition-Table (EEZ-Fonts/Assets brauchen mehr als 1 MB App-Slot) -------
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 # --- USB (Native USB des S3 - praktisch für CDC-Konsole/JTAG) -----------------
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
@@ -74,6 +73,9 @@ CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 # --- LVGL ---------------------------------------------------------------------
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_34=y
+CONFIG_LV_FONT_MONTSERRAT_36=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_USE_PERF_MONITOR=y

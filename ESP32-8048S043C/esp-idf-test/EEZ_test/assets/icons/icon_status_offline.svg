@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="147" height="147" viewBox="0 0 147 147">
+  <title>Status Offline</title>
+  <rect width="147" height="147" fill="#080c10"/>
+  <g fill="none" stroke="#ff5d6c" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="73.5" cy="73.5" r="51"/>
+    <path d="M37.5 37.5l72 72"/>
+    <path d="M50 69c13-12 34-12 47 0"/>
+    <path d="M62 84c6-5 17-5 23 0"/>
+  </g>
+  <circle cx="73.5" cy="101" r="7" fill="#ff5d6c"/>
+</svg>
