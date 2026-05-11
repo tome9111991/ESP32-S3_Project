@@ -1,6 +1,6 @@
 # ESP32-8048S043C Displaytest
 
-ESP-IDF v6 project for the **Sunton ESP32-8048S043C** (4.3" 800x480 RGB panel
+ESP-IDF v6 project for the **ESP32-8048S043C** (4.3" 800x480 RGB panel
 with GT911 touch). Current state: a working LVGL skeleton with touch input —
 intended as a launching pad for a custom dashboard (WiFi, API, config, etc.).
 
@@ -24,7 +24,7 @@ added directly inside `build_ui()`.
 
 | Item | Value |
 |---|---|
-| Board | Sunton ESP32-8048S043**C** |
+| Board | ESP32-8048S043**C** |
 | MCU | ESP32-S3-WROOM-1 N16R8 |
 | Flash | 16 MB, QIO @ 80 MHz |
 | PSRAM | 8 MB Octal @ 80 MHz |

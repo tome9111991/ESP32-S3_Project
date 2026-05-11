@@ -240,8 +240,6 @@ Flash Encryption: Disabled
 
 ## Sources
 
-- ESP3D, Sunton 4.3 ESP32-8048S043C: https://esp3d.io/esp3d-tft/version_1x/hardware/esp32-s3/sunton-43-8048/
 - HomeDing Panel ESP32-8048S043C: https://homeding.github.io/boards/esp32s3/panel-8048S043.htm
-- ESPHome Devices, Sunton ESP32-8048S043C: https://devices.esphome.io/devices/sunton-esp32-8048s043c/
 - Espressif RGB LCD / esp_lcd: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/lcd/rgb_lcd.html
 - Espressif ESP32-S3-WROOM-1/WROOM-1U Datasheet: https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf

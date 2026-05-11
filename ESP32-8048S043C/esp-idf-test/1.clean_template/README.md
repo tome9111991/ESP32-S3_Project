@@ -1,6 +1,6 @@
 # ESP32-8048S043C Clean Template
 
-Minimal ESP-IDF project template, pre-configured for the **Sunton ESP32-8048S043C** board.
+Minimal ESP-IDF project template, pre-configured for the **ESP32-8048S043C** board.
 
 ## Hardware
 
