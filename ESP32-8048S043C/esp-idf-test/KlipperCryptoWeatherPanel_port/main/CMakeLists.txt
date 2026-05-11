@@ -1,0 +1,35 @@
+file(GLOB UI_ASSET_SRCS "ui_assets/*.c")
+
+idf_component_register(
+    SRCS
+        "main.c"
+        "ui_screens.c"
+        "ui_chart.c"
+        "ui_popup.c"
+        "ui_settings_menu.c"
+        "ui_display_settings.c"
+        "display_brightness.c"
+        "net_fetcher.c"
+        "ui_font_price_digits.cpp"
+        "ui_font_time_digits.cpp"
+        ${UI_ASSET_SRCS}
+    INCLUDE_DIRS "."
+    REQUIRES
+        esp_lcd
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_driver_ledc
+        esp_timer
+        esp_wifi
+        esp_event
+        esp_netif
+        nvs_flash
+        esp_http_client
+        esp-tls
+        mbedtls
+        espressif__cjson
+        lwip
+        espressif__esp_lvgl_port
+        espressif__esp_lcd_touch_gt911
+        lvgl__lvgl
+)

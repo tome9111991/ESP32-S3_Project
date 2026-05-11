@@ -1,0 +1,87 @@
+# =============================================================================
+# Board: ESP32-8048S043C
+# Chip:  ESP32-S3-WROOM-1  N16R8  (16 MB Flash, 8 MB Octal-PSRAM)
+# =============================================================================
+
+# --- Target -------------------------------------------------------------------
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- CPU ----------------------------------------------------------------------
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+
+# --- Flash (16 MB, QIO, 80 MHz) -----------------------------------------------
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# --- PSRAM (8 MB Octal @ 80 MHz) ----------------------------------------------
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# XIP aus PSRAM AUS: Code/rodata aus PSRAM zu fetchen erzeugt Bus-Contention
+# mit dem LCD-DMA → Shake/Tearing bei UI-Events. Internes Flash-XIP ist hier
+# besser für RGB-Stabilitaet.
+# CONFIG_SPIRAM_FETCH_INSTRUCTIONS is not set
+# CONFIG_SPIRAM_RODATA is not set
+
+# --- FreeRTOS (1 kHz Tick - flüssiger für LVGL/Touch) -------------------------
+CONFIG_FREERTOS_HZ=1000
+
+# --- Main Task Stack (LVGL braucht mehr als 3.5 kB Default) -------------------
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# --- CPU-Cache: max. gueltige ESP32-S3 Cache-Optionen fuer IDF 6 -------------
+# Instruction-Cache geht beim ESP32-S3 bis 32 kB / 32-Byte Lines.
+# Data-Cache bleibt auf 64 kB / 64-Byte Lines.
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_LINE_32B=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# --- Compiler: Performance ----------------------------------------------------
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_PERF=y
+
+# --- Log-Level (etwas ruhiger) ------------------------------------------------
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+
+# --- Partition-Table (16 MB Flash: 4 MB factory + 2x 4 MB OTA) ---------------
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- USB (Native USB des S3 - praktisch für CDC-Konsole/JTAG) -----------------
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
+
+# --- Brownout etwas toleranter (RGB-Panel zieht Strompeaks) -------------------
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+
+# --- RGB-LCD ISR Konfiguration ------------------------------------------------
+# IRAM_SAFE bewusst AUS: esp_lvgl_port's VSYNC-Callback liegt nicht in IRAM und
+# erwartet ISR_IRAM_SAFE=n. Wenn spaeter Flash/NVS-Writes (WiFi-Config etc.)
+# Artefakte erzeugen, gibts mehrere Wege das zu loesen (z.B. LVGL pausieren
+# waehrend NVS-Commit), ohne den Treiber strenger zu machen als esp_lvgl_port.
+CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+
+# --- LVGL ---------------------------------------------------------------------
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_30=y
+CONFIG_LV_FONT_MONTSERRAT_40=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# --- TLS ----------------------------------------------------------------------
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
