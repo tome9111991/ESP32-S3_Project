@@ -33,6 +33,8 @@ static const char *TAG = "dashboard";
 #define SCREEN_TIME_MS      30000
 #define SCREEN_DEFAULT_MS   15000
 #define LVGL_PARTIAL_BUFFER_ROWS 20
+#define WIFI_PROBE_SSID_LEN      33
+#define WIFI_PROBE_PASS_LEN      65
 
 // Long-press oeffnet Popup-Menue (Werte gespiegelt vom Arduino-Sketch).
 #define LONG_PRESS_MS              3000
@@ -257,6 +259,14 @@ static bool wifi_is_connected(void)
     connected = g_app.wifi_connected;
     app_unlock();
     return connected;
+}
+
+static bool wifi_config_available(void)
+{
+    char ssid[WIFI_PROBE_SSID_LEN] = {0};
+    char pass[WIFI_PROBE_PASS_LEN] = {0};
+    // Nur pruefen, ob beim Boot ueberhaupt WLAN-Daten vorhanden sind.
+    return wifi_credentials_load(ssid, sizeof(ssid), pass, sizeof(pass));
 }
 
 static bool ui_control_screen_is_open(void)
@@ -514,10 +524,15 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init app state");
     init_app_state();
+    const bool have_wifi_config = wifi_config_available();
 
     ESP_LOGI(TAG, "Build dashboard UI");
     if (lvgl_port_lock(0)) {
         ui_init();
+        if (!have_wifi_config) {
+            // Ohne Credentials direkt in das bestehende WLAN-Setup springen.
+            ui_wifi_setup_open();
+        }
         lv_timer_create(dashboard_refresh_timer_cb, UI_REFRESH_MS, NULL);
         lv_timer_create(dashboard_rotate_timer_cb, 1000, NULL);
         lv_timer_create(touch_poll_timer_cb, TOUCH_POLL_MS, NULL);

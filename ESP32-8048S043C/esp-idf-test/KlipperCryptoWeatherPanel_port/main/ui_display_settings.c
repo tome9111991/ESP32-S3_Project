@@ -17,8 +17,7 @@ static lv_obj_t *s_slider           = NULL;
 static lv_obj_t *s_value_label      = NULL;
 static lv_obj_t *s_return_screen    = NULL;
 static bool      s_from_settings_menu = false;
-static lv_obj_t *s_rotate_box       = NULL;
-static lv_obj_t *s_rotate_check     = NULL;
+static lv_obj_t *s_rotate_switch    = NULL;
 static lv_obj_t *s_rotate_hint      = NULL;
 static uint8_t   s_saved_brightness = DAY_BRIGHTNESS_DEFAULT;
 static bool      s_saved_rotate_180 = false;
@@ -95,8 +94,7 @@ static void close_screen(void)
         s_screen        = NULL;
         s_slider        = NULL;
         s_value_label   = NULL;
-        s_rotate_box    = NULL;
-        s_rotate_check  = NULL;
+        s_rotate_switch = NULL;
         s_rotate_hint   = NULL;
         s_return_screen = NULL;
         ui_perform_clean_reboot();
@@ -115,8 +113,7 @@ static void close_screen(void)
     s_screen        = NULL;
     s_slider        = NULL;
     s_value_label   = NULL;
-    s_rotate_box    = NULL;
-    s_rotate_check  = NULL;
+    s_rotate_switch = NULL;
     s_rotate_hint   = NULL;
     s_return_screen = NULL;
     s_from_settings_menu = false;
@@ -130,17 +127,13 @@ static void on_back_clicked(lv_event_t *e)
 
 static void update_rotate_visuals(void)
 {
-    if (s_rotate_box) {
-        lv_obj_set_style_bg_color(s_rotate_box,
-            lv_color_hex(s_draft_rotate_180 ? COLOR_CYAN : 0x232b38), 0);
-        lv_obj_set_style_border_color(s_rotate_box,
-            lv_color_hex(s_draft_rotate_180 ? COLOR_TEXT : COLOR_DIM), 0);
-    }
-    if (s_rotate_check) {
-        lv_obj_set_style_text_color(s_rotate_check,
-            lv_color_hex(s_draft_rotate_180 ? COLOR_BG : COLOR_MUTED), 0);
-        lv_label_set_text(s_rotate_check,
-            s_draft_rotate_180 ? LV_SYMBOL_OK : "");
+    if (s_rotate_switch) {
+        // Switch-State folgt dem Entwurf; gespeichert wird erst beim Zurueckgehen.
+        if (s_draft_rotate_180) {
+            lv_obj_add_state(s_rotate_switch, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_rotate_switch, LV_STATE_CHECKED);
+        }
     }
     if (s_rotate_hint) {
         const bool changed = s_draft_rotate_180 != s_saved_rotate_180;
@@ -156,6 +149,13 @@ static void on_rotate_row_clicked(lv_event_t *e)
 {
     (void)e;
     s_draft_rotate_180 = !s_draft_rotate_180;
+    update_rotate_visuals();
+}
+
+static void on_rotate_switch_changed(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target_obj(e);
+    s_draft_rotate_180 = lv_obj_has_state(sw, LV_STATE_CHECKED);
     update_rotate_visuals();
 }
 
@@ -237,7 +237,7 @@ void ui_display_settings_open(void)
     lv_obj_set_style_pad_all(s_slider, 8, LV_PART_KNOB);
     lv_obj_add_event_cb(s_slider, on_slider_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // Rotate-180 Toggle-Row (klickbarer Container mit Checkbox-Look)
+    // Rotate-180 Toggle-Row (klickbarer Container mit LVGL-Switch)
     lv_obj_t *row = lv_obj_create(s_screen);
     style_filled_rect(row, 0x151b24, 8);
     lv_obj_set_size(row, 600, 96);
@@ -249,28 +249,25 @@ void ui_display_settings_open(void)
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(row, on_rotate_row_clicked, LV_EVENT_CLICKED, NULL);
 
-    s_rotate_box = lv_obj_create(row);
-    lv_obj_remove_style_all(s_rotate_box);
-    lv_obj_set_size(s_rotate_box, 48, 48);
-    lv_obj_set_pos(s_rotate_box, 24, 24);
-    lv_obj_set_style_radius(s_rotate_box, 6, 0);
-    lv_obj_set_style_border_width(s_rotate_box, 2, 0);
-    lv_obj_set_style_bg_opa(s_rotate_box, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(s_rotate_box, 0, 0);
-    lv_obj_remove_flag(s_rotate_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_rotate_box, LV_OBJ_FLAG_EVENT_BUBBLE);
-
-    s_rotate_check = make_label(s_rotate_box, &lv_font_montserrat_30, COLOR_BG,
-                                LV_TEXT_ALIGN_CENTER, 0, 4, 48, 48, "");
-    lv_obj_add_flag(s_rotate_check, LV_OBJ_FLAG_EVENT_BUBBLE);
+    s_rotate_switch = lv_switch_create(row);
+    lv_obj_set_size(s_rotate_switch, 84, 44);
+    lv_obj_set_pos(s_rotate_switch, 24, 26);
+    lv_obj_set_style_bg_color(s_rotate_switch, lv_color_hex(0x232b38), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_rotate_switch, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_rotate_switch, lv_color_hex(COLOR_CYAN), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_rotate_switch, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_rotate_switch, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s_rotate_switch, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_add_event_cb(s_rotate_switch, on_rotate_switch_changed,
+                        LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *title = make_label(row, &lv_font_montserrat_30, COLOR_TEXT,
-                                 LV_TEXT_ALIGN_LEFT, 96, 14, 460, 36,
+                                 LV_TEXT_ALIGN_LEFT, 128, 14, 420, 36,
                                  "Display 180 Grad drehen");
     lv_obj_add_flag(title, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     s_rotate_hint = make_label(row, &lv_font_montserrat_24, COLOR_MUTED,
-                               LV_TEXT_ALIGN_LEFT, 96, 54, 460, 32, "");
+                               LV_TEXT_ALIGN_LEFT, 128, 54, 420, 32, "");
     lv_obj_add_flag(s_rotate_hint, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     update_rotate_visuals();

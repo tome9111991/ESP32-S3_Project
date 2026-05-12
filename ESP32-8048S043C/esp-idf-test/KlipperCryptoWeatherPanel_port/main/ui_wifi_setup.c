@@ -49,7 +49,8 @@ static const char * const wifi_kb_map_lc[] = {
     "1#", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", LV_SYMBOL_BACKSPACE, "\n",
     "ABC", "a", "s", "d", "f", "g", "h", "j", "k", "l", LV_SYMBOL_OK, "\n",
     "_", "-", "z", "x", "c", "v", "b", "n", "m", ".", ",", ":", "\n",
-    LV_SYMBOL_KEYBOARD, " ", LV_SYMBOL_OK, ""
+    // Unten rechts verwirft X die aktuelle Eingabe.
+    LV_SYMBOL_KEYBOARD, " ", LV_SYMBOL_CLOSE, ""
 };
 
 static const lv_buttonmatrix_ctrl_t wifi_kb_ctrl_lc[] = {
@@ -63,7 +64,8 @@ static const char * const wifi_kb_map_uc[] = {
     "1#", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", LV_SYMBOL_BACKSPACE, "\n",
     "abc", "A", "S", "D", "F", "G", "H", "J", "K", "L", LV_SYMBOL_OK, "\n",
     "_", "-", "Z", "X", "C", "V", "B", "N", "M", ".", ",", ":", "\n",
-    LV_SYMBOL_CLOSE, " ", LV_SYMBOL_OK, ""
+    // Unten rechts verwirft X die aktuelle Eingabe.
+    LV_SYMBOL_CLOSE, " ", LV_SYMBOL_CLOSE, ""
 };
 
 static const lv_buttonmatrix_ctrl_t wifi_kb_ctrl_uc[] = {
@@ -77,7 +79,8 @@ static const char * const wifi_kb_map_spec[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", LV_SYMBOL_BACKSPACE, "\n",
     "abc", "+", "&", "/", "*", "=", "%", "!", "?", "#", "<", ">", "\n",
     "\\", "@", "$", "(", ")", "{", "}", "[", "]", ";", "\"", "'", "\n",
-    LV_SYMBOL_KEYBOARD, " ", LV_SYMBOL_OK, ""
+    // Unten rechts verwirft X die aktuelle Eingabe.
+    LV_SYMBOL_KEYBOARD, " ", LV_SYMBOL_CLOSE, ""
 };
 
 static const lv_buttonmatrix_ctrl_t wifi_kb_ctrl_spec[] = {
@@ -231,7 +234,8 @@ static void open_keyboard_screen(lv_obj_t *target_ta, const char *title, bool pa
     lv_obj_set_style_pad_row(s_kb_widget, 1, 0);
     lv_obj_set_style_pad_column(s_kb_widget, 2, 0);
     lv_obj_remove_flag(s_kb_widget, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_text_font(s_kb_widget, &lv_font_montserrat_18, LV_PART_ITEMS);
+    // Grosse Tastenbeschriftung fuer die Fullscreen-WLAN-Tastatur.
+    lv_obj_set_style_text_font(s_kb_widget, &lv_font_montserrat_30, LV_PART_ITEMS);
     lv_obj_set_style_bg_color(s_kb_widget, lv_color_hex(0x18202b), LV_PART_ITEMS);
     lv_obj_set_style_bg_opa(s_kb_widget, LV_OPA_COVER, LV_PART_ITEMS);
     lv_obj_set_style_border_width(s_kb_widget, 1, LV_PART_ITEMS);
@@ -455,9 +459,14 @@ void ui_wifi_setup_open(void)
     // Vorbelegen mit aktuellen Credentials.
     char ssid_buf[33] = {0};
     char pass_buf[65] = {0};
-    wifi_credentials_load(ssid_buf, sizeof(ssid_buf), pass_buf, sizeof(pass_buf));
+    bool have_wifi_config = wifi_credentials_load(ssid_buf, sizeof(ssid_buf),
+                                                  pass_buf, sizeof(pass_buf));
     lv_textarea_set_text(s_ssid_ta, ssid_buf);
     lv_textarea_set_text(s_pass_ta, pass_buf);
+    if (!have_wifi_config) {
+        // Boot-Onboarding: Nutzer landet hier automatisch, wenn WLAN fehlt.
+        set_status("Keine WLAN-Daten gespeichert", COLOR_LOSS);
+    }
 
     lv_screen_load(s_screen);
 }
