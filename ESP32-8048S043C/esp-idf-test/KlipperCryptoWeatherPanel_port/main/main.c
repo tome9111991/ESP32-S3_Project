@@ -26,13 +26,14 @@
 
 static const char *TAG = "dashboard";
 
-#define LCD_PIXEL_CLOCK_HZ  (16 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ  (14 * 1000 * 1000)
 #define UI_REFRESH_MS       1000
 #define TOUCH_POLL_MS       50
 #define TOUCH_MIN_GAP_MS    450
 #define SCREEN_TIME_MS      30000
 #define SCREEN_DEFAULT_MS   15000
 #define LVGL_PARTIAL_BUFFER_ROWS 20
+#define LCD_FAST_MODE_WITH_ROTATION 0
 #define WIFI_PROBE_SSID_LEN      33
 #define WIFI_PROBE_PASS_LEN      65
 
@@ -475,13 +476,13 @@ void app_main(void)
     const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     ESP_ERROR_CHECK(lvgl_port_init(&lvgl_cfg));
 
-    // 180-Rotation laeuft per lv_display_set_rotation und braucht Partial-Buffer
-    // ohne direct_mode/avoid_tearing. Ohne Rotation bringen direct_mode + Tearing-
-    // Vermeidung mehr Performance und nutzen beide PSRAM-Framebuffer.
-    const uint32_t lvgl_buffer_size  = s_rotate_180 ? (LCD_H_RES * LVGL_PARTIAL_BUFFER_ROWS)
-                                                    : (LCD_H_RES * LCD_V_RES);
-    const bool lvgl_direct_mode      = !s_rotate_180;
-    const bool lvgl_avoid_tearing    = !s_rotate_180;
+    // Testschalter: direct_mode/avoid_tearing auch bei 180-Grad-Rotation nutzen.
+    // Falls das Bild damit haengt/blank bleibt, LCD_FAST_MODE_WITH_ROTATION auf 0.
+    const bool lvgl_fast_mode = (!s_rotate_180) || (LCD_FAST_MODE_WITH_ROTATION != 0);
+    const uint32_t lvgl_buffer_size = lvgl_fast_mode ? (LCD_H_RES * LCD_V_RES)
+                                                     : (LCD_H_RES * LVGL_PARTIAL_BUFFER_ROWS);
+    const bool lvgl_direct_mode   = lvgl_fast_mode;
+    const bool lvgl_avoid_tearing = lvgl_fast_mode;
 
     lvgl_port_display_cfg_t disp_cfg = {
         .panel_handle = panel,
