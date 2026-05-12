@@ -8,6 +8,7 @@
 #include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "esp_lcd_touch.h"
 #include "lvgl.h"
 
 #ifdef __cplusplus
@@ -84,6 +85,20 @@ typedef struct {
     float volume;
 } btc_candle_t;
 
+// --- Runtime crypto settings ------------------------------------------------
+#define CRYPTO_SYMBOL_MAX_LEN     7
+#define CRYPTO_PREFIX_MAX_LEN     7
+#define CRYPTO_SERVICE_MAX_LEN    15
+#define CRYPTO_TIMEFRAME_MAX_LEN  7
+
+typedef struct {
+    char base[CRYPTO_SYMBOL_MAX_LEN + 1];
+    char quote[CRYPTO_SYMBOL_MAX_LEN + 1];
+    char price_prefix[CRYPTO_PREFIX_MAX_LEN + 1];
+    char service[CRYPTO_SERVICE_MAX_LEN + 1];
+    char timeframe[CRYPTO_TIMEFRAME_MAX_LEN + 1];
+} crypto_config_t;
+
 // --- Shared, mutex-protected app state --------------------------------------
 typedef struct {
     SemaphoreHandle_t mutex;
@@ -116,6 +131,8 @@ typedef struct {
     // Klipper
     bool klipper_available;
     bool klipper_host_available;
+    char klipper_connection_state[24];
+    char klipper_connection_message[96];
     char klipper_state[24];
     char klipper_file[96];
     char klipper_progress[8];
@@ -125,6 +142,16 @@ typedef struct {
     char klipper_status[64];
     char klipper_printer_name[48];
     char klipper_display_message[64];
+    char klipper_metadata_filename[192];
+    float klipper_estimated_duration_seconds;
+    uint32_t klipper_metadata_retry_after;
+    bool klipper_mmu_available;
+    char klipper_mmu_info[64];
+    int klipper_mmu_tool;
+    int klipper_mmu_gate;
+    int klipper_mmu_gate_count;
+    uint32_t klipper_mmu_gate_colors[MMU_GATE_MAX];
+    int klipper_mmu_gate_status[MMU_GATE_MAX];
 
     // Network / WiFi
     bool wifi_connected;
@@ -132,6 +159,7 @@ typedef struct {
 } app_state_t;
 
 extern app_state_t g_app;
+extern crypto_config_t g_crypto;
 
 static inline void app_lock(void)   { xSemaphoreTake(g_app.mutex, portMAX_DELAY); }
 static inline void app_unlock(void) { xSemaphoreGive(g_app.mutex); }
@@ -178,9 +206,11 @@ static inline void app_unlock(void) { xSemaphoreGive(g_app.mutex); }
 void ui_init(void);
 void ui_refresh_current(void);
 void ui_switch_screen(screen_state_t target);
+void ui_load_current_screen_no_anim(void);
 screen_state_t ui_current_screen(void);
 screen_state_t ui_next_screen(screen_state_t state);
 screen_state_t ui_previous_screen(screen_state_t state);
+bool ui_screen_is_available(screen_state_t state);
 
 // Used by chart module to access labels.
 lv_obj_t *ui_get_btc_chart_canvas(void);
@@ -222,18 +252,61 @@ bool calculate_sun_times(const struct tm *t, int *sunrise_min, int *sunset_min);
 void ui_display_settings_open(void);
 bool ui_display_settings_is_open(void);
 
+// --- Screen-Settings (implemented in ui_screen_settings.c) -----------------
+void screen_settings_init_defaults(void);
+bool screen_settings_load(void);
+bool screen_settings_save(void);
+bool screen_settings_is_enabled(screen_state_t state);
+void screen_settings_set_enabled(screen_state_t state, bool enabled);
+int  screen_settings_enabled_count(void);
+void screen_settings_ensure_one_enabled(void);
+void ui_screen_settings_open(void);
+bool ui_screen_settings_is_open(void);
+
 // --- Settings-Menue (implemented in ui_settings_menu.c) --------------------
 void ui_settings_menu_open(void);
 void ui_settings_menu_reopen(void);    // Re-Entry aus Sub-Screen, ohne return_target zu verlieren
 bool ui_settings_menu_is_open(void);
 lv_obj_t *ui_settings_menu_return_target(void);
 
+// --- Touch-Kalibrierung (implemented in touch_calibration.c) ---------------
+bool touch_calibration_load(void);
+void touch_calibration_set_rotation(bool rotate_180);
+void touch_calibration_set_handle(esp_lcd_touch_handle_t touch);
+bool touch_calibration_is_open(void);
+void touch_calibration_process_coords(esp_lcd_touch_handle_t tp,
+                                      uint16_t *x, uint16_t *y, uint16_t *strength,
+                                      uint8_t *point_num, uint8_t max_point_num);
+void ui_touch_calibration_open(void);
+
+// --- WLAN-Setup (implemented in ui_wifi_setup.c) ---------------------------
+void ui_wifi_setup_open(void);
+bool ui_wifi_setup_is_open(void);
+
 // --- Network API (implemented in net_fetcher.c) -----------------------------
 void net_start(void);
+// WLAN-Credentials persistent in NVS (Fallback: Compile-Time WIFI_SSID/PASSWORD).
+// load schreibt SSID/Passwort in die Puffer und liefert true, wenn SSID nicht leer.
+bool wifi_credentials_load(char *ssid_out, size_t ssid_size,
+                           char *pass_out, size_t pass_size);
+bool wifi_credentials_save(const char *ssid, const char *pass);
+void crypto_settings_init_defaults(void);
+bool crypto_settings_load(void);
+bool crypto_settings_save(void);
+void crypto_settings_apply(const char *base, const char *quote, const char *timeframe);
+void crypto_reset_data_state(const char *status_text);
+void crypto_request_refresh(void);
+void crypto_pair_title_text(char *out, size_t out_size);
+void crypto_day_title_text(char *out, size_t out_size);
+const char *crypto_ok_status(void);
 uint32_t crypto_chart_granularity_seconds(void);
 int      crypto_chart_candle_count(void);
 const char *crypto_chart_timeframe_label(void);
 void     format_quote_compact(float value, char *buffer, size_t bufferSize);
+
+// --- Crypto-Settings-Screen (implemented in ui_crypto_settings.c) -----------
+void ui_crypto_settings_open(void);
+bool ui_crypto_settings_is_open(void);
 
 #ifdef __cplusplus
 }

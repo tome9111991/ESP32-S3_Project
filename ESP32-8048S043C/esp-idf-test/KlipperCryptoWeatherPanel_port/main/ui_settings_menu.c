@@ -1,7 +1,5 @@
 // Settings-Menue Port (12_SettingsMenu.ino). Liste mit 5 Eintraegen:
-// WLAN, Screens, Crypto, Display, Touch kalibrieren. Nur "Display" ist im
-// Port aktuell funktional verdrahtet (ui_display_settings), die uebrigen
-// oeffnen einen Dummy-Sub-Screen mit "Coming soon" + Back-Button.
+// WLAN, Screens, Crypto, Display, Touch kalibrieren.
 
 #include "app_state.h"
 
@@ -17,13 +15,12 @@
 #define MENU_ITEM_START_Y   8
 
 static lv_obj_t *s_menu_screen      = NULL;
-static lv_obj_t *s_dummy_screen     = NULL;
 static lv_obj_t *s_return_screen    = NULL;  // Dashboard-Screen, zu dem Back fuehrt
+static bool      s_menu_open        = false;
 
 // Forward decls
 static void open_settings_menu_screen(bool fresh);
 static void on_back_to_dashboard(lv_event_t *e);
-static void on_dummy_back(lv_event_t *e);
 static void on_item_wifi_clicked(lv_event_t *e);
 static void on_item_screens_clicked(lv_event_t *e);
 static void on_item_crypto_clicked(lv_event_t *e);
@@ -112,50 +109,10 @@ static void make_menu_item(lv_obj_t *parent, int y, uint32_t bg_color,
     }
 }
 
-// --- Dummy-Sub-Screen --------------------------------------------------------
-static void destroy_dummy_screen(void)
-{
-    if (!s_dummy_screen) return;
-    lv_obj_delete_async(s_dummy_screen);
-    s_dummy_screen = NULL;
-}
-
-static void on_dummy_back(lv_event_t *e)
-{
-    (void)e;
-    // Zurueck ins Menue (frischer Aufbau, da das alte ggf. zerstoert wurde)
-    open_settings_menu_screen(true);
-    destroy_dummy_screen();
-}
-
-static void open_dummy_settings_screen(const char *title)
-{
-    if (s_dummy_screen) return;
-
-    s_dummy_screen = lv_obj_create(NULL);
-    lv_obj_remove_style_all(s_dummy_screen);
-    lv_obj_set_style_bg_color(s_dummy_screen, lv_color_hex(COLOR_BG), 0);
-    lv_obj_set_style_bg_opa(s_dummy_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_dummy_screen, LV_OBJ_FLAG_SCROLLABLE);
-
-    make_accent(s_dummy_screen, COLOR_SETTINGS);
-    make_label(s_dummy_screen, &lv_font_montserrat_40, COLOR_TEXT,
-               LV_TEXT_ALIGN_LEFT, 100, 32, 500, 52, title);
-    make_back_button(s_dummy_screen, on_dummy_back);
-
-    make_label(s_dummy_screen, &lv_font_montserrat_30, COLOR_MUTED,
-               LV_TEXT_ALIGN_CENTER, 0, 200, LCD_H_RES, 42,
-               "Noch nicht portiert");
-    make_label(s_dummy_screen, &lv_font_montserrat_24, COLOR_DIM,
-               LV_TEXT_ALIGN_CENTER, 0, 252, LCD_H_RES, 32,
-               "Coming soon");
-
-    lv_screen_load(s_dummy_screen);
-}
-
 // --- Item-Callbacks ----------------------------------------------------------
 static void destroy_menu_screen(void)
 {
+    s_menu_open = false;
     if (!s_menu_screen) return;
     lv_obj_delete_async(s_menu_screen);
     s_menu_screen = NULL;
@@ -164,52 +121,55 @@ static void destroy_menu_screen(void)
 static void on_item_wifi_clicked(lv_event_t *e)
 {
     (void)e;
+    // Setup kehrt ueber ui_settings_menu_reopen() ins Menue zurueck.
+    ui_wifi_setup_open();
     destroy_menu_screen();
-    open_dummy_settings_screen("WLAN");
 }
 
 static void on_item_screens_clicked(lv_event_t *e)
 {
     (void)e;
+    ui_screen_settings_open();
     destroy_menu_screen();
-    open_dummy_settings_screen("Screens");
 }
 
 static void on_item_crypto_clicked(lv_event_t *e)
 {
     (void)e;
+    ui_crypto_settings_open();
     destroy_menu_screen();
-    open_dummy_settings_screen("Crypto");
 }
 
 static void on_item_display_clicked(lv_event_t *e)
 {
     (void)e;
-    destroy_menu_screen();
     // DisplaySettings kehrt ueber ui_settings_menu_reopen() ins Menue zurueck.
     ui_display_settings_open();
+    destroy_menu_screen();
 }
 
 static void on_item_touch_clicked(lv_event_t *e)
 {
     (void)e;
+    ui_touch_calibration_open();
     destroy_menu_screen();
-    open_dummy_settings_screen("Touch kalibrieren");
 }
 
 // --- Menue-Screen Aufbau / Navigation ---------------------------------------
 static void on_back_to_dashboard(lv_event_t *e)
 {
     (void)e;
-    lv_obj_t *back = s_return_screen;
     s_return_screen = NULL;
-    if (back) lv_screen_load(back);
-    destroy_menu_screen();
+    // Settings verlassen ohne Screen-Animation; vermeidet LVGL-Layout-Haenger
+    // und das Menue bleibt persistent, damit kein Delete im Back-Pfad laeuft.
+    ui_load_current_screen_no_anim();
+    s_menu_open = false;
 }
 
 static void open_settings_menu_screen(bool fresh)
 {
     if (s_menu_screen) {
+        s_menu_open = true;
         lv_screen_load(s_menu_screen);
         return;
     }
@@ -254,6 +214,7 @@ static void open_settings_menu_screen(bool fresh)
                    on_item_touch_clicked);
 
     lv_screen_load(s_menu_screen);
+    s_menu_open = true;
 }
 
 // --- Public API --------------------------------------------------------------
@@ -274,7 +235,8 @@ void ui_settings_menu_reopen(void)
 
 bool ui_settings_menu_is_open(void)
 {
-    return s_menu_screen != NULL || s_dummy_screen != NULL;
+    return s_menu_open || ui_screen_settings_is_open() ||
+           ui_crypto_settings_is_open();
 }
 
 lv_obj_t *ui_settings_menu_return_target(void)

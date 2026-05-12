@@ -7,6 +7,7 @@
 #include "esp_netif.h"
 #include "esp_sntp.h"
 #include "esp_wifi.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -19,6 +20,22 @@
 
 static const char *TAG = "net";
 
+#define WIFI_NVS_NS    "wifi"
+#define WIFI_NVS_SSID  "ssid"
+#define WIFI_NVS_PASS  "pass"
+#define CRYPTO_NVS_NS        "crypto"
+#define CRYPTO_NVS_BASE      "base"
+#define CRYPTO_NVS_QUOTE     "quote"
+#define CRYPTO_NVS_TIMEFRAME "timeframe"
+
+crypto_config_t g_crypto = {
+    .base = CRYPTO_BASE_SYMBOL,
+    .quote = CRYPTO_QUOTE_SYMBOL,
+    .price_prefix = CRYPTO_PRICE_PREFIX,
+    .service = CRYPTO_SERVICE_NAME,
+    .timeframe = CRYPTO_CHART_TIMEFRAME,
+};
+
 #define WEATHER_REFRESH_MS       300000U
 #define WEATHER_RETRY_MS         120000U
 #define PRICE_REFRESH_MS         60000U
@@ -29,6 +46,8 @@ static const char *TAG = "net";
 #define STATS_RETRY_MS           60000U
 #define KLIPPER_REFRESH_MS       7000U
 #define KLIPPER_RETRY_MS         30000U
+#define KLIPPER_NAME_REFRESH_MS  300000U
+#define KLIPPER_NAME_RETRY_MS    120000U
 #define WIFI_STABLE_BEFORE_FETCH_MS 8000U
 #define API_REQUEST_GAP_MS       1500U
 #define HTTP_TIMEOUT_MS          8000
@@ -43,6 +62,7 @@ typedef struct {
 } http_buf_t;
 
 static TaskHandle_t s_fetch_task;
+static volatile bool s_crypto_refresh_requested;
 
 static void update_live_candle_from_price(float price);
 
@@ -50,13 +70,210 @@ static void app_set_str(char *dst, size_t dst_size, const char *src)
 {
     if (!dst || dst_size == 0) return;
     if (!src) src = "";
-    snprintf(dst, dst_size, "%s", src);
+    // Bewusst begrenzt kopieren; vermeidet GCC format-truncation bei kleinen UI-Puffern.
+    size_t n = strlen(src);
+    if (n >= dst_size) n = dst_size - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+static void crypto_copy_setting(char *dst, size_t dst_size, const char *src)
+{
+    app_set_str(dst, dst_size, src);
+}
+
+static void crypto_snapshot(crypto_config_t *out)
+{
+    if (!out) return;
+    if (g_app.mutex) app_lock();
+    *out = g_crypto;
+    if (g_app.mutex) app_unlock();
+}
+
+static bool crypto_option_allowed(const char *value, const char * const *options, size_t count)
+{
+    if (!value || !value[0]) return false;
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(value, options[i]) == 0) return true;
+    }
+    return false;
+}
+
+static const char * const CRYPTO_BASE_OPTIONS[] = {
+    "BTC", "ETH", "SOL", "XRP", "DOGE", "ADA",
+};
+static const char * const CRYPTO_QUOTE_OPTIONS[] = {
+    "USD", "EUR", "GBP", "USDC", "USDT",
+};
+static const char * const CRYPTO_TIMEFRAME_OPTIONS[] = {
+    "15M", "1H", "6H", "1D",
+};
+
+static bool crypto_base_allowed(const char *value)
+{
+    return crypto_option_allowed(value, CRYPTO_BASE_OPTIONS,
+                                 sizeof(CRYPTO_BASE_OPTIONS) / sizeof(CRYPTO_BASE_OPTIONS[0]));
+}
+
+static bool crypto_quote_allowed(const char *value)
+{
+    return crypto_option_allowed(value, CRYPTO_QUOTE_OPTIONS,
+                                 sizeof(CRYPTO_QUOTE_OPTIONS) / sizeof(CRYPTO_QUOTE_OPTIONS[0]));
+}
+
+static bool crypto_timeframe_allowed(const char *value)
+{
+    return crypto_option_allowed(value, CRYPTO_TIMEFRAME_OPTIONS,
+                                 sizeof(CRYPTO_TIMEFRAME_OPTIONS) / sizeof(CRYPTO_TIMEFRAME_OPTIONS[0]));
+}
+
+void crypto_settings_init_defaults(void)
+{
+    crypto_copy_setting(g_crypto.base, sizeof(g_crypto.base), CRYPTO_BASE_SYMBOL);
+    crypto_copy_setting(g_crypto.quote, sizeof(g_crypto.quote), CRYPTO_QUOTE_SYMBOL);
+    crypto_copy_setting(g_crypto.price_prefix, sizeof(g_crypto.price_prefix), CRYPTO_PRICE_PREFIX);
+    crypto_copy_setting(g_crypto.service, sizeof(g_crypto.service), CRYPTO_SERVICE_NAME);
+    crypto_copy_setting(g_crypto.timeframe, sizeof(g_crypto.timeframe), CRYPTO_CHART_TIMEFRAME);
+    if (!crypto_base_allowed(g_crypto.base)) crypto_copy_setting(g_crypto.base, sizeof(g_crypto.base), "BTC");
+    if (!crypto_quote_allowed(g_crypto.quote)) crypto_copy_setting(g_crypto.quote, sizeof(g_crypto.quote), "USD");
+    if (!crypto_timeframe_allowed(g_crypto.timeframe)) crypto_copy_setting(g_crypto.timeframe, sizeof(g_crypto.timeframe), "1D");
+}
+
+bool crypto_settings_load(void)
+{
+    crypto_settings_init_defaults();
+
+    nvs_handle_t h;
+    if (nvs_open(CRYPTO_NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+
+    bool loaded = false;
+    char value[16] = {0};
+    size_t size = sizeof(value);
+    if (nvs_get_str(h, CRYPTO_NVS_BASE, value, &size) == ESP_OK && crypto_base_allowed(value)) {
+        crypto_copy_setting(g_crypto.base, sizeof(g_crypto.base), value);
+        loaded = true;
+    }
+    memset(value, 0, sizeof(value));
+    size = sizeof(value);
+    if (nvs_get_str(h, CRYPTO_NVS_QUOTE, value, &size) == ESP_OK && crypto_quote_allowed(value)) {
+        crypto_copy_setting(g_crypto.quote, sizeof(g_crypto.quote), value);
+        loaded = true;
+    }
+    memset(value, 0, sizeof(value));
+    size = sizeof(value);
+    if (nvs_get_str(h, CRYPTO_NVS_TIMEFRAME, value, &size) == ESP_OK) {
+        // Alte Arduino-Werte grob auf die neuen Coinbase-Granularitaeten mappen.
+        if (strcmp(value, "24H") == 0 || strcmp(value, "7D") == 0) crypto_copy_setting(value, sizeof(value), "1H");
+        else if (strcmp(value, "30D") == 0) crypto_copy_setting(value, sizeof(value), "6H");
+        else if (strcmp(value, "90D") == 0) crypto_copy_setting(value, sizeof(value), "1D");
+        if (crypto_timeframe_allowed(value)) {
+            crypto_copy_setting(g_crypto.timeframe, sizeof(g_crypto.timeframe), value);
+            loaded = true;
+        }
+    }
+    nvs_close(h);
+    return loaded;
+}
+
+bool crypto_settings_save(void)
+{
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(CRYPTO_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "crypto nvs_open RW: %s", esp_err_to_name(err));
+        return false;
+    }
+    bool ok = (nvs_set_str(h, CRYPTO_NVS_BASE, cfg.base) == ESP_OK);
+    if (ok) ok = (nvs_set_str(h, CRYPTO_NVS_QUOTE, cfg.quote) == ESP_OK);
+    if (ok) ok = (nvs_set_str(h, CRYPTO_NVS_TIMEFRAME, cfg.timeframe) == ESP_OK);
+    if (ok) ok = (nvs_commit(h) == ESP_OK);
+    nvs_close(h);
+    return ok;
+}
+
+void crypto_request_refresh(void)
+{
+    s_crypto_refresh_requested = true;
+}
+
+const char *crypto_ok_status(void)
+{
+    static char status[32];
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
+    snprintf(status, sizeof(status), "%s %s", cfg.service, cfg.quote);
+    return status;
+}
+
+void crypto_pair_title_text(char *out, size_t out_size)
+{
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
+    snprintf(out, out_size, "%s / %s", cfg.base, cfg.quote);
+}
+
+void crypto_day_title_text(char *out, size_t out_size)
+{
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
+    snprintf(out, out_size, "%s %s", cfg.base,
+             crypto_timeframe_allowed(cfg.timeframe) ? cfg.timeframe : "1D");
+}
+
+void crypto_reset_data_state(const char *status_text)
+{
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
+    const char *tf = crypto_timeframe_allowed(cfg.timeframe) ? cfg.timeframe : "1D";
+    char ok_status[32];
+    snprintf(ok_status, sizeof(ok_status), "%s %s", cfg.service, cfg.quote);
+    app_lock();
+    app_set_str(g_app.crypto_price, sizeof(g_app.crypto_price), "Laden...");
+    g_app.crypto_live_price = 0.0f;
+    g_app.crypto_price_direction = 0;
+    app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status),
+                (status_text && status_text[0]) ? status_text : ok_status);
+    snprintf(g_app.btc_day_change, sizeof(g_app.btc_day_change), "%s --", tf);
+    app_set_str(g_app.btc_day_time_range, sizeof(g_app.btc_day_time_range), "--");
+    app_set_str(g_app.btc_day_volume, sizeof(g_app.btc_day_volume), "VOL --");
+    app_set_str(g_app.btc_candle_status, sizeof(g_app.btc_candle_status), "CANDLE --");
+    g_app.btc_day_change_percent = 0.0f;
+    g_app.btc_day_change_positive = true;
+    g_app.btc_day_data_ready = false;
+    g_app.crypto_24h_open = 0.0f;
+    g_app.crypto_24h_ready = false;
+    g_app.candle_count = 0;
+    app_unlock();
+    ui_chart_invalidate();
+}
+
+void crypto_settings_apply(const char *base, const char *quote, const char *timeframe)
+{
+    if (!crypto_base_allowed(base) || !crypto_quote_allowed(quote) ||
+        !crypto_timeframe_allowed(timeframe)) {
+        return;
+    }
+
+    app_lock();
+    crypto_copy_setting(g_crypto.base, sizeof(g_crypto.base), base);
+    crypto_copy_setting(g_crypto.quote, sizeof(g_crypto.quote), quote);
+    crypto_copy_setting(g_crypto.timeframe, sizeof(g_crypto.timeframe), timeframe);
+    g_crypto.price_prefix[0] = '\0';
+    app_unlock();
+
+    crypto_reset_data_state(crypto_ok_status());
+    crypto_request_refresh();
 }
 
 static void crypto_set_error_state(const char *status_text)
 {
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
     char fallback_price[24];
-    snprintf(fallback_price, sizeof(fallback_price), "%s FEHLER", CRYPTO_BASE_SYMBOL);
+    snprintf(fallback_price, sizeof(fallback_price), "%s FEHLER", cfg.base);
 
     app_lock();
     app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status), status_text);
@@ -76,12 +293,14 @@ static void btc_set_candle_status(const char *status_text)
 
 static const char *crypto_prefix(void)
 {
-    if (CRYPTO_PRICE_PREFIX[0]) return CRYPTO_PRICE_PREFIX;
-    if (strcasecmp(CRYPTO_QUOTE_SYMBOL, "USD") == 0) return "$ ";
-    if (strcasecmp(CRYPTO_QUOTE_SYMBOL, "EUR") == 0) return "\xe2\x82\xac ";
-    if (strcasecmp(CRYPTO_QUOTE_SYMBOL, "GBP") == 0) return "\xc2\xa3 ";
-    if (strcasecmp(CRYPTO_QUOTE_SYMBOL, "JPY") == 0) return "\xc2\xa5 ";
-    if (strcasecmp(CRYPTO_QUOTE_SYMBOL, "BTC") == 0) return "\xe2\x82\xbf ";
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
+    if (cfg.price_prefix[0]) return g_crypto.price_prefix;
+    if (strcasecmp(cfg.quote, "USD") == 0) return "$ ";
+    if (strcasecmp(cfg.quote, "EUR") == 0) return "\xe2\x82\xac ";
+    if (strcasecmp(cfg.quote, "GBP") == 0) return "\xc2\xa3 ";
+    if (strcasecmp(cfg.quote, "JPY") == 0) return "\xc2\xa5 ";
+    if (strcasecmp(cfg.quote, "BTC") == 0) return "\xe2\x82\xbf ";
     return "";
 }
 
@@ -94,7 +313,7 @@ static void format_quote_full_from_amount(const char *amount, char *buffer, size
     }
 
     char price[20];
-    snprintf(price, sizeof(price), "%s", amount);
+    app_set_str(price, sizeof(price), amount);
     char *dot = strchr(price, '.');
     if (dot && strlen(dot) > 3) {
         dot[3] = '\0';
@@ -123,9 +342,9 @@ void format_quote_compact(float value, char *buffer, size_t buffer_size)
 
 uint32_t crypto_chart_granularity_seconds(void)
 {
-    if (strcmp(CRYPTO_CHART_TIMEFRAME, "15M") == 0) return 900;
-    if (strcmp(CRYPTO_CHART_TIMEFRAME, "1H") == 0) return 3600;
-    if (strcmp(CRYPTO_CHART_TIMEFRAME, "6H") == 0) return 21600;
+    if (strcmp(g_crypto.timeframe, "15M") == 0) return 900;
+    if (strcmp(g_crypto.timeframe, "1H") == 0) return 3600;
+    if (strcmp(g_crypto.timeframe, "6H") == 0) return 21600;
     return BTC_CANDLE_SECONDS;
 }
 
@@ -136,11 +355,11 @@ int crypto_chart_candle_count(void)
 
 const char *crypto_chart_timeframe_label(void)
 {
-    if (strcmp(CRYPTO_CHART_TIMEFRAME, "15M") == 0 ||
-        strcmp(CRYPTO_CHART_TIMEFRAME, "1H") == 0 ||
-        strcmp(CRYPTO_CHART_TIMEFRAME, "6H") == 0 ||
-        strcmp(CRYPTO_CHART_TIMEFRAME, "1D") == 0) {
-        return CRYPTO_CHART_TIMEFRAME;
+    if (strcmp(g_crypto.timeframe, "15M") == 0 ||
+        strcmp(g_crypto.timeframe, "1H") == 0 ||
+        strcmp(g_crypto.timeframe, "6H") == 0 ||
+        strcmp(g_crypto.timeframe, "1D") == 0) {
+        return g_crypto.timeframe;
     }
     return "1D";
 }
@@ -357,17 +576,19 @@ static bool fetch_weather(void)
 
 static bool fetch_price(void)
 {
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
     char url[128];
     snprintf(url, sizeof(url), "https://api.coinbase.com/v2/prices/%s-%s/spot",
-             CRYPTO_BASE_SYMBOL, CRYPTO_QUOTE_SYMBOL);
+             cfg.base, cfg.quote);
     char *payload = NULL;
     int http_status = 0;
     if (!http_get(url, false, CRYPTO_HTTP_USER_AGENT, &http_status, &payload)) {
         char status_text[32];
         if (http_status > 0) {
-            snprintf(status_text, sizeof(status_text), "%s HTTP %d", CRYPTO_BASE_SYMBOL, http_status);
+            snprintf(status_text, sizeof(status_text), "%s HTTP %d", cfg.base, http_status);
         } else {
-            snprintf(status_text, sizeof(status_text), "%s HTTP", CRYPTO_BASE_SYMBOL);
+            snprintf(status_text, sizeof(status_text), "%s HTTP", cfg.base);
         }
         crypto_set_error_state(status_text);
         return false;
@@ -377,7 +598,7 @@ static bool fetch_price(void)
     free(payload);
     if (!root) {
         char status_text[32];
-        snprintf(status_text, sizeof(status_text), "%s JSON", CRYPTO_BASE_SYMBOL);
+        snprintf(status_text, sizeof(status_text), "%s JSON", cfg.base);
         crypto_set_error_state(status_text);
         return false;
     }
@@ -386,7 +607,7 @@ static bool fetch_price(void)
     if (live <= 0.0f) {
         cJSON_Delete(root);
         char status_text[32];
-        snprintf(status_text, sizeof(status_text), "%s PREIS", CRYPTO_BASE_SYMBOL);
+        snprintf(status_text, sizeof(status_text), "%s PREIS", cfg.base);
         crypto_set_error_state(status_text);
         return false;
     }
@@ -404,7 +625,7 @@ static bool fetch_price(void)
     g_app.crypto_live_price = live;
     app_set_str(g_app.crypto_price, sizeof(g_app.crypto_price), price);
     snprintf(g_app.crypto_status, sizeof(g_app.crypto_status), "%s %s",
-             CRYPTO_SERVICE_NAME, CRYPTO_QUOTE_SYMBOL);
+             cfg.service, cfg.quote);
     app_unlock();
 
     cJSON_Delete(root);
@@ -466,7 +687,7 @@ static void update_btc_stats_locked(void)
     snprintf(g_app.btc_day_time_range, sizeof(g_app.btc_day_time_range), "%s - %s",
              start_text, end_text);
     snprintf(g_app.btc_day_volume, sizeof(g_app.btc_day_volume), "VOL %.1f %s",
-             (double)volume, CRYPTO_BASE_SYMBOL);
+             (double)volume, g_crypto.base);
     app_set_str(g_app.btc_candle_status, sizeof(g_app.btc_candle_status), "LIVE");
     g_app.btc_day_data_ready = true;
 }
@@ -515,6 +736,8 @@ static void update_live_candle_from_price(float price)
 
 static bool fetch_candles(void)
 {
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
     if (!g_app.candles) {
         btc_set_candle_status("CANDLE RAM");
         return false;
@@ -538,7 +761,7 @@ static bool fetch_candles(void)
     char url[240];
     snprintf(url, sizeof(url),
              "https://api.exchange.coinbase.com/products/%s-%s/candles?granularity=%lu&start=%s&end=%s",
-             CRYPTO_BASE_SYMBOL, CRYPTO_QUOTE_SYMBOL, (unsigned long)granularity, start_iso, end_iso);
+             cfg.base, cfg.quote, (unsigned long)granularity, start_iso, end_iso);
 
     char *payload = NULL;
     int http_status = 0;
@@ -594,14 +817,16 @@ static bool fetch_candles(void)
 
 static bool fetch_stats(void)
 {
+    crypto_config_t cfg;
+    crypto_snapshot(&cfg);
     char url[128];
     snprintf(url, sizeof(url), "https://api.exchange.coinbase.com/products/%s-%s/stats",
-             CRYPTO_BASE_SYMBOL, CRYPTO_QUOTE_SYMBOL);
+             cfg.base, cfg.quote);
 
     char *payload = NULL;
     int http_status = 0;
     if (!http_get(url, false, CRYPTO_HTTP_USER_AGENT, &http_status, &payload)) {
-        ESP_LOGW(TAG, "%s stats failed status=%d", CRYPTO_BASE_SYMBOL, http_status);
+        ESP_LOGW(TAG, "%s stats failed status=%d", cfg.base, http_status);
         return false;
     }
 
@@ -627,91 +852,572 @@ static bool fetch_stats(void)
     return true;
 }
 
-static void fmt_temp_pair(char *out, size_t out_size, double current, double target)
+static double json_num_or_string(const cJSON *item, double fallback)
 {
-    if (isfinite(target) && target > 0.0) snprintf(out, out_size, "%.0f/%.0f C", current, target);
-    else if (isfinite(current)) snprintf(out, out_size, "%.0f C", current);
-    else snprintf(out, out_size, "--");
+    if (cJSON_IsNumber(item)) return item->valuedouble;
+    if (cJSON_IsString(item) && item->valuestring && item->valuestring[0]) {
+        char *end = NULL;
+        double value = strtod(item->valuestring, &end);
+        if (end != item->valuestring) return value;
+    }
+    return fallback;
 }
 
-static void fmt_duration(char *out, size_t out_size, double seconds)
+static int json_int_or_string(const cJSON *item, int fallback)
 {
-    if (!isfinite(seconds) || seconds <= 0.0) {
+    double value = json_num_or_string(item, NAN);
+    return isfinite(value) ? (int)value : fallback;
+}
+
+static void json_text(const cJSON *item, char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return;
+    out[0] = '\0';
+    if (cJSON_IsString(item) && item->valuestring) {
+        app_set_str(out, out_size, item->valuestring);
+    } else if (cJSON_IsNumber(item)) {
+        snprintf(out, out_size, "%.3f", item->valuedouble);
+    }
+}
+
+static void sanitize_screen_text(char *text, size_t max_len)
+{
+    if (!text) return;
+    char *r = text;
+    char *w = text;
+    bool prev_space = false;
+    while (*r) {
+        char c = *r++;
+        if (c == '\r' || c == '\n' || c == '\t') c = ' ';
+        if (c == ' ') {
+            if (prev_space) continue;
+            prev_space = true;
+        } else {
+            prev_space = false;
+        }
+        *w++ = c;
+    }
+    *w = '\0';
+    while (w > text && w[-1] == ' ') *--w = '\0';
+    while (*text == ' ') memmove(text, text + 1, strlen(text));
+    if (max_len > 3 && strlen(text) > max_len) {
+        text[max_len - 3] = '.';
+        text[max_len - 2] = '.';
+        text[max_len - 1] = '.';
+        text[max_len] = '\0';
+    }
+}
+
+static void url_encode_query_param(const char *in, char *out, size_t out_size)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t pos = 0;
+    if (!out || out_size == 0) return;
+    for (const unsigned char *p = (const unsigned char *)in; p && *p && pos + 1 < out_size; p++) {
+        bool safe = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+                    (*p >= '0' && *p <= '9') || *p == '-' || *p == '_' ||
+                    *p == '.' || *p == '~';
+        if (safe) {
+            out[pos++] = (char)*p;
+        } else if (pos + 3 < out_size) {
+            out[pos++] = '%';
+            out[pos++] = hex[(*p >> 4) & 0x0f];
+            out[pos++] = hex[*p & 0x0f];
+        }
+    }
+    out[pos] = '\0';
+}
+
+static void format_klipper_temperature(char *out, size_t out_size, const cJSON *current_item, const cJSON *target_item)
+{
+    double current = json_num_or_string(current_item, NAN);
+    double target = json_num_or_string(target_item, NAN);
+    if (!isfinite(current)) snprintf(out, out_size, "--");
+    else if (isfinite(target) && target > 0.5) snprintf(out, out_size, "%.0f%s/%.0f%s", current, TEMP_UNIT, target, TEMP_UNIT);
+    else snprintf(out, out_size, "%.0f%s", current, TEMP_UNIT);
+}
+
+static void format_klipper_progress(char *out, size_t out_size, const cJSON *progress_item)
+{
+    double progress = json_num_or_string(progress_item, NAN);
+    if (!isfinite(progress)) {
         snprintf(out, out_size, "--");
         return;
     }
-    int s = (int)seconds;
-    int h = s / 3600;
-    int m = (s % 3600) / 60;
-    if (h > 0) snprintf(out, out_size, "%dh %02dm", h, m);
-    else snprintf(out, out_size, "%dm", m);
+    if (progress <= 1.0) progress *= 100.0;
+    if (progress < 0.0) progress = 0.0;
+    if (progress > 100.0) progress = 100.0;
+    snprintf(out, out_size, "%.0f%%", progress);
 }
 
-static const char *klipper_state_de(const char *state)
+static void format_duration_clock(char *out, size_t out_size, double seconds, bool force_hours)
 {
-    if (!state) return "--";
-    if (strcmp(state, "printing") == 0) return "DRUCKT";
-    if (strcmp(state, "paused") == 0) return "PAUSE";
-    if (strcmp(state, "complete") == 0) return "FERTIG";
-    if (strcmp(state, "error") == 0) return "FEHLER";
-    if (strcmp(state, "standby") == 0) return "STANDBY";
-    return "BEREIT";
+    if (!isfinite(seconds) || seconds < 0.0) {
+        snprintf(out, out_size, "--");
+        return;
+    }
+    unsigned long minutes_total = (unsigned long)((seconds + 30.0) / 60.0);
+    unsigned long hours = minutes_total / 60UL;
+    unsigned long minutes = minutes_total % 60UL;
+    if (!force_hours && hours == 0) snprintf(out, out_size, "%luM", minutes);
+    else snprintf(out, out_size, "%lu:%02lu", hours, minutes);
 }
 
-static bool fetch_klipper(void)
+static void format_klipper_duration(char *out, size_t out_size, double seconds)
 {
-    char url[256];
-    snprintf(url, sizeof(url), "%s/printer/objects/query?webhooks&print_stats&display_status&extruder&heater_bed",
-             KLIPPER_BASE_URL);
+    if (!isfinite(seconds) || seconds <= 0.0) {
+        snprintf(out, out_size, "DAUER --");
+        return;
+    }
+    unsigned long total = (unsigned long)seconds;
+    unsigned long hours = total / 3600UL;
+    unsigned long minutes = (total % 3600UL) / 60UL;
+    if (hours > 0) snprintf(out, out_size, "DAUER %luH %luM", hours, minutes);
+    else snprintf(out, out_size, "DAUER %luM", minutes);
+}
+
+static void format_klipper_duration_progress(char *out, size_t out_size, double seconds, float estimated_seconds)
+{
+    if (isfinite(estimated_seconds) && estimated_seconds > 0.5f) {
+        char current[16], estimated[16];
+        if (!isfinite(seconds) || seconds < 0.0) seconds = 0.0;
+        format_duration_clock(current, sizeof(current), seconds, true);
+        format_duration_clock(estimated, sizeof(estimated), estimated_seconds, true);
+        snprintf(out, out_size, "%s/%s", current, estimated);
+        return;
+    }
+    format_klipper_duration(out, out_size, seconds);
+}
+
+static const char *format_klipper_state(const char *state)
+{
+    if (!state || !state[0]) return "--";
+    if (strcasecmp(state, "printing") == 0) return "DRUCKT";
+    if (strcasecmp(state, "paused") == 0 || strcasecmp(state, "pausing") == 0) return "PAUSE";
+    if (strcasecmp(state, "error") == 0) return "FEHLER";
+    if (strcasecmp(state, "complete") == 0) return "FERTIG";
+    if (strcasecmp(state, "cancelled") == 0 || strcasecmp(state, "cancelling") == 0) return "ABBRUCH";
+    if (strcasecmp(state, "standby") == 0 || strcasecmp(state, "ready") == 0) return "BEREIT";
+    return state;
+}
+
+static const char *format_klippy_connection_state(const char *state)
+{
+    if (!state || !state[0]) return "--";
+    if (strcasecmp(state, "ready") == 0) return "BEREIT";
+    if (strcasecmp(state, "startup") == 0) return "START";
+    if (strcasecmp(state, "shutdown") == 0 || strcasecmp(state, "disconnected") == 0) return "AUS";
+    if (strcasecmp(state, "error") == 0) return "FEHLER";
+    return state;
+}
+
+static void klippy_offline_detail(const char *state, const char *message, char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return;
+    out[0] = '\0';
+    if (message && message[0]) {
+        app_set_str(out, out_size, message);
+        return;
+    }
+    if (state && (strcasecmp(state, "shutdown") == 0 || strcasecmp(state, "disconnected") == 0)) {
+        snprintf(out, out_size, "Drucker aus oder MCU nicht verbunden");
+    } else if (state && strcasecmp(state, "startup") == 0) {
+        snprintf(out, out_size, "Klipper startet");
+    } else if (state && strcasecmp(state, "error") == 0) {
+        snprintf(out, out_size, "Klipper Fehler");
+    } else if (state && strcasecmp(state, "ready") == 0) {
+        snprintf(out, out_size, "Druckdaten nicht verfuegbar");
+    } else {
+        snprintf(out, out_size, "Klippy nicht bereit");
+    }
+}
+
+static void format_klipper_file(char *out, size_t out_size, const char *filename)
+{
+    if (!filename || !filename[0]) {
+        snprintf(out, out_size, "Kein Job");
+        return;
+    }
+    const char *slash = strrchr(filename, '/');
+    const char *backslash = strrchr(filename, '\\');
+    const char *base = slash;
+    if (backslash && (!base || backslash > base)) base = backslash;
+    app_set_str(out, out_size, base ? base + 1 : filename);
+}
+
+static void format_klipper_display_message(char *out, size_t out_size, const char *message)
+{
+    if (!out || out_size == 0) return;
+    if (out != message) app_set_str(out, out_size, message);
+    sanitize_screen_text(out, out_size > 0 ? out_size - 1 : 0);
+}
+
+static uint32_t parse_klipper_color(const char *text)
+{
+    if (!text) return COLOR_DIM;
+    while (*text == ' ' || *text == '#') text++;
+    char rgb[7] = {0};
+    size_t len = strlen(text);
+    if (len < 6) return COLOR_DIM;
+    memcpy(rgb, text, 6);
+    char *end = NULL;
+    uint32_t color = (uint32_t)strtoul(rgb, &end, 16);
+    return end == rgb ? COLOR_DIM : color;
+}
+
+static void format_klipper_mmu_info(char *out, size_t out_size, int tool, int gate,
+                                    const char *action, const char *operation, const char *filament)
+{
+    const char *activity = (action && action[0]) ? action : operation;
+    if (!activity || !activity[0]) activity = "Idle";
+    int used = snprintf(out, out_size, "MMU");
+    if (tool >= 0 && used > 0 && (size_t)used < out_size) used += snprintf(out + used, out_size - used, " T%d", tool);
+    if (gate >= 0 && used > 0 && (size_t)used < out_size) used += snprintf(out + used, out_size - used, " G%d", gate);
+    if (used > 0 && (size_t)used < out_size) used += snprintf(out + used, out_size - used, " %s", activity);
+    if (filament && filament[0] && strcasecmp(filament, "Unloaded") != 0 && used > 0 && (size_t)used < out_size) {
+        snprintf(out + used, out_size - used, "  %s", filament);
+    }
+}
+
+static bool fetch_klipper_file_metadata(const char *filename, float *estimated_seconds)
+{
+    if (estimated_seconds) *estimated_seconds = 0.0f;
+    if (!filename || !filename[0]) return false;
+
+    char encoded[384];
+    char url[512];
+    url_encode_query_param(filename, encoded, sizeof(encoded));
+    snprintf(url, sizeof(url), "%s/server/files/metadata?filename=%s", KLIPPER_BASE_URL, encoded);
+
     char *payload = NULL;
-    if (!http_get(url, false, NULL, NULL, &payload)) {
+    if (!http_get(url, false, NULL, NULL, &payload)) return false;
+    cJSON *root = cJSON_Parse(payload);
+    free(payload);
+    if (!root) return false;
+
+    double estimate = json_num_or_string(json_obj(json_obj(root, "result"), "estimated_time"), NAN);
+    if (!isfinite(estimate)) estimate = json_num_or_string(json_obj(root, "estimated_time"), NAN);
+    cJSON_Delete(root);
+    if (!isfinite(estimate) || estimate <= 0.5) return false;
+    if (estimated_seconds) *estimated_seconds = (float)estimate;
+    return true;
+}
+
+static float klipper_estimated_seconds_for_file(const char *filename)
+{
+    uint32_t now = (uint32_t)esp_log_timestamp();
+    if (!filename || !filename[0]) {
         app_lock();
-        g_app.klipper_available = false;
+        g_app.klipper_metadata_filename[0] = '\0';
+        g_app.klipper_estimated_duration_seconds = 0.0f;
+        g_app.klipper_metadata_retry_after = 0;
+        app_unlock();
+        return 0.0f;
+    }
+
+    app_lock();
+    bool changed = strcmp(g_app.klipper_metadata_filename, filename) != 0;
+    if (changed) {
+        app_set_str(g_app.klipper_metadata_filename, sizeof(g_app.klipper_metadata_filename), filename);
+        g_app.klipper_estimated_duration_seconds = 0.0f;
+        g_app.klipper_metadata_retry_after = 0;
+    }
+    float cached = g_app.klipper_estimated_duration_seconds;
+    uint32_t retry_after = g_app.klipper_metadata_retry_after;
+    app_unlock();
+
+    if (cached > 0.5f) return cached;
+    if (retry_after != 0 && !time_due(now, retry_after)) return 0.0f;
+
+    float estimate = 0.0f;
+    bool ok = fetch_klipper_file_metadata(filename, &estimate);
+    app_lock();
+    if (ok) {
+        g_app.klipper_estimated_duration_seconds = estimate;
+        g_app.klipper_metadata_retry_after = 0;
+    } else {
+        g_app.klipper_metadata_retry_after = now + KLIPPER_NAME_RETRY_MS;
+    }
+    cached = g_app.klipper_estimated_duration_seconds;
+    app_unlock();
+    return cached;
+}
+
+static bool fetch_klipper_printer_name(void)
+{
+    char url[192];
+    snprintf(url, sizeof(url), "%s/server/database/item?namespace=mainsail&key=general.printername", KLIPPER_BASE_URL);
+
+    char *payload = NULL;
+    if (!http_get(url, false, NULL, NULL, &payload)) return false;
+    cJSON *root = cJSON_Parse(payload);
+    free(payload);
+    if (!root) return false;
+
+    char name[48];
+    json_text(json_obj(json_obj(root, "result"), "value"), name, sizeof(name));
+    if (!name[0]) json_text(json_obj(root, "value"), name, sizeof(name));
+    cJSON_Delete(root);
+    sanitize_screen_text(name, sizeof(name) - 1);
+    if (!name[0]) return false;
+
+    app_lock();
+    app_set_str(g_app.klipper_printer_name, sizeof(g_app.klipper_printer_name), name);
+    app_unlock();
+    return true;
+}
+
+static bool fetch_klipper_server_info(char *klippy_state, size_t state_size,
+                                      char *klippy_message, size_t message_size)
+{
+    if (klippy_state && state_size) klippy_state[0] = '\0';
+    if (klippy_message && message_size) klippy_message[0] = '\0';
+
+    char url[160];
+    snprintf(url, sizeof(url), "%s/server/info", KLIPPER_BASE_URL);
+
+    char *payload = NULL;
+    int http_status = 0;
+    if (!http_get(url, false, NULL, &http_status, &payload)) {
+        app_lock();
         g_app.klipper_host_available = false;
-        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "Moonraker nicht erreichbar");
+        g_app.klipper_available = false;
+        g_app.klipper_mmu_available = false;
+        app_set_str(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), "--");
+        app_set_str(g_app.klipper_connection_message, sizeof(g_app.klipper_connection_message), "");
+        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status),
+                    http_status > 0 ? "MOONRAKER HTTP" : "MOONRAKER BEGIN");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
         app_unlock();
         return false;
     }
 
     cJSON *root = cJSON_Parse(payload);
     free(payload);
-    if (!root) return false;
+    if (!root) {
+        app_lock();
+        g_app.klipper_host_available = false;
+        g_app.klipper_available = false;
+        g_app.klipper_mmu_available = false;
+        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "INFO JSON");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+        app_unlock();
+        return false;
+    }
 
-    const cJSON *status = json_obj(json_obj(root, "result"), "status");
-    const cJSON *print_stats = json_obj(status, "print_stats");
-    const cJSON *display = json_obj(status, "display_status");
-    const cJSON *extruder = json_obj(status, "extruder");
-    const cJSON *bed = json_obj(status, "heater_bed");
-    const char *raw_state = json_str(json_obj(print_stats, "state"), "standby");
-    const char *filename = json_str(json_obj(print_stats, "filename"), "");
-    double progress = json_num(json_obj(display, "progress"), NAN);
+    const cJSON *state_item = json_obj(json_obj(root, "result"), "klippy_state");
+    if (!state_item) state_item = json_obj(root, "klippy_state");
+    json_text(state_item, klippy_state, state_size);
 
-    char progress_text[8];
-    if (isfinite(progress)) snprintf(progress_text, sizeof(progress_text), "%.0f%%", progress * 100.0);
-    else snprintf(progress_text, sizeof(progress_text), "--");
+    const cJSON *connected_item = json_obj(json_obj(root, "result"), "klippy_connected");
+    if (!connected_item) connected_item = json_obj(root, "klippy_connected");
+    if (klippy_state && !klippy_state[0]) {
+        app_set_str(klippy_state, state_size, cJSON_IsTrue(connected_item) ? "ready" : "disconnected");
+    }
 
-    char nozzle[24], bed_text[24], duration[40], file[96], msg[64];
-    fmt_temp_pair(nozzle, sizeof(nozzle),
-                  json_num(json_obj(extruder, "temperature"), NAN),
-                  json_num(json_obj(extruder, "target"), NAN));
-    fmt_temp_pair(bed_text, sizeof(bed_text),
-                  json_num(json_obj(bed, "temperature"), NAN),
-                  json_num(json_obj(bed, "target"), NAN));
-    fmt_duration(duration, sizeof(duration), json_num(json_obj(print_stats, "print_duration"), NAN));
-    app_set_str(file, sizeof(file), filename[0] ? filename : "Kein Job");
-    app_set_str(msg, sizeof(msg), json_str(json_obj(display, "message"), ""));
+    const cJSON *warning_item = cJSON_GetArrayItem(json_obj(json_obj(root, "result"), "warnings"), 0);
+    if (!warning_item) warning_item = cJSON_GetArrayItem(json_obj(root, "warnings"), 0);
+    json_text(warning_item, klippy_message, message_size);
+    sanitize_screen_text(klippy_message, message_size > 0 ? message_size - 1 : 0);
+    cJSON_Delete(root);
 
     app_lock();
-    g_app.klipper_available = true;
     g_app.klipper_host_available = true;
-    app_set_str(g_app.klipper_state, sizeof(g_app.klipper_state), klipper_state_de(raw_state));
+    app_set_str(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), klippy_state);
+    app_set_str(g_app.klipper_connection_message, sizeof(g_app.klipper_connection_message), klippy_message);
+    app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "MOONRAKER OK");
+    if (strcasecmp(klippy_state, "ready") != 0) {
+        char detail[96];
+        klippy_offline_detail(klippy_state, klippy_message, detail, sizeof(detail));
+        g_app.klipper_available = false;
+        g_app.klipper_mmu_available = false;
+        app_set_str(g_app.klipper_state, sizeof(g_app.klipper_state), format_klippy_connection_state(klippy_state));
+        app_set_str(g_app.klipper_file, sizeof(g_app.klipper_file), detail);
+        app_set_str(g_app.klipper_progress, sizeof(g_app.klipper_progress), "--");
+        app_set_str(g_app.klipper_nozzle, sizeof(g_app.klipper_nozzle), "OK");
+        app_set_str(g_app.klipper_bed, sizeof(g_app.klipper_bed), g_app.klipper_state);
+        app_set_str(g_app.klipper_duration, sizeof(g_app.klipper_duration), "MAINSAIL OK");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+        app_set_str(g_app.klipper_mmu_info, sizeof(g_app.klipper_mmu_info), "Drucker einschalten");
+        g_app.klipper_mmu_gate_count = 0;
+        for (int i = 0; i < MMU_GATE_MAX; i++) {
+            g_app.klipper_mmu_gate_colors[i] = COLOR_DIM;
+            g_app.klipper_mmu_gate_status[i] = -1;
+        }
+    }
+    app_unlock();
+    return true;
+}
+
+static bool fetch_klipper_printer_info(char *klippy_state, size_t state_size,
+                                       char *klippy_message, size_t message_size)
+{
+    char url[160];
+    snprintf(url, sizeof(url), "%s/printer/info", KLIPPER_BASE_URL);
+
+    char *payload = NULL;
+    if (!http_get(url, false, NULL, NULL, &payload)) return false;
+    cJSON *root = cJSON_Parse(payload);
+    free(payload);
+    if (!root) return false;
+
+    char state[24];
+    char message[96];
+    json_text(json_obj(json_obj(root, "result"), "state"), state, sizeof(state));
+    if (!state[0]) json_text(json_obj(root, "state"), state, sizeof(state));
+    json_text(json_obj(json_obj(root, "result"), "state_message"), message, sizeof(message));
+    if (!message[0]) json_text(json_obj(root, "state_message"), message, sizeof(message));
+    cJSON_Delete(root);
+    sanitize_screen_text(message, sizeof(message) - 1);
+
+    if (state[0]) app_set_str(klippy_state, state_size, state);
+    if (message[0]) app_set_str(klippy_message, message_size, message);
+    return state[0] || message[0];
+}
+
+static bool fetch_klipper(void)
+{
+    char klippy_state[24];
+    char klippy_message[96];
+    if (!fetch_klipper_server_info(klippy_state, sizeof(klippy_state),
+                                   klippy_message, sizeof(klippy_message))) {
+        return false;
+    }
+
+    if (strcasecmp(klippy_state, "ready") != 0) {
+        fetch_klipper_printer_info(klippy_state, sizeof(klippy_state),
+                                   klippy_message, sizeof(klippy_message));
+        char detail[96];
+        klippy_offline_detail(klippy_state, klippy_message, detail, sizeof(detail));
+        app_lock();
+        app_set_str(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), klippy_state);
+        app_set_str(g_app.klipper_connection_message, sizeof(g_app.klipper_connection_message), klippy_message);
+        app_set_str(g_app.klipper_state, sizeof(g_app.klipper_state), format_klippy_connection_state(klippy_state));
+        app_set_str(g_app.klipper_file, sizeof(g_app.klipper_file), detail);
+        app_set_str(g_app.klipper_progress, sizeof(g_app.klipper_progress), "--");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+        app_unlock();
+        return true;
+    }
+
+    char url[320];
+    snprintf(url, sizeof(url),
+             "%s/printer/objects/query?webhooks&print_stats&display_status&extruder&heater_bed&mmu",
+             KLIPPER_BASE_URL);
+
+    char *payload = NULL;
+    int http_status = 0;
+    if (!http_get(url, false, NULL, &http_status, &payload)) {
+        app_lock();
+        g_app.klipper_host_available = true;
+        g_app.klipper_available = false;
+        g_app.klipper_mmu_available = false;
+        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status),
+                    http_status > 0 ? "HTTP FEHLER" : "HTTP BEGIN");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+        app_unlock();
+        return false;
+    }
+
+    cJSON *root = cJSON_Parse(payload);
+    free(payload);
+    if (!root) {
+        app_lock();
+        g_app.klipper_host_available = true;
+        g_app.klipper_available = false;
+        g_app.klipper_mmu_available = false;
+        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "JSON PARSE");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+        app_unlock();
+        return false;
+    }
+
+    const cJSON *status = json_obj(json_obj(root, "result"), "status");
+    if (!status) status = json_obj(root, "status");
+    if (!status) status = root;
+
+    const cJSON *extruder = json_obj(status, "extruder");
+    const cJSON *bed = json_obj(status, "heater_bed");
+    const cJSON *print_stats = json_obj(status, "print_stats");
+    const cJSON *display = json_obj(status, "display_status");
+    const cJSON *mmu = json_obj(status, "mmu");
+
+    char raw_state[24], raw_filename[192], file[96], progress[8];
+    char nozzle[24], bed_text[24], duration[40], display_msg[64], status_msg[64];
+    char mmu_action[32], mmu_operation[32], mmu_filament[32], mmu_info[64];
+    json_text(json_obj(print_stats, "state"), raw_state, sizeof(raw_state));
+    json_text(json_obj(print_stats, "filename"), raw_filename, sizeof(raw_filename));
+    json_text(json_obj(display, "message"), display_msg, sizeof(display_msg));
+    format_klipper_display_message(display_msg, sizeof(display_msg), display_msg);
+    format_klipper_file(file, sizeof(file), raw_filename);
+    format_klipper_progress(progress, sizeof(progress), json_obj(display, "progress"));
+    format_klipper_temperature(nozzle, sizeof(nozzle), json_obj(extruder, "temperature"), json_obj(extruder, "target"));
+    format_klipper_temperature(bed_text, sizeof(bed_text), json_obj(bed, "temperature"), json_obj(bed, "target"));
+
+    double print_duration = json_num_or_string(json_obj(print_stats, "print_duration"), NAN);
+    if (!isfinite(print_duration)) print_duration = json_num_or_string(json_obj(print_stats, "total_duration"), NAN);
+    float estimated_seconds = raw_filename[0] ? klipper_estimated_seconds_for_file(raw_filename) : 0.0f;
+    if (!raw_filename[0]) (void)klipper_estimated_seconds_for_file("");
+    format_klipper_duration_progress(duration, sizeof(duration), print_duration, estimated_seconds);
+
+    bool has_klipper_data = raw_state[0] ||
+        isfinite(json_num_or_string(json_obj(display, "progress"), NAN)) ||
+        isfinite(json_num_or_string(json_obj(extruder, "temperature"), NAN)) ||
+        isfinite(json_num_or_string(json_obj(bed, "temperature"), NAN));
+
+    if (!has_klipper_data) {
+        cJSON_Delete(root);
+        app_lock();
+        g_app.klipper_host_available = true;
+        g_app.klipper_available = false;
+        g_app.klipper_mmu_available = false;
+        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "JSON FEHLER");
+        app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+        app_unlock();
+        return false;
+    }
+
+    int mmu_gate_count = json_int_or_string(json_obj(mmu, "num_gates"), 0);
+    if (mmu_gate_count < 0) mmu_gate_count = 0;
+    if (mmu_gate_count > MMU_GATE_MAX) mmu_gate_count = MMU_GATE_MAX;
+    bool has_mmu_data = cJSON_IsObject(mmu) && mmu_gate_count > 0;
+    json_text(json_obj(mmu, "action"), mmu_action, sizeof(mmu_action));
+    json_text(json_obj(mmu, "operation"), mmu_operation, sizeof(mmu_operation));
+    json_text(json_obj(mmu, "filament"), mmu_filament, sizeof(mmu_filament));
+    int mmu_tool = json_int_or_string(json_obj(mmu, "tool"), -1);
+    int mmu_gate = json_int_or_string(json_obj(mmu, "gate"), -1);
+    format_klipper_mmu_info(mmu_info, sizeof(mmu_info), mmu_tool, mmu_gate,
+                            mmu_action, mmu_operation, mmu_filament);
+    snprintf(status_msg, sizeof(status_msg), "MOONRAKER OK");
+
+    app_lock();
+    g_app.klipper_host_available = true;
+    g_app.klipper_available = true;
+    app_set_str(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), "ready");
+    app_set_str(g_app.klipper_connection_message, sizeof(g_app.klipper_connection_message), "");
+    app_set_str(g_app.klipper_state, sizeof(g_app.klipper_state), format_klipper_state(raw_state));
     app_set_str(g_app.klipper_file, sizeof(g_app.klipper_file), file);
-    app_set_str(g_app.klipper_progress, sizeof(g_app.klipper_progress), progress_text);
+    app_set_str(g_app.klipper_progress, sizeof(g_app.klipper_progress), progress);
     app_set_str(g_app.klipper_nozzle, sizeof(g_app.klipper_nozzle), nozzle);
     app_set_str(g_app.klipper_bed, sizeof(g_app.klipper_bed), bed_text);
     app_set_str(g_app.klipper_duration, sizeof(g_app.klipper_duration), duration);
-    app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "Moonraker OK");
-    app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), msg);
+    app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), status_msg);
+    app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), display_msg);
+    g_app.klipper_mmu_available = has_mmu_data;
+    g_app.klipper_mmu_tool = mmu_tool;
+    g_app.klipper_mmu_gate = mmu_gate;
+    g_app.klipper_mmu_gate_count = has_mmu_data ? mmu_gate_count : 0;
+    app_set_str(g_app.klipper_mmu_info, sizeof(g_app.klipper_mmu_info), mmu_info);
+    for (int i = 0; i < MMU_GATE_MAX; i++) {
+        g_app.klipper_mmu_gate_colors[i] = COLOR_DIM;
+        g_app.klipper_mmu_gate_status[i] = -1;
+    }
+    const cJSON *gate_colors = json_obj(mmu, "gate_color");
+    const cJSON *gate_status = json_obj(mmu, "gate_status");
+    for (int i = 0; i < g_app.klipper_mmu_gate_count; i++) {
+        g_app.klipper_mmu_gate_colors[i] = parse_klipper_color(json_str(cJSON_GetArrayItem(gate_colors, i), ""));
+        g_app.klipper_mmu_gate_status[i] = json_int_or_string(cJSON_GetArrayItem(gate_status, i), -1);
+    }
     app_unlock();
 
     cJSON_Delete(root);
@@ -755,6 +1461,7 @@ static void fetch_task(void *arg)
     uint32_t next_candles = 0;
     uint32_t next_stats = 0;
     uint32_t next_klipper = 0;
+    uint32_t next_klipper_name = 0;
     uint32_t last_api_request = 0;
     bool schedule_initialized = false;
 
@@ -767,6 +1474,15 @@ static void fetch_task(void *arg)
 
         if (!connected) {
             schedule_initialized = false;
+            app_lock();
+            g_app.klipper_host_available = false;
+            g_app.klipper_available = false;
+            g_app.klipper_mmu_available = false;
+            app_set_str(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), "--");
+            app_set_str(g_app.klipper_connection_message, sizeof(g_app.klipper_connection_message), "");
+            app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "WLAN WARTET");
+            app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
+            app_unlock();
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
@@ -777,9 +1493,18 @@ static void fetch_task(void *arg)
             next_candles = start + 5000U;
             next_stats = start + 7000U;
             next_weather = start + 10000U;
+            next_klipper_name = start + 17000U;
             next_klipper = start + 24000U;
             last_api_request = 0;
             schedule_initialized = true;
+        }
+
+        if (s_crypto_refresh_requested) {
+            // Settings-Wechsel sofort neu laden, ohne auf das normale Intervall zu warten.
+            s_crypto_refresh_requested = false;
+            next_price = now;
+            next_candles = now + 1500U;
+            next_stats = now + 3000U;
         }
 
         if (last_api_request != 0 && now - last_api_request < API_REQUEST_GAP_MS) {
@@ -824,6 +1549,15 @@ static void fetch_task(void *arg)
             continue;
         }
 
+        if (time_due(now, next_klipper_name)) {
+            // Der Mainsail-Anzeigename aendert selten; getrennt vom schnellen Statuspoll.
+            bool ok = fetch_klipper_printer_name();
+            next_klipper_name = now + (ok ? KLIPPER_NAME_REFRESH_MS : KLIPPER_NAME_RETRY_MS);
+            last_api_request = (uint32_t)esp_log_timestamp();
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+
         if (time_due(now, next_klipper)) {
             bool ok = fetch_klipper();
             next_klipper = now + (ok ? KLIPPER_REFRESH_MS : KLIPPER_RETRY_MS);
@@ -836,14 +1570,63 @@ static void fetch_task(void *arg)
     }
 }
 
+bool wifi_credentials_load(char *ssid_out, size_t ssid_size,
+                           char *pass_out, size_t pass_size)
+{
+    if (!ssid_out || ssid_size == 0 || !pass_out || pass_size == 0) return false;
+    ssid_out[0] = '\0';
+    pass_out[0] = '\0';
+
+    bool from_nvs = false;
+    nvs_handle_t h;
+    if (nvs_open(WIFI_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t sz = ssid_size;
+        if (nvs_get_str(h, WIFI_NVS_SSID, ssid_out, &sz) == ESP_OK && ssid_out[0]) {
+            sz = pass_size;
+            if (nvs_get_str(h, WIFI_NVS_PASS, pass_out, &sz) != ESP_OK) {
+                pass_out[0] = '\0';
+            }
+            from_nvs = true;
+        }
+        nvs_close(h);
+    }
+    if (!from_nvs) {
+        // Fallback auf Compile-Time-Defaults (config_private.h).
+        snprintf(ssid_out, ssid_size, "%s", WIFI_SSID);
+        snprintf(pass_out, pass_size, "%s", WIFI_PASSWORD);
+    }
+    return ssid_out[0] != '\0';
+}
+
+bool wifi_credentials_save(const char *ssid, const char *pass)
+{
+    if (!ssid) return false;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(WIFI_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_open RW: %s", esp_err_to_name(err));
+        return false;
+    }
+    bool ok = (nvs_set_str(h, WIFI_NVS_SSID, ssid) == ESP_OK);
+    if (ok) ok = (nvs_set_str(h, WIFI_NVS_PASS, pass ? pass : "") == ESP_OK);
+    if (ok) ok = (nvs_commit(h) == ESP_OK);
+    nvs_close(h);
+    if (ok) ESP_LOGI(TAG, "WLAN-Daten in NVS gespeichert (SSID=\"%s\")", ssid);
+    return ok;
+}
+
 void net_start(void)
 {
-    if (!WIFI_SSID[0]) {
+    char ssid[33] = {0};
+    char pass[65] = {0};
+    bool have_creds = wifi_credentials_load(ssid, sizeof(ssid), pass, sizeof(pass));
+    if (!have_creds) {
         app_lock();
         g_app.wifi_connected = false;
-        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WLAN: keine SSID");
+        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WLAN nicht konfiguriert");
         app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status), "WLAN fehlt");
         app_unlock();
+        ESP_LOGW(TAG, "Keine WLAN-Credentials; Settings -> WLAN oeffnen");
         return;
     }
 
@@ -864,8 +1647,8 @@ void net_start(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL));
 
     wifi_config_t wifi_cfg = {0};
-    snprintf((char *)wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), "%s", WIFI_SSID);
-    snprintf((char *)wifi_cfg.sta.password, sizeof(wifi_cfg.sta.password), "%s", WIFI_PASSWORD);
+    snprintf((char *)wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), "%s", ssid);
+    snprintf((char *)wifi_cfg.sta.password, sizeof(wifi_cfg.sta.password), "%s", pass);
     wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 

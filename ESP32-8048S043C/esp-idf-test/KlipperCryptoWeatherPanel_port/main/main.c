@@ -108,38 +108,14 @@ static esp_lcd_panel_handle_t panel_init(void)
 }
 
 // ---------- Touch-Kalibrierung --------------------------------------------
-// GT911 auf diesem Board liefert Rohwerte ~0..458 / ~0..249 statt 0..800/0..480.
-// Affine Map aus BOARD_CODING_NOTES (2026-05-08), in Bildschirm-Pixel ueberfuehrt.
+// Die affine Map lebt in touch_calibration.c, damit sie per UI neu gelernt und
+// in NVS gespeichert werden kann.
 
 static void touch_process_coords(esp_lcd_touch_handle_t tp,
                                  uint16_t *x, uint16_t *y, uint16_t *strength,
                                  uint8_t  *point_num, uint8_t max_point_num)
 {
-    static const float CAL_X_RX =  1.65867031f;
-    static const float CAL_X_RY = -0.02261823f;
-    static const float CAL_X_C  =  2.12817001f;
-    static const float CAL_Y_RX =  0.02082564f;
-    static const float CAL_Y_RY =  1.79517055f;
-    static const float CAL_Y_C  = 10.62223816f;
-
-    uint8_t n = *point_num;
-    if (n > max_point_num) n = max_point_num;
-
-    // 180-Inversion bewusst NICHT hier - LVGL ruft bei display rotation 180
-    // intern lv_display_rotate_point auf (lv_indev.c) und wuerde sonst doppelt
-    // spiegeln. Lokale Timer-Konsumenten invertieren selber.
-    for (uint8_t i = 0; i < n; i++) {
-        float rx = (float)x[i];
-        float ry = (float)y[i];
-        int sx = (int)(CAL_X_RX * rx + CAL_X_RY * ry + CAL_X_C  + 0.5f);
-        int sy = (int)(CAL_Y_RX * rx + CAL_Y_RY * ry + CAL_Y_C  + 0.5f);
-        if (sx < 0) sx = 0;
-        if (sx > LCD_H_RES - 1) sx = LCD_H_RES - 1;
-        if (sy < 0) sy = 0;
-        if (sy > LCD_V_RES - 1) sy = LCD_V_RES - 1;
-        x[i] = (uint16_t)sx;
-        y[i] = (uint16_t)sy;
-    }
+    touch_calibration_process_coords(tp, x, y, strength, point_num, max_point_num);
 }
 
 // ---------- I2C + GT911 ----------------------------------------------------
@@ -274,21 +250,34 @@ static uint32_t current_screen_interval_ms(void)
     return ui_current_screen() == SCREEN_TIME ? SCREEN_TIME_MS : SCREEN_DEFAULT_MS;
 }
 
-static bool klipper_screen_available(void)
+static bool wifi_is_connected(void)
 {
-    bool available = false;
+    bool connected = false;
     app_lock();
-    available = g_app.klipper_host_available;
+    connected = g_app.wifi_connected;
     app_unlock();
-    return available;
+    return connected;
+}
+
+static bool ui_control_screen_is_open(void)
+{
+    return ui_popup_is_open() || ui_display_settings_is_open() ||
+           ui_settings_menu_is_open() || ui_wifi_setup_is_open() ||
+           ui_screen_settings_is_open() || ui_crypto_settings_is_open() ||
+           touch_calibration_is_open();
 }
 
 static void dashboard_refresh_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    if (ui_display_settings_is_open()) return;
-    if (ui_current_screen() == SCREEN_KLIPPER && !klipper_screen_available()) {
-        ui_switch_screen(ui_next_screen(SCREEN_KLIPPER));
+    if (ui_control_screen_is_open()) return;
+    // Bei WLAN-Verlust sofort zurueck auf den Verbindet-Screen.
+    if (!wifi_is_connected() && ui_current_screen() != SCREEN_TIME) {
+        ui_switch_screen(SCREEN_TIME);
+        return;
+    }
+    if (!ui_screen_is_available(ui_current_screen())) {
+        ui_switch_screen(ui_next_screen(ui_current_screen()));
         return;
     }
     ui_refresh_current();
@@ -307,7 +296,7 @@ static void dashboard_rotate_timer_cb(lv_timer_t *t)
 {
     (void)t;
     int64_t now_us = esp_timer_get_time();
-    if (s_touch_was_down || ui_popup_is_open() || ui_display_settings_is_open() || ui_settings_menu_is_open()) {
+    if (!wifi_is_connected() || s_touch_was_down || ui_control_screen_is_open()) {
         s_last_auto_switch_us = now_us;
         return;
     }
@@ -322,6 +311,13 @@ static void dashboard_rotate_timer_cb(lv_timer_t *t)
 static void touch_poll_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (touch_calibration_is_open()) {
+        destroy_lp_feedback();
+        s_touch_was_down = false;
+        s_long_press_handled = true;
+        return;
+    }
+
     esp_lcd_touch_point_data_t pts[1];
     uint8_t count = 0;
     esp_lcd_touch_read_data(s_tp);
@@ -332,7 +328,8 @@ static void touch_poll_timer_cb(lv_timer_t *t)
     // Lokales Long-Press- und Screen-Switch-Tracking pausiert. Markieren als
     // "handled", damit ein Release (das das Popup gerade geschlossen hat) keinen
     // Screen-Wechsel ausloest.
-    if (ui_popup_is_open() || ui_display_settings_is_open() || ui_settings_menu_is_open()) {
+    if (ui_popup_is_open() || ui_display_settings_is_open() || ui_settings_menu_is_open() ||
+        ui_wifi_setup_is_open() || ui_screen_settings_is_open() || ui_crypto_settings_is_open()) {
         destroy_lp_feedback();
         if (down) s_long_press_handled = true;
         s_touch_was_down = down;
@@ -405,7 +402,7 @@ static void init_app_state(void)
 
     snprintf(g_app.crypto_price, sizeof(g_app.crypto_price), "Laden...");
     snprintf(g_app.crypto_status, sizeof(g_app.crypto_status), "%s %s",
-             CRYPTO_SERVICE_NAME, CRYPTO_QUOTE_SYMBOL);
+             g_crypto.service, g_crypto.quote);
     snprintf(g_app.btc_day_change, sizeof(g_app.btc_day_change), "%s --",
              crypto_chart_timeframe_label());
     snprintf(g_app.btc_day_time_range, sizeof(g_app.btc_day_time_range), "--");
@@ -413,6 +410,7 @@ static void init_app_state(void)
     snprintf(g_app.btc_candle_status, sizeof(g_app.btc_candle_status), "CANDLE --");
     g_app.btc_day_change_positive = true;
 
+    snprintf(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), "--");
     snprintf(g_app.klipper_state, sizeof(g_app.klipper_state), "--");
     snprintf(g_app.klipper_file, sizeof(g_app.klipper_file), "Kein Job");
     snprintf(g_app.klipper_progress, sizeof(g_app.klipper_progress), "--");
@@ -421,6 +419,14 @@ static void init_app_state(void)
     snprintf(g_app.klipper_duration, sizeof(g_app.klipper_duration), "--");
     snprintf(g_app.klipper_status, sizeof(g_app.klipper_status), "KLIPPER --");
     snprintf(g_app.klipper_printer_name, sizeof(g_app.klipper_printer_name), "KLIPPER");
+    snprintf(g_app.klipper_mmu_info, sizeof(g_app.klipper_mmu_info), "MMU --");
+    g_app.klipper_mmu_tool = -1;
+    g_app.klipper_mmu_gate = -1;
+    for (int i = 0; i < MMU_GATE_MAX; i++) {
+        // Defaults wie im Arduino-Sketch: keine Gate-Daten, neutrale Farbe.
+        g_app.klipper_mmu_gate_colors[i] = COLOR_DIM;
+        g_app.klipper_mmu_gate_status[i] = -1;
+    }
 }
 
 // ---------- main -----------------------------------------------------------
@@ -438,6 +444,10 @@ void app_main(void)
     }
 
     s_rotate_180 = display_rotate_180_load();
+    crypto_settings_load();
+    screen_settings_load();
+    touch_calibration_set_rotation(s_rotate_180);
+    touch_calibration_load();
     ESP_LOGI(TAG, "Rotate 180: %s", s_rotate_180 ? "an" : "aus");
 
     ESP_LOGI(TAG, "Backlight init");
@@ -449,6 +459,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Init I2C + GT911");
     i2c_master_bus_handle_t i2c_bus = i2c_init();
     s_tp = touch_init(i2c_bus);
+    touch_calibration_set_handle(s_tp);
 
     ESP_LOGI(TAG, "Init LVGL port");
     const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();

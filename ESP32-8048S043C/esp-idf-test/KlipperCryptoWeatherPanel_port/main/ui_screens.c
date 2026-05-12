@@ -11,6 +11,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 static const char *TAG = "ui";
@@ -65,10 +66,23 @@ static lv_obj_t *s_klipper_nozzle_title_label, *s_klipper_nozzle_label;
 static lv_obj_t *s_klipper_bed_title_label, *s_klipper_bed_label;
 static lv_obj_t *s_klipper_duration_label, *s_klipper_status_label;
 static lv_obj_t *s_klipper_mmu_label;
+static lv_obj_t *s_klipper_mmu_gate_box[MMU_GATE_MAX];
+static lv_obj_t *s_klipper_mmu_gate_label[MMU_GATE_MAX];
+static lv_obj_t *s_klipper_mmu_gate_empty_line[MMU_GATE_MAX];
+static lv_point_precise_t s_klipper_mmu_gate_empty_pts[MMU_GATE_MAX][2];
 
 static screen_state_t s_current_screen = SCREEN_TIME;
 
 // --- Hilfsfunktionen ---------------------------------------------------------
+static bool wifi_is_connected(void)
+{
+    bool connected = false;
+    app_lock();
+    connected = g_app.wifi_connected;
+    app_unlock();
+    return connected;
+}
+
 static void set_hidden(lv_obj_t *obj, bool hidden)
 {
     if (!obj) return;
@@ -355,16 +369,6 @@ static void create_time_screen(void)
     lv_obj_align(s_time_status_detail, LV_ALIGN_CENTER, 0, 38);
 }
 
-static void crypto_pair_title(char *out, size_t out_size)
-{
-    snprintf(out, out_size, "%s / %s", CRYPTO_BASE_SYMBOL, CRYPTO_QUOTE_SYMBOL);
-}
-
-static void crypto_day_title(char *out, size_t out_size)
-{
-    snprintf(out, out_size, "%s %s", CRYPTO_BASE_SYMBOL, crypto_chart_timeframe_label());
-}
-
 static void create_crypto_screen(void)
 {
     s_crypto_screen = create_screen();
@@ -373,7 +377,7 @@ static void create_crypto_screen(void)
     s_crypto_title_label = create_label(s_crypto_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_size(s_crypto_title_label, 460, 40);
     lv_obj_set_pos(s_crypto_title_label, 96, 40);
-    char title[32]; crypto_pair_title(title, sizeof(title));
+    char title[32]; crypto_pair_title_text(title, sizeof(title));
     lv_label_set_text(s_crypto_title_label, title);
 
     s_crypto_price_label = create_label(s_crypto_screen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
@@ -399,7 +403,7 @@ static void create_btc_day_screen(void)
     s_btc_day_title_label = create_label(s_btc_day_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_size(s_btc_day_title_label, 390, 40);
     lv_obj_set_pos(s_btc_day_title_label, 96, 40);
-    char title[32]; crypto_day_title(title, sizeof(title));
+    char title[32]; crypto_day_title_text(title, sizeof(title));
     lv_label_set_text(s_btc_day_title_label, title);
 
     s_btc_day_change_label = create_label(s_btc_day_screen, &lv_font_montserrat_40, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
@@ -565,6 +569,41 @@ static void create_klipper_screen(void)
     s_klipper_mmu_label = create_label(s_klipper_screen, &lv_font_montserrat_28, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
     lv_obj_set_size(s_klipper_mmu_label, 700, 32);
     lv_obj_align(s_klipper_mmu_label, LV_ALIGN_TOP_MID, 0, 402);
+
+    const int gate_w = 70;
+    const int gate_h = 36;
+    const int gate_gap = 10;
+    const int gate_start_x = 85;
+    for (int i = 0; i < MMU_GATE_MAX; i++) {
+        s_klipper_mmu_gate_box[i] = lv_obj_create(s_klipper_screen);
+        style_filled_rect(s_klipper_mmu_gate_box[i], COLOR_DIM, 3);
+        lv_obj_set_size(s_klipper_mmu_gate_box[i], gate_w, gate_h);
+        lv_obj_set_pos(s_klipper_mmu_gate_box[i], gate_start_x + (i * (gate_w + gate_gap)), 438);
+        lv_obj_set_style_outline_color(s_klipper_mmu_gate_box[i], lv_color_hex(COLOR_TEXT), 0);
+        lv_obj_set_style_outline_pad(s_klipper_mmu_gate_box[i], 2, 0);
+        lv_obj_set_style_outline_width(s_klipper_mmu_gate_box[i], 0, 0);
+
+        // Diagonale Linie markiert ein leeres MMU-Gate.
+        s_klipper_mmu_gate_empty_pts[i][0].x = 0;
+        s_klipper_mmu_gate_empty_pts[i][0].y = gate_h;
+        s_klipper_mmu_gate_empty_pts[i][1].x = gate_w;
+        s_klipper_mmu_gate_empty_pts[i][1].y = 0;
+        s_klipper_mmu_gate_empty_line[i] = lv_line_create(s_klipper_mmu_gate_box[i]);
+        lv_line_set_points(s_klipper_mmu_gate_empty_line[i], s_klipper_mmu_gate_empty_pts[i], 2);
+        lv_obj_set_style_line_color(s_klipper_mmu_gate_empty_line[i], lv_color_hex(COLOR_LOSS), 0);
+        lv_obj_set_style_line_width(s_klipper_mmu_gate_empty_line[i], 5, 0);
+        lv_obj_set_style_line_opa(s_klipper_mmu_gate_empty_line[i], LV_OPA_70, 0);
+        lv_obj_set_pos(s_klipper_mmu_gate_empty_line[i], 0, 0);
+        set_hidden(s_klipper_mmu_gate_empty_line[i], true);
+
+        s_klipper_mmu_gate_label[i] = create_label(s_klipper_mmu_gate_box[i], &lv_font_montserrat_28,
+                                                   COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+        char gate_label[4];
+        snprintf(gate_label, sizeof(gate_label), "T%d", i);
+        lv_label_set_text(s_klipper_mmu_gate_label[i], gate_label);
+        lv_obj_center(s_klipper_mmu_gate_label[i]);
+        set_hidden(s_klipper_mmu_gate_box[i], true);
+    }
 }
 
 // --- Refresh per Screen ------------------------------------------------------
@@ -676,7 +715,7 @@ static void refresh_crypto_ui(void)
     live_price = g_app.crypto_live_price;
     app_unlock();
 
-    char title[32]; crypto_pair_title(title, sizeof(title));
+    char title[32]; crypto_pair_title_text(title, sizeof(title));
     set_label_text_if_changed(s_crypto_title_label, title);
 
     const lv_font_t *font = crypto_price_can_use_large_font(price) ?
@@ -701,7 +740,7 @@ static void refresh_crypto_ui(void)
     lv_obj_set_style_text_color(s_crypto_change_label, lv_color_hex(change_color), 0);
 
     set_label_text_if_changed(s_crypto_status_label, status);
-    bool service_ok = strncmp(status, CRYPTO_SERVICE_NAME, strlen(CRYPTO_SERVICE_NAME)) == 0;
+    bool service_ok = strncmp(status, g_crypto.service, strlen(g_crypto.service)) == 0;
     lv_obj_set_style_text_color(s_crypto_status_label,
         lv_color_hex(service_ok ? COLOR_MUTED : COLOR_RED), 0);
 }
@@ -732,10 +771,10 @@ static void crypto_chart_price_text(const char *fallback_price, float live_price
         int decimals = 2;
         if (live_price >= 10000.0f) decimals = 0;
         else if (live_price < 1.0f) decimals = 4;
-        snprintf(out, out_size, "%s %.*f", CRYPTO_QUOTE_SYMBOL, decimals, live_price);
+        snprintf(out, out_size, "%s %.*f", g_crypto.quote, decimals, live_price);
         return;
     }
-    snprintf(out, out_size, "%s %s", CRYPTO_QUOTE_SYMBOL, fallback_price[0] ? fallback_price : "--");
+    snprintf(out, out_size, "%s %s", g_crypto.quote, fallback_price[0] ? fallback_price : "--");
 }
 
 static void refresh_btc_day_ui(void)
@@ -761,7 +800,7 @@ static void refresh_btc_day_ui(void)
 
     if (ready) format_btc_candle_countdown(candle_time, candle, sizeof(candle));
 
-    char title[32]; crypto_day_title(title, sizeof(title));
+    char title[32]; crypto_day_title_text(title, sizeof(title));
     char chart_price_buf[40], chart_price_full[48];
     crypto_chart_price_text(price, live_price, chart_price_buf, sizeof(chart_price_buf));
     if (price_direction > 0)
@@ -807,6 +846,9 @@ static void set_klipper_offline_layout(uint32_t state_color)
     set_hidden(s_klipper_bed_label, true);
     set_hidden(s_klipper_duration_label, true);
     set_hidden(s_klipper_status_label, true);
+    for (int i = 0; i < MMU_GATE_MAX; i++) {
+        set_hidden(s_klipper_mmu_gate_box[i], true);
+    }
 }
 
 static void set_klipper_online_layout(void)
@@ -825,7 +867,14 @@ static void set_klipper_online_layout(void)
     lv_obj_align(s_klipper_progress_label, LV_ALIGN_TOP_MID, 0, 130);
     lv_obj_set_size(s_klipper_file_label, 700, 42);
     lv_obj_align(s_klipper_file_label, LV_ALIGN_TOP_MID, 0, 262);
+    lv_label_set_long_mode(s_klipper_file_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(s_klipper_file_label, lv_color_hex(COLOR_MUTED), 0);
+    lv_obj_set_size(s_klipper_duration_label, 300, 36);
+    lv_obj_set_pos(s_klipper_duration_label, 130, 362);
+    lv_obj_set_size(s_klipper_status_label, 340, 36);
+    lv_obj_set_pos(s_klipper_status_label, 330, 362);
+    lv_obj_set_size(s_klipper_mmu_label, 700, 32);
+    lv_obj_align(s_klipper_mmu_label, LV_ALIGN_TOP_MID, 0, 402);
     set_hidden(s_klipper_nozzle_title_label, false);
     set_hidden(s_klipper_nozzle_label, false);
     set_hidden(s_klipper_bed_title_label, false);
@@ -839,7 +888,10 @@ static int progress_percent_from_text(const char *text)
 {
     if (!text) return -1;
     size_t len = strlen(text);
-    while (len > 0 && (text[len-1] == ' ' || text[len-1] == '%')) len--;
+    while (len > 0 && text[len-1] == ' ') len--;
+    if (len == 0 || text[len-1] != '%') return -1;
+    len--;
+    while (len > 0 && text[len-1] == ' ') len--;
     if (len == 0) return -1;
     char buf[8] = {0};
     size_t copy = len < sizeof(buf)-1 ? len : sizeof(buf)-1;
@@ -853,12 +905,22 @@ static int progress_percent_from_text(const char *text)
 static void refresh_klipper_ui(void)
 {
     bool available, host_available;
+    bool mmu_available;
+    int mmu_gate, mmu_gate_count;
     char state[24], file[96], progress[8], nozzle[24], bed[24];
     char duration[40], status[64], display_msg[64], printer_name[48];
+    char connection_state[24], connection_message[96], mmu_info[64];
+    uint32_t mmu_gate_colors[MMU_GATE_MAX];
+    int mmu_gate_status[MMU_GATE_MAX];
 
     app_lock();
     available = g_app.klipper_available;
     host_available = g_app.klipper_host_available;
+    mmu_available = g_app.klipper_mmu_available;
+    mmu_gate = g_app.klipper_mmu_gate;
+    mmu_gate_count = g_app.klipper_mmu_gate_count;
+    strncpy(connection_state,   g_app.klipper_connection_state,   sizeof(connection_state));   connection_state[sizeof(connection_state)-1] = 0;
+    strncpy(connection_message, g_app.klipper_connection_message, sizeof(connection_message)); connection_message[sizeof(connection_message)-1] = 0;
     strncpy(state,        g_app.klipper_state,           sizeof(state));        state[sizeof(state)-1] = 0;
     strncpy(file,         g_app.klipper_file,            sizeof(file));         file[sizeof(file)-1] = 0;
     strncpy(progress,     g_app.klipper_progress,        sizeof(progress));     progress[sizeof(progress)-1] = 0;
@@ -868,13 +930,22 @@ static void refresh_klipper_ui(void)
     strncpy(status,       g_app.klipper_status,          sizeof(status));       status[sizeof(status)-1] = 0;
     strncpy(display_msg,  g_app.klipper_display_message, sizeof(display_msg));  display_msg[sizeof(display_msg)-1] = 0;
     strncpy(printer_name, g_app.klipper_printer_name,    sizeof(printer_name)); printer_name[sizeof(printer_name)-1] = 0;
+    strncpy(mmu_info,     g_app.klipper_mmu_info,        sizeof(mmu_info));     mmu_info[sizeof(mmu_info)-1] = 0;
+    for (int i = 0; i < MMU_GATE_MAX; i++) {
+        mmu_gate_colors[i] = g_app.klipper_mmu_gate_colors[i];
+        mmu_gate_status[i] = g_app.klipper_mmu_gate_status[i];
+    }
     app_unlock();
 
     if (!available) {
         const char *state_text = host_available ? state : "OFFLINE";
-        const char *detail_text = host_available ? status : "Moonraker nicht erreichbar";
+        const char *detail_text = host_available ? (file[0] ? file : status) : "Moonraker nicht erreichbar";
         uint32_t state_color = COLOR_ORANGE;
-        if (!host_available) state_color = COLOR_LOSS;
+        if (!host_available || strcasecmp(connection_state, "error") == 0) {
+            state_color = COLOR_LOSS;
+        } else if (strcasecmp(connection_state, "shutdown") == 0 || strcasecmp(connection_state, "disconnected") == 0) {
+            state_color = COLOR_DIM;
+        }
         set_klipper_offline_layout(state_color);
         set_label_text_if_changed(s_klipper_title_label, host_available ? printer_name : "KLIPPER");
         set_label_text_if_changed(s_klipper_state_label, state_text);
@@ -895,7 +966,7 @@ static void refresh_klipper_ui(void)
     set_label_text_if_changed(s_klipper_bed_label, bed);
     set_label_text_if_changed(s_klipper_duration_label, duration);
     set_label_text_if_changed(s_klipper_status_label, display_msg[0] ? display_msg : status);
-    set_label_text_if_changed(s_klipper_mmu_label, "MMU nicht aktiv");
+    set_label_text_if_changed(s_klipper_mmu_label, mmu_available ? mmu_info : "MMU nicht aktiv");
 
     uint32_t state_color = COLOR_GREEN;
     if (strcmp(state, "PAUSE") == 0) state_color = COLOR_ORANGE;
@@ -908,7 +979,32 @@ static void refresh_klipper_ui(void)
     set_hidden(s_klipper_progress_arc, pct < 0);
     if (pct >= 0) {
         lv_arc_set_value(s_klipper_progress_arc, pct);
+        lv_obj_set_style_arc_color(s_klipper_progress_arc, lv_color_hex(COLOR_DIM), LV_PART_MAIN);
         lv_obj_set_style_arc_color(s_klipper_progress_arc, lv_color_hex(state_color), LV_PART_INDICATOR);
+    }
+    lv_obj_set_style_text_color(s_klipper_nozzle_label, lv_color_hex(COLOR_CYAN), 0);
+    lv_obj_set_style_text_color(s_klipper_bed_label, lv_color_hex(COLOR_CYAN), 0);
+    lv_obj_set_style_text_color(s_klipper_status_label, lv_color_hex(display_msg[0] ? COLOR_CYAN : COLOR_DIM), 0);
+
+    for (int i = 0; i < MMU_GATE_MAX; i++) {
+        bool gate_visible = mmu_available && i < mmu_gate_count;
+        set_hidden(s_klipper_mmu_gate_box[i], !gate_visible);
+        if (!gate_visible) {
+            set_hidden(s_klipper_mmu_gate_empty_line[i], true);
+            continue;
+        }
+
+        bool gate_empty = mmu_gate_status[i] == 0;
+        uint32_t gate_color = gate_empty ? COLOR_DIM : mmu_gate_colors[i];
+        lv_obj_set_style_bg_color(s_klipper_mmu_gate_box[i], lv_color_hex(gate_color), 0);
+        lv_obj_set_style_outline_width(s_klipper_mmu_gate_box[i], i == mmu_gate ? 3 : 0, 0);
+        set_hidden(s_klipper_mmu_gate_empty_line[i], !gate_empty);
+
+        uint8_t r = (gate_color >> 16) & 0xff;
+        uint8_t g = (gate_color >> 8) & 0xff;
+        uint8_t b = gate_color & 0xff;
+        uint32_t label_color = ((uint16_t)r + (uint16_t)g + (uint16_t)b) > 380 ? COLOR_BG : COLOR_TEXT;
+        lv_obj_set_style_text_color(s_klipper_mmu_gate_label[i], lv_color_hex(label_color), 0);
     }
 }
 
@@ -939,13 +1035,29 @@ screen_state_t ui_current_screen(void) { return s_current_screen; }
 
 static bool screen_is_available(screen_state_t state)
 {
+    if (!screen_settings_is_enabled(state)) return false;
+
+    // Ohne WLAN bleibt das Dashboard auf dem "WLAN verbindet"-Time-Screen.
+    if (!wifi_is_connected() && state != SCREEN_TIME) return false;
     if (state != SCREEN_KLIPPER) return true;
 
     bool available = false;
     app_lock();
-    available = g_app.klipper_host_available;
+    available = g_app.klipper_available || g_app.klipper_host_available;
     app_unlock();
-    return available;
+    if (available) return true;
+
+    // Wenn nur Klipper aktiv ist, darf die Offline-Seite sichtbar bleiben.
+    int others = 0;
+    if (screen_settings_is_enabled(SCREEN_TIME)) others++;
+    if (screen_settings_is_enabled(SCREEN_CRYPTO)) others++;
+    if (screen_settings_is_enabled(SCREEN_BTC_DAY)) others++;
+    return others == 0;
+}
+
+bool ui_screen_is_available(screen_state_t state)
+{
+    return screen_is_available(state);
 }
 
 screen_state_t ui_next_screen(screen_state_t state)
@@ -970,12 +1082,25 @@ void ui_switch_screen(screen_state_t target)
 {
     lv_obj_t *targets[4] = { s_time_screen, s_crypto_screen, s_btc_day_screen, s_klipper_screen };
     if ((int)target < 0 || (int)target > 3) target = SCREEN_TIME;
+    if (!wifi_is_connected()) target = SCREEN_TIME;
     if (!screen_is_available(target)) target = ui_next_screen(target);
     if (target == s_current_screen && lv_screen_active() == targets[target]) return;
     s_current_screen = target;
     ui_refresh_current();
     lv_screen_load_anim(targets[target], LV_SCREEN_LOAD_ANIM_FADE_IN,
                         SCREEN_TRANSITION_MS, 0, false);
+}
+
+void ui_load_current_screen_no_anim(void)
+{
+    lv_obj_t *targets[4] = { s_time_screen, s_crypto_screen, s_btc_day_screen, s_klipper_screen };
+    screen_state_t target = s_current_screen;
+    if ((int)target < 0 || (int)target > 3) target = SCREEN_TIME;
+    if (!screen_is_available(target)) target = ui_next_screen(target);
+    if ((int)target < 0 || (int)target > 3) target = SCREEN_TIME;
+    s_current_screen = target;
+    ui_refresh_current();
+    lv_screen_load(targets[target]);
 }
 
 lv_obj_t *ui_get_btc_chart_canvas(void)     { return s_btc_day_chart_canvas; }

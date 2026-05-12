@@ -105,7 +105,10 @@ static void close_screen(void)
 
     const bool back_to_menu = s_from_settings_menu;
 
-    if (!back_to_menu && s_return_screen) {
+    // Erst Zielscreen laden, dann den aktiven Settings-Screen loeschen.
+    if (back_to_menu) {
+        ui_settings_menu_reopen();
+    } else if (s_return_screen) {
         lv_screen_load(s_return_screen);
     }
     lv_obj_delete_async(s_screen);
@@ -117,10 +120,6 @@ static void close_screen(void)
     s_rotate_hint   = NULL;
     s_return_screen = NULL;
     s_from_settings_menu = false;
-
-    if (back_to_menu) {
-        ui_settings_menu_reopen();
-    }
 }
 
 static void on_back_clicked(lv_event_t *e)
@@ -169,10 +168,8 @@ void ui_display_settings_open(void)
 {
     if (s_screen) return;
 
-    // Wenn das Settings-Menue uns aufgerufen hat, ist dessen Menue-Screen
-    // gerade async geloescht; lv_screen_active() liefert daher einen ungueltigen
-    // Pointer. In dem Fall nehmen wir das urspruengliche Dashboard-Return-Ziel
-    // und merken uns, dass Back ins Menue zurueckkehren soll.
+    // Beim Aufruf aus dem Settings-Menue merken wir das urspruengliche
+    // Dashboard-Return-Ziel und gehen per Back zuerst ins Menue zurueck.
     lv_obj_t *menu_return = ui_settings_menu_return_target();
     if (menu_return) {
         s_return_screen      = menu_return;
