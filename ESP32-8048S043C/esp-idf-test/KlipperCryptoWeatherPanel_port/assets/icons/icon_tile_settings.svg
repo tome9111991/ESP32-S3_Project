@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <title>Tile Settings (Crossed Wrench + Screwdriver)</title>
+  <!--
+    Klassisches Werkzeug-Kreuz-Symbol fuer Settings.
+    Beide Werkzeuge in lokalen Koordinaten senkrecht (Kopf oben) modelliert
+    und um die Mitte (24,24) gegeneinander rotiert:
+      - Wrench:      rotate(-45)  -> Maul oben-rechts, Endstueck unten-links
+      - Screwdriver: rotate( 45)  -> Griff oben-links, Klinge unten-rechts
+    Transparenter Hintergrund (svg2lvgl.py -> RGB565A8).
+  -->
+  <g fill="#dbe2ec" transform="translate(24,24)">
+
+    <!-- Wrench: Open-End-Maul oben, Schaft, Endknopf unten -->
+    <g transform="rotate(-45)">
+      <path d="
+        M -7.2 -22
+        L -3.0 -22
+        L -3.0 -17
+        L  3.0 -17
+        L  3.0 -22
+        L  7.2 -22
+        L  7.2 -13
+        L -7.2 -13
+        Z"/>
+      <rect x="-2.3" y="-13.2" width="4.6" height="32" rx="1.8"/>
+      <circle cx="0" cy="20" r="3.2"/>
+    </g>
+
+    <!-- Screwdriver: runder Griff, Ferrule (Ring), Schaft, Flachklinge -->
+    <g transform="rotate(45)">
+      <rect x="-3.8" y="-22"   width="7.6" height="12"  rx="2.4"/>
+      <rect x="-4.4" y="-10.4" width="8.8" height="2.2" rx="0.9"/>
+      <rect x="-1.5" y="-8"    width="3.0" height="26"/>
+      <path d="
+        M -3.2 18
+        L  3.2 18
+        L  2.4 22
+        L -2.4 22
+        Z"/>
+    </g>
+
+  </g>
+</svg>

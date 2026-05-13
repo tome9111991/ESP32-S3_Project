@@ -2,6 +2,7 @@
 // Port von 15_ScreenSettings.ino auf ESP-IDF/NVS.
 
 #include "app_state.h"
+#include "ui_assets.h"
 
 #include "esp_log.h"
 #include "nvs.h"
@@ -34,8 +35,13 @@ static lv_obj_t *s_tile[OPTION_COUNT];
 static lv_obj_t *s_title_label[OPTION_COUNT];
 static lv_obj_t *s_underline[OPTION_COUNT];
 static lv_obj_t *s_state_label[OPTION_COUNT];
+static lv_obj_t *s_settings_btn[OPTION_COUNT];
 static lv_obj_t *s_status_label = NULL;
 static uint8_t s_tile_data[OPTION_COUNT] = { 0, 1, 2, 3 };
+
+// Dummy per-tile detail screen (Schraubenschluessel-Icon -> Platzhalter-Seite).
+static lv_obj_t *s_detail_screen = NULL;
+static uint8_t   s_detail_index  = 0;
 
 static bool s_saved_time = true;
 static bool s_saved_price = true;
@@ -215,8 +221,11 @@ static lv_obj_t *make_divider(lv_obj_t *parent, int x, int y, int w, uint32_t co
 static lv_obj_t *make_back_button(lv_obj_t *parent);
 static void update_ui(void);
 
+static void destroy_detail_screen(void);
+
 static void destroy_screen(void)
 {
+    destroy_detail_screen();
     if (!s_screen) return;
     lv_obj_delete_async(s_screen);
     s_screen = NULL;
@@ -226,7 +235,80 @@ static void destroy_screen(void)
         s_title_label[i] = NULL;
         s_underline[i] = NULL;
         s_state_label[i] = NULL;
+        s_settings_btn[i] = NULL;
     }
+}
+
+static void destroy_detail_screen(void)
+{
+    if (!s_detail_screen) return;
+    lv_obj_delete_async(s_detail_screen);
+    s_detail_screen = NULL;
+}
+
+static void on_detail_back_clicked(lv_event_t *e)
+{
+    (void)e;
+    if (s_screen) lv_screen_load(s_screen);
+    destroy_detail_screen();
+}
+
+static void open_tile_detail(uint8_t index)
+{
+    if (index >= OPTION_COUNT) return;
+    if (s_detail_screen) destroy_detail_screen();
+    s_detail_index = index;
+
+    s_detail_screen = lv_obj_create(NULL);
+    lv_obj_remove_style_all(s_detail_screen);
+    lv_obj_set_style_bg_color(s_detail_screen, lv_color_hex(COLOR_BG), 0);
+    lv_obj_set_style_bg_opa(s_detail_screen, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(s_detail_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *accent = lv_obj_create(s_detail_screen);
+    style_filled_rect(accent, color_for_index(index), 2);
+    lv_obj_set_size(accent, 36, 5);
+    lv_obj_set_pos(accent, 42, 58);
+
+    char title_buf[48];
+    snprintf(title_buf, sizeof(title_buf), "%s Optionen", title_for_index(index));
+    make_label(s_detail_screen, &lv_font_montserrat_40, COLOR_TEXT,
+               LV_TEXT_ALIGN_LEFT, 100, 32, 600, 52, title_buf);
+
+    // Back button (close detail, return to screen settings overview).
+    lv_obj_t *btn = lv_obj_create(s_detail_screen);
+    style_filled_rect(btn, 0x232b38, 8);
+    lv_obj_set_size(btn, 52, 52);
+    lv_obj_set_pos(btn, LCD_H_RES - 52 - 24, 30);
+    lv_obj_set_style_border_width(btn, 2, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
+    lv_obj_set_style_pad_all(btn, 0, 0);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(btn, on_detail_back_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *back_label = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
+                                      LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52,
+                                      LV_SYMBOL_LEFT);
+    lv_obj_set_size(back_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_center(back_label);
+    lv_obj_add_flag(back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    // Dummy body placeholder.
+    make_label(s_detail_screen, &lv_font_montserrat_28, COLOR_TEXT,
+               LV_TEXT_ALIGN_CENTER, 60, 200, 680, 40,
+               "Pro-Screen Einstellungen folgen.");
+    make_label(s_detail_screen, &lv_font_montserrat_24, COLOR_MUTED,
+               LV_TEXT_ALIGN_CENTER, 60, 248, 680, 32,
+               "Hier kommen kuenftig Optionen fuer diese Kachel.");
+
+    lv_screen_load(s_detail_screen);
+}
+
+static void on_tile_settings_clicked(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    uint8_t *index = (uint8_t *)lv_event_get_user_data(e);
+    if (!index || *index >= OPTION_COUNT) return;
+    open_tile_detail(*index);
 }
 
 static void update_tile(uint8_t index)
@@ -366,6 +448,32 @@ static void make_tile(lv_obj_t *parent, uint8_t index, int x, int y)
                                       LV_TEXT_ALIGN_RIGHT, TILE_W - 110, 82,
                                       82, 28, "");
     lv_obj_add_flag(s_state_label[index], LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    // Schraubenschluessel-Icon-Button oben rechts. Eigener Click-Handler;
+    // ohne EVENT_BUBBLE, damit der Tile-Toggle nicht mitausgeloest wird.
+    lv_obj_t *gear = lv_obj_create(tile);
+    s_settings_btn[index] = gear;
+    lv_obj_remove_style_all(gear);
+    lv_obj_set_style_bg_color(gear, lv_color_hex(0x232b38), 0);
+    lv_obj_set_style_bg_opa(gear, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(gear, 6, 0);
+    lv_obj_set_style_border_width(gear, 1, 0);
+    lv_obj_set_style_border_color(gear, lv_color_hex(COLOR_DIM), 0);
+    lv_obj_set_style_pad_all(gear, 0, 0);
+    lv_obj_set_size(gear, 34, 34);
+    lv_obj_set_pos(gear, TILE_W - 34 - 8, 8);
+    lv_obj_remove_flag(gear, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(gear, on_tile_settings_clicked, LV_EVENT_CLICKED,
+                        &s_tile_data[index]);
+
+    // Icon-Source ist nativ 28x28; nicht via set_size beschneiden, sonst clippt LVGL.
+    lv_obj_t *gear_icon = lv_image_create(gear);
+    lv_image_set_src(gear_icon, &icon_tile_settings);
+    lv_obj_center(gear_icon);
+    lv_obj_remove_flag(gear_icon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(gear_icon, LV_OBJ_FLAG_CLICKABLE);
+
     update_tile(index);
 }
 
