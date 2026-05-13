@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70" viewBox="0 0 70 70">
+  <title>Status Day Line</title>
+  <!-- Monochrome top-right sun progress icon. -->
+  <g fill="none" stroke="#eef2f7" stroke-width="4" stroke-linecap="round">
+    <path d="M35 7v8"/>
+    <path d="M35 45v8"/>
+    <path d="M11 30h8"/>
+    <path d="M51 30h8"/>
+    <path d="M18 13l5.5 5.5"/>
+    <path d="M46.5 41.5L52 47"/>
+    <path d="M52 13l-5.5 5.5"/>
+    <path d="M23.5 41.5L18 47"/>
+  </g>
+  <circle cx="35" cy="30" r="15" fill="#eef2f7"/>
+  <path d="M12 59h46" fill="none" stroke="#eef2f7" stroke-width="5" stroke-linecap="round"/>
+</svg>

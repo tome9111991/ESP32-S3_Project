@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="147" height="147" viewBox="0 0 147 147">
+  <title>Status Offline</title>
+  <!-- Large disconnected badge for the Klipper offline screen. -->
+  <circle cx="73.5" cy="73.5" r="50" fill="none" stroke="#ff5d6c" stroke-width="10"/>
+  <g fill="none" stroke="#dbe2ec" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M47 65c15-12 38-12 53 0"/>
+    <path d="M60 80c8-6 19-6 27 0"/>
+  </g>
+  <circle cx="73.5" cy="99" r="7" fill="#dbe2ec"/>
+  <path d="M39 39l69 69" fill="none" stroke="#ff5d6c" stroke-width="12" stroke-linecap="round"/>
+</svg>

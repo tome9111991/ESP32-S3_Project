@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70" viewBox="0 0 70 70">
+  <title>Status Moon</title>
+  <!-- Monochrome moon variant for status use. -->
+  <path fill="#eef2f7" d="M47 53c-17 2-31-10-31-27 0-7 3-14 8-19-1 4-1 8 0 12 4 18 20 29 38 24-4 5-9 9-15 10z"/>
+  <circle cx="52" cy="17" r="2.5" fill="#eef2f7"/>
+  <circle cx="58" cy="29" r="2" fill="#eef2f7"/>
+</svg>

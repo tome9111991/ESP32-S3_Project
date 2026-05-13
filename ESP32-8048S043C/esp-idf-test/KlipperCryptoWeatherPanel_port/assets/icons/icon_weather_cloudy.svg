@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Cloudy</title>
+  <!-- One large cloud silhouette for clear reading at dashboard size. -->
+  <path fill="#8490a0" opacity="0.45" d="M22 56h43c11 0 20-8 20-18 0-9-7-16-18-17-5-9-14-15-25-15-14 0-25 10-28 23-8 2-13 8-13 15 0 7 7 12 21 12z"/>
+  <path fill="#dbe2ec" d="M23 52h43c10 0 18-7 18-16 0-8-7-15-17-15-5-9-14-15-25-15-13 0-24 9-27 22-8 1-14 7-14 14 0 6 7 10 22 10z"/>
+  <path fill="#eef2f7" opacity="0.65" d="M28 33c4-11 13-18 24-18 7 0 13 3 18 8-4-2-9-3-14-3-11 0-21 6-26 15-7 1-13 4-18 9 1-6 7-10 16-11z"/>
+</svg>

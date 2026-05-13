@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Partly Cloudy</title>
+  <!-- Sun remains behind the cloud so the weather state stays simple. -->
+  <g fill="none" stroke="#ffd166" stroke-width="4" stroke-linecap="round">
+    <path d="M27 8v8"/>
+    <path d="M27 44v8"/>
+    <path d="M4 30h8"/>
+    <path d="M42 30h8"/>
+    <path d="M11 14l5.5 5.5"/>
+    <path d="M37.5 40.5L43 46"/>
+    <path d="M43 14l-5.5 5.5"/>
+    <path d="M16.5 40.5L11 46"/>
+  </g>
+  <circle cx="27" cy="30" r="15" fill="#ffd166"/>
+  <path fill="#8490a0" opacity="0.45" d="M28 58h39c10 0 18-7 18-16 0-8-7-15-17-15-4-8-12-13-22-13-12 0-22 8-25 19-7 1-12 6-12 13 0 7 6 12 19 12z"/>
+  <path fill="#dbe2ec" d="M29 54h39c9 0 16-6 16-14 0-8-7-14-16-14-4-8-12-13-22-13-12 0-21 8-24 19-7 1-13 6-13 12 0 6 7 10 20 10z"/>
+  <path fill="#eef2f7" opacity="0.65" d="M31 35c4-9 12-15 22-15 6 0 12 2 16 6-11-2-21 2-27 10-7 0-13 3-18 8 1-5 4-8 7-9z"/>
+</svg>

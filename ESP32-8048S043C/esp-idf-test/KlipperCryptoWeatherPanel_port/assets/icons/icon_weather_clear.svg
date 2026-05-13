@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Clear</title>
+  <!-- Transparent LVGL icon, built from bold readable shapes. -->
+  <g fill="none" stroke="#ffd166" stroke-width="5" stroke-linecap="round">
+    <path d="M46.5 6v10"/>
+    <path d="M46.5 64v10"/>
+    <path d="M12.5 40h10"/>
+    <path d="M70.5 40h10"/>
+    <path d="M22.5 16l7.5 7.5"/>
+    <path d="M63 56.5l7.5 7.5"/>
+    <path d="M70.5 16l-7.5 7.5"/>
+    <path d="M30 56.5l-7.5 7.5"/>
+  </g>
+  <circle cx="46.5" cy="40" r="20" fill="#ffd166"/>
+  <circle cx="39" cy="33" r="6" fill="#ffe6a3" opacity="0.75"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Thunder</title>
+  <!-- Cloud plus one bold lightning shape for instant recognition. -->
+  <path fill="#8490a0" opacity="0.45" d="M22 47h43c11 0 20-8 20-18 0-9-7-16-18-17-5-8-14-13-24-13-13 0-24 8-28 20-8 1-14 7-14 14 0 8 7 14 21 14z"/>
+  <path fill="#dbe2ec" d="M23 44h43c10 0 18-7 18-16 0-8-7-15-17-15-5-8-14-13-24-13-13 0-24 8-27 20-8 1-14 7-14 13 0 7 7 11 21 11z"/>
+  <path fill="#ffd166" d="M45 38h15l-10 15h12L43 78l5-18H36z"/>
+  <path fill="#fff0b8" opacity="0.75" d="M50 42h6l-9 15h6l-7 10 3-12h-6z"/>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Snow</title>
+  <!-- Large snow marks stay legible after RGB565A8 rasterizing. -->
+  <path fill="#8490a0" opacity="0.45" d="M22 48h43c11 0 20-8 20-18 0-9-7-16-18-17-5-8-14-13-24-13-13 0-24 8-28 20-8 1-14 7-14 14 0 8 7 14 21 14z"/>
+  <path fill="#dbe2ec" d="M23 45h43c10 0 18-7 18-16 0-8-7-15-17-15-5-8-14-13-24-13-13 0-24 8-27 20-8 1-14 7-14 13 0 7 7 11 21 11z"/>
+  <g fill="none" stroke="#dff7ff" stroke-width="3.5" stroke-linecap="round">
+    <path d="M31 57v14"/>
+    <path d="M25 61l12 6"/>
+    <path d="M37 61l-12 6"/>
+    <path d="M62 57v14"/>
+    <path d="M56 61l12 6"/>
+    <path d="M68 61l-12 6"/>
+  </g>
+  <circle cx="46.5" cy="64" r="4" fill="#dff7ff"/>
+</svg>

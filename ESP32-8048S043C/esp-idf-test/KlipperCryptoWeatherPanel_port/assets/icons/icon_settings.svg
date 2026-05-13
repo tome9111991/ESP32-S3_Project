@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <title>Settings</title>
+  <!-- Dark slider icon for the cyan popup button. -->
+  <g fill="none" stroke="#0c0f14" stroke-width="4" stroke-linecap="round">
+    <path d="M7 14h11"/>
+    <path d="M30 14h11"/>
+    <path d="M7 24h21"/>
+    <path d="M40 24h1"/>
+    <path d="M7 34h15"/>
+    <path d="M34 34h7"/>
+  </g>
+  <g fill="#0c0f14">
+    <circle cx="24" cy="14" r="5.5"/>
+    <circle cx="34" cy="24" r="5.5"/>
+    <circle cx="28" cy="34" r="5.5"/>
+  </g>
+  <g fill="#5dd6ff" opacity="0.8">
+    <circle cx="22.5" cy="12.5" r="1.5"/>
+    <circle cx="32.5" cy="22.5" r="1.5"/>
+  </g>
+</svg>

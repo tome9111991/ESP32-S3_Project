@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="93" height="80" viewBox="0 0 93 80">
+  <title>Weather Fog</title>
+  <!-- Fog uses broad horizontal bands, not fine hatch marks. -->
+  <path fill="#8490a0" opacity="0.35" d="M22 45h43c11 0 20-8 20-18 0-9-7-16-18-17-5-7-14-12-24-12-13 0-24 8-28 19-8 1-14 7-14 14 0 8 7 14 21 14z"/>
+  <path fill="#c8d3df" d="M23 42h43c10 0 18-7 18-16 0-8-7-14-17-14-5-7-14-12-24-12-13 0-24 8-27 19-8 1-14 6-14 13 0 6 7 10 21 10z"/>
+  <g fill="none" stroke="#aab7c6" stroke-width="5" stroke-linecap="round">
+    <path d="M13 54h57"/>
+    <path d="M24 65h57"/>
+  </g>
+  <g fill="none" stroke="#eef2f7" stroke-width="3" stroke-linecap="round" opacity="0.75">
+    <path d="M25 54h28"/>
+    <path d="M42 65h25"/>
+  </g>
+</svg>
