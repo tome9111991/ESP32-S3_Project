@@ -30,8 +30,6 @@ static const char *TAG = "dashboard";
 #define UI_REFRESH_MS       1000
 #define TOUCH_POLL_MS       50
 #define TOUCH_MIN_GAP_MS    450
-#define SCREEN_TIME_MS      30000
-#define SCREEN_DEFAULT_MS   15000
 #define LVGL_PARTIAL_BUFFER_ROWS 20
 #define LCD_FAST_MODE_WITH_ROTATION 0
 #define WIFI_PROBE_SSID_LEN      33
@@ -250,7 +248,10 @@ static void update_lp_feedback(int64_t elapsed_ms)
 
 static uint32_t current_screen_interval_ms(void)
 {
-    return ui_current_screen() == SCREEN_TIME ? SCREEN_TIME_MS : SCREEN_DEFAULT_MS;
+    uint8_t seconds = screen_settings_duration_seconds(ui_current_screen());
+    if (seconds < SCREEN_DURATION_MIN_S) seconds = SCREEN_DURATION_MIN_S;
+    if (seconds > SCREEN_DURATION_MAX_S) seconds = SCREEN_DURATION_MAX_S;
+    return (uint32_t)seconds * 1000U;
 }
 
 static bool wifi_is_connected(void)
@@ -408,7 +409,7 @@ static void init_app_state(void)
 
     snprintf(g_app.current_temp, sizeof(g_app.current_temp), "--");
     snprintf(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: --");
-    snprintf(g_app.weather_location, sizeof(g_app.weather_location), "DWD Station");
+    g_app.weather_location[0] = '\0';
     g_app.weather_code = -1;
 
     snprintf(g_app.crypto_price, sizeof(g_app.crypto_price), "Laden...");
@@ -525,6 +526,9 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init app state");
     init_app_state();
+    // Location nach init_app_state laden: init_app_state memset'tet g_app komplett,
+    // und vorher waere g_app.mutex noch NULL.
+    location_settings_load();
     const bool have_wifi_config = wifi_config_available();
 
     ESP_LOGI(TAG, "Build dashboard UI");

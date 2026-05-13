@@ -141,7 +141,7 @@ static void update_rotate_visuals(void)
             lv_color_hex(changed ? COLOR_ORANGE : COLOR_MUTED), 0);
         lv_label_set_text(s_rotate_hint,
             changed ? "Neustart beim Zurueckgehen"
-                    : "Touch-Kalibrierung bleibt erhalten");
+                    : "Touch-Kalibrierung bleibt");
     }
 }
 
@@ -262,12 +262,12 @@ void ui_display_settings_open(void)
                         LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *title = make_label(row, &lv_font_montserrat_30, COLOR_TEXT,
-                                 LV_TEXT_ALIGN_LEFT, 128, 14, 420, 36,
+                                 LV_TEXT_ALIGN_LEFT, 128, 14, 460, 36,
                                  "Display 180 Grad drehen");
     lv_obj_add_flag(title, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     s_rotate_hint = make_label(row, &lv_font_montserrat_24, COLOR_MUTED,
-                               LV_TEXT_ALIGN_LEFT, 128, 54, 420, 32, "");
+                               LV_TEXT_ALIGN_LEFT, 128, 54, 460, 32, "");
     lv_obj_add_flag(s_rotate_hint, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     update_rotate_visuals();

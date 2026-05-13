@@ -1,22 +1,27 @@
-// Settings-Menue Port (12_SettingsMenu.ino). Liste mit 5 Eintraegen:
-// WLAN, Screens, Crypto, Display, Touch kalibrieren.
+// Settings-Menue: 3x2 Kachel-Grid mit Icon + Label.
+// Eintraege: WLAN, Screens, Crypto, Display, Touch, Standort.
 
 #include "app_state.h"
+#include "ui_assets.h"
 
 #include <stdio.h>
 #include <string.h>
 
-// --- Layout (1:1 vom Arduino-Sketch uebernommen) -----------------------------
-#define MENU_LIST_Y         112
-#define MENU_ITEM_X         100
-#define MENU_ITEM_W         600
-#define MENU_ITEM_H         64
-#define MENU_ITEM_GAP       8
-#define MENU_ITEM_START_Y   8
+// --- Layout ------------------------------------------------------------------
+#define GRID_LEFT       40
+#define GRID_TOP        110
+#define GRID_COLS       3
+#define GRID_ROWS       2
+#define TILE_GAP        16
+// (LCD_H_RES - 2*GRID_LEFT - (GRID_COLS-1)*TILE_GAP) / GRID_COLS = (800-80-32)/3 = 229
+#define TILE_W          229
+#define TILE_H          162
+#define TILE_ICON_Y     28
+#define TILE_LABEL_Y    96
 
-static lv_obj_t *s_menu_screen      = NULL;
-static lv_obj_t *s_return_screen    = NULL;  // Dashboard-Screen, zu dem Back fuehrt
-static bool      s_menu_open        = false;
+static lv_obj_t *s_menu_screen   = NULL;
+static lv_obj_t *s_return_screen = NULL;  // Dashboard-Screen, zu dem Back fuehrt
+static bool      s_menu_open     = false;
 
 // Forward decls
 static void open_settings_menu_screen(bool fresh);
@@ -26,8 +31,9 @@ static void on_item_screens_clicked(lv_event_t *e);
 static void on_item_crypto_clicked(lv_event_t *e);
 static void on_item_display_clicked(lv_event_t *e);
 static void on_item_touch_clicked(lv_event_t *e);
+static void on_item_location_clicked(lv_event_t *e);
 
-// --- kleine Helfer (lokale Kopien aus ui_popup.c-Stil) ----------------------
+// --- kleine Helfer -----------------------------------------------------------
 static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
 {
     lv_obj_remove_style_all(obj);
@@ -83,30 +89,35 @@ static lv_obj_t *make_accent(lv_obj_t *parent, uint32_t color)
     return accent;
 }
 
-// --- Menue-Eintrag -----------------------------------------------------------
-static void make_menu_item(lv_obj_t *parent, int y, uint32_t bg_color,
-                           uint32_t label_color, const char *title,
-                           const char *subtitle, lv_event_cb_t cb)
+// --- Tile --------------------------------------------------------------------
+static void make_tile(lv_obj_t *parent, int col, int row,
+                      const lv_image_dsc_t *icon_src, const char *label_text,
+                      lv_event_cb_t cb)
 {
-    lv_obj_t *btn = lv_obj_create(parent);
-    style_filled_rect(btn, bg_color, 10);
-    lv_obj_set_size(btn, MENU_ITEM_W, MENU_ITEM_H);
-    lv_obj_set_pos(btn, MENU_ITEM_X, y);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_pad_all(btn, 0, 0);
-    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+    int x = GRID_LEFT + col * (TILE_W + TILE_GAP);
+    int y = GRID_TOP  + row * (TILE_H + TILE_GAP);
 
-    lv_obj_t *title_label = make_label(btn, &lv_font_montserrat_28, label_color,
-                                       LV_TEXT_ALIGN_LEFT, 30, 5, 560, 32, title);
-    lv_obj_add_flag(title_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_t *tile = lv_obj_create(parent);
+    style_filled_rect(tile, COLOR_CYAN, 12);
+    lv_obj_set_size(tile, TILE_W, TILE_H);
+    lv_obj_set_pos(tile, x, y);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tile, 0, 0);
+    lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, NULL);
 
-    if (subtitle && subtitle[0]) {
-        lv_obj_t *sub = make_label(btn, &lv_font_montserrat_24, label_color,
-                                   LV_TEXT_ALIGN_LEFT, 30, 34, 560, 28, subtitle);
-        lv_obj_set_style_text_opa(sub, LV_OPA_70, 0);
-        lv_obj_add_flag(sub, LV_OBJ_FLAG_EVENT_BUBBLE);
-    }
+    lv_obj_t *icon = lv_image_create(tile);
+    lv_image_set_src(icon, icon_src);
+    lv_obj_set_size(icon, 48, 48);
+    lv_obj_set_pos(icon, (TILE_W - 48) / 2, TILE_ICON_Y);
+    lv_obj_remove_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(icon, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    // Label darunter, zentriert.
+    lv_obj_t *label = make_label(tile, &lv_font_montserrat_28, COLOR_BG,
+                                 LV_TEXT_ALIGN_CENTER, 0, TILE_LABEL_Y, TILE_W, 36,
+                                 label_text);
+    lv_obj_add_flag(label, LV_OBJ_FLAG_EVENT_BUBBLE);
 }
 
 // --- Item-Callbacks ----------------------------------------------------------
@@ -121,7 +132,6 @@ static void destroy_menu_screen(void)
 static void on_item_wifi_clicked(lv_event_t *e)
 {
     (void)e;
-    // Setup kehrt ueber ui_settings_menu_reopen() ins Menue zurueck.
     ui_wifi_setup_open();
     destroy_menu_screen();
 }
@@ -143,7 +153,6 @@ static void on_item_crypto_clicked(lv_event_t *e)
 static void on_item_display_clicked(lv_event_t *e)
 {
     (void)e;
-    // DisplaySettings kehrt ueber ui_settings_menu_reopen() ins Menue zurueck.
     ui_display_settings_open();
     destroy_menu_screen();
 }
@@ -152,6 +161,13 @@ static void on_item_touch_clicked(lv_event_t *e)
 {
     (void)e;
     ui_touch_calibration_open();
+    destroy_menu_screen();
+}
+
+static void on_item_location_clicked(lv_event_t *e)
+{
+    (void)e;
+    ui_location_settings_open();
     destroy_menu_screen();
 }
 
@@ -186,32 +202,13 @@ static void open_settings_menu_screen(bool fresh)
                LV_TEXT_ALIGN_LEFT, 100, 32, 500, 52, "Einstellungen");
     make_back_button(s_menu_screen, on_back_to_dashboard);
 
-    // Item-Liste -------------------------------------------------------------
-    int y = MENU_LIST_Y + MENU_ITEM_START_Y;
-
-    make_menu_item(s_menu_screen, y, COLOR_CYAN, COLOR_BG,
-                   "WLAN", "SSID und Passwort aendern",
-                   on_item_wifi_clicked);
-    y += MENU_ITEM_H + MENU_ITEM_GAP;
-
-    make_menu_item(s_menu_screen, y, COLOR_CYAN, COLOR_BG,
-                   "Screens", "Angezeigte Seiten auswaehlen",
-                   on_item_screens_clicked);
-    y += MENU_ITEM_H + MENU_ITEM_GAP;
-
-    make_menu_item(s_menu_screen, y, COLOR_CYAN, COLOR_BG,
-                   "Crypto", "Coin, Waehrung und Chart",
-                   on_item_crypto_clicked);
-    y += MENU_ITEM_H + MENU_ITEM_GAP;
-
-    make_menu_item(s_menu_screen, y, COLOR_CYAN, COLOR_BG,
-                   "Display", "Helligkeit und Rotation",
-                   on_item_display_clicked);
-    y += MENU_ITEM_H + MENU_ITEM_GAP;
-
-    make_menu_item(s_menu_screen, y, COLOR_CYAN, COLOR_BG,
-                   "Touch kalibrieren", "Beruehrung auf 5 Punkte abgleichen",
-                   on_item_touch_clicked);
+    // 3x2 Tile-Grid. Spaltenreihenfolge: zeilenweise oben links nach rechts.
+    make_tile(s_menu_screen, 0, 0, &icon_menu_wifi,     "WLAN",     on_item_wifi_clicked);
+    make_tile(s_menu_screen, 1, 0, &icon_menu_screens,  "Screens",  on_item_screens_clicked);
+    make_tile(s_menu_screen, 2, 0, &icon_menu_crypto,   "Crypto",   on_item_crypto_clicked);
+    make_tile(s_menu_screen, 0, 1, &icon_menu_display,  "Display",  on_item_display_clicked);
+    make_tile(s_menu_screen, 1, 1, &icon_menu_touch,    "Touch",    on_item_touch_clicked);
+    make_tile(s_menu_screen, 2, 1, &icon_menu_location, "Standort", on_item_location_clicked);
 
     lv_screen_load(s_menu_screen);
     s_menu_open = true;
@@ -236,7 +233,7 @@ void ui_settings_menu_reopen(void)
 bool ui_settings_menu_is_open(void)
 {
     return s_menu_open || ui_screen_settings_is_open() ||
-           ui_crypto_settings_is_open();
+           ui_crypto_settings_is_open() || ui_location_settings_is_open();
 }
 
 lv_obj_t *ui_settings_menu_return_target(void)

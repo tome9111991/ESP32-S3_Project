@@ -2,113 +2,65 @@
 
 Arbeitsordner: `ESP32-S3_Project/ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port`
 
-## Vor der ersten Hardware-Runde
+## Setup-Hinweise
 
 - `main/config_private.h` lokal aus `main/config_private.example.h` anlegen.
-- WiFi, Standort, Crypto-Paar und `KLIPPER_BASE_URL` in `main/config_private.h` setzen.
-- Nach dem ersten eigenen Build fehlende IDF/LVGL API-Abweichungen korrigieren.
-- Auf dem Board pruefen:
-  - Display startet mit Dashboard statt Demo.
-  - Touch links/rechts schaltet Screens.
-  - Auto-Rotation laeuft ohne Touch.
-  - Uhrzeit wird nach WLAN/NTP korrekt lokal angezeigt.
-  - HTTPS zu Bright Sky und Coinbase funktioniert mit Zertifikatsbundle.
-  - Moonraker HTTP funktioniert mit dem gesetzten Hostnamen/IP.
+- WiFi (als Fallback), Standort, Crypto-Paar und `KLIPPER_BASE_URL` in `main/config_private.h` setzen.
+- Runtime-Settings (WLAN, Screens, Crypto, Display, Touch-Cal) ueberschreiben die Compile-Time-Defaults nach dem ersten Setup auf dem Geraet.
 
 ## Aktueller Parity-Stand
 
 - Bereits im Port vorhanden:
   - Vier Hauptscreens: Uhr/Wetter, Crypto-Preis, Crypto-Chart, Klipper.
   - GT911 Touch mit links/rechts Screenwechsel.
-  - Auto-Rotation.
-  - Bright Sky Wetter, Coinbase Spot/Candles und Moonraker Basisstatus.
-  - Wetter-/Status-Assets und grosse Preis-/Zeit-Fonts sind uebernommen.
+  - Auto-Rotation, Rotationsdauer pro Screen aus Runtime-Settings.
+  - Bright Sky Wetter, Coinbase Spot/Candles, Moonraker Basisstatus + erweiterte Klipper-Daten.
+  - Wetter-/Status-Assets und grosse Preis-/Zeit-Fonts uebernommen.
   - Crypto-Chart Preisfarbe bleibt bei unveraendertem Spotpreis auf der letzten Up/Down-Farbe.
   - Crypto Live-Candle wird aus dem Spotpreis fortgeschrieben.
   - Separater Coinbase Stats Request liefert 24h Open fuer die Preis-Change-Anzeige.
-  - Wettercode-Priorisierung und Bright-Sky-Station-Fallback sind an den Arduino-Sketch angeglichen.
+  - Wettercode-Priorisierung und Bright-Sky-Station-Fallback an Arduino-Sketch angeglichen.
   - Long-Press oeffnet Popup-Menue (Settings/Reboot/Factory-Reset) inkl. Confirm-Dialog und wachsendem Feedback-Arc.
   - Factory-Reset macht `nvs_flash_erase()` + `esp_restart()`.
-  - LCD-Backlight via LEDC PWM (250 Hz, 8 bit) statt fester GPIO-High; Min-Visible-Duty wie Arduino.
-  - Tag/Nacht-Helligkeit anhand Sonnenstand (alle 30 s, hell ab Sunrise+90 min, Nacht ab Sunset, Werte 1:1 zum Arduino).
-  - Display-Settings-Screen ueber Popup -> Settings: Slider 32..255 mit Live-Preview, NVS-Persistenz (`display/day_bright`).
-  - Rotate-180-Toggle im Display-Settings: NVS-Persistenz (`display/rotate180`), Reboot beim Zurueckgehen wenn geaendert (LVGL-Buffer-Layout + Touch-Map werden beim Boot anhand des NVS-Werts gesetzt).
-  - Sonnenstand-Berechnung dedupliziert (`calculate_sun_times` einmalig in `display_brightness.c`, geteilt mit Sun-Icon).
+  - LCD-Backlight via LEDC PWM (250 Hz, 8 bit); Min-Visible-Duty wie Arduino.
+  - Tag/Nacht-Helligkeit anhand Sonnenstand (alle 30 s, hell ab Sunrise+90 min, Nacht ab Sunset).
+  - Sonnenstand-Berechnung dedupliziert (`calculate_sun_times` in `display_brightness.c`).
   - Touch-Pipeline: `process_coords` gibt Panel-Pixel-Raum zurueck, LVGL macht die 180-Rotation intern via `lv_display_rotate_point`. Lokaler `touch_poll_timer_cb` invertiert manuell fuer Screen-Switch + Feedback-Arc.
-  - Settings-Menue (Port von `12_SettingsMenu.ino`) mit Liste WLAN / Screens / Crypto / Display / Touch kalibrieren. Long-Press -> Popup -> Settings oeffnet jetzt das Menue (statt direkt DisplaySettings). Display ist real (Brightness + Rotate), die anderen vier oeffnen einen Dummy-Sub-Screen "Coming soon" mit Back. Back-Pfeil-Glyphen sind in der 52x52-Box mittig (Label auf `LV_SIZE_CONTENT` + `lv_obj_center`).
+  - Settings-Menue (Port von `12_SettingsMenu.ino`) mit echten Sub-Screens: WLAN, Screens, Crypto, Display, Touch kalibrieren.
+  - Display-Settings: Slider 32..255 mit Live-Preview, Rotate-180-Toggle, NVS-Persistenz, Reboot beim Toggle.
+  - WLAN-Setup: SSID-Liste + On-Screen-Tastatur (`ui_keyboard.c`), Credentials in NVS, Compile-Time-Werte als Fallback.
+  - Screen-Settings: enable/disable pro Screen + Rotationsdauer pro Screen (Defaults: 30 s Uhr, 15 s andere), NVS-Persistenz.
+  - Crypto-Settings: base/quote/timeframe Auswahl, NVS-Persistenz, Daten-Refresh nach Aenderung.
+  - Touch-Kalibrierung: 5-Punkt-UI, CAL-Werte in NVS, beruecksichtigt 180-Rotation.
+  - Klipper-Parity: `/server/info`, `/printer/info`, `/server/files/metadata` (ETA + Retry-After), `display_message`-Formatierung, MMU (Tool/Gate/Colors/Status, bis 8 Gates).
+  - Popup-Buttons sind echte LVGL-Buttons mit `LV_EVENT_CLICKED`.
+
 - Bewusst IDF-spezifisch anders:
   - Display/LVGL laufen mit IDF RGB-Panel, Double-Framebuffer und Bounce-Buffer statt Arduino-Flush.
-  - Konfiguration kommt aktuell aus `main/config_private.h`, nicht aus Laufzeit-Settings.
-  - Touch-Kalibrierung ist fest im GT911-Driver-Callback, noch ohne UI zum Nachkalibrieren.
-  - Popup-Buttons sind echte LVGL-Buttons mit `LV_EVENT_CLICKED` statt manuellem `pointInRect`.
-- Noch nicht gleich zum Arduino-Sketch:
-  - Settings-Untermenues: Geruest steht (Menue + 4 Dummy-Sub-Screens), aber WLAN/Screens/Crypto/Touch-Kalibrierung haben noch keine echten Inhalte. Display ist komplett.
-  - Persistente Settings nur fuer Tag-Helligkeit (NVS); restliche Settings noch fluechtig.
-  - Display-Rotation ist jetzt Runtime via NVS, `DISPLAY_ROTATE_180_DEFAULT` dient nur noch als Initial-Default.
-  - Klipper-Details, MMU-Anzeige und ETA/Metadata fehlen.
-  - Crypto-Timeframes 15M/1H/6H/1D muessen auf Hardware noch komplett getestet werden.
-  - Wetterdarstellung muss auf Hardware noch gegen echte Bright-Sky-Antworten geprueft werden.
+  - Compile-Time `config_private.h` bleibt als Fallback, wenn NVS leer ist (Factory-Reset macht bewusst kompletten `nvs_flash_erase()`, damit nach dem Reset wieder die Build-Defaults greifen - dev-convenience).
+  - Eigene Partitionstabelle (`partitions.csv`): 4 MB factory + 2x 4 MB OTA + ~4 MB SPIFFS-Storage.
 
-## Dashboard-Parity zum Arduino-Sketch
+## Noch offen
 
-- Runtime-Settings wieder einbauen:
-  - WiFi-Setup direkt am Display.
-  - Screen enable/disable.
-  - Crypto base/quote/timeframe Auswahl.
-  - Display-Helligkeit + Rotation (beide erledigt via NVS + Display-Settings-Screen).
-  - Touch-Kalibrierung (CAL-Werte aus `touch_process_coords` in Runtime-Struct verschieben).
-- Persistenz ersetzen:
-  - Arduino `LittleFS` JSON-Settings nach ESP-IDF `NVS` oder LittleFS-Komponente portieren.
-  - Factory-Reset erweitert sich von "nur NVS erase" auf gezieltes Loeschen der Settings-Keys, wenn NVS-Settings da sind.
-- Popup-/Settings-Overlay portieren:
-  - Long-press Menu. (erledigt)
-  - Reboot. (erledigt)
-  - Factory reset mit Bestaetigung. (erledigt, noch ohne Settings-Loeschen)
-  - Settings-Untermenues: Menue-Geruest + Routing fertig, Display-Inhalt fertig. Dummies durch echte Implementierungen ersetzen: WLAN-Setup, Screen-Toggles, Crypto-Auswahl, Touch-Kalibrierung.
-- Klipper-Parity ergaenzen:
-  - `/server/info` und `/printer/info` fuer bessere Offline-/Klippy-Zustaende.
-  - `/server/files/metadata` fuer ETA/Restzeit.
-  - Display-message Formatierung wie im Arduino-Sketch.
-  - MMU Objekt/Gates/Farben/Status wieder darstellen.
-- BTC/Crypto-Parity ergaenzen:
-  - Chart-Timeframes 15M/1H/6H/1D komplett testen.
-  - Fehlertexte pro API genauer anzeigen.
-- Wetter-Parity ergaenzen:
-  - Bright Sky Station/Fallback-Logik mit mehr Details.
-  - Wettercode-Priorisierung auf Hardware gegen echte Niederschlag/Sonne-Meldungen pruefen.
+### Refactor — nur bei Bedarf
+Beides aktuell keine Schuld. Erst angehen, wenn der jeweilige Trigger eintritt:
 
-## IDF-native Refactor
+- `net_fetcher.c` (~1670 Zeilen) in `wifi_service` / `weather_service` / `crypto_service` / `klipper_service` zerlegen.
+  - Trigger: ein Service bekommt echte neue Komplexitaet (z. B. Klipper-WebSocket statt Polling, Service-spezifische Retry-Policies, neue API-Anbieter).
+  - Sonst: Datei ist gross, aber klar in Bloecke sortiert; Helper waeren beim Split entweder zu duplizieren oder in `net_common.c` zu ziehen.
+- `g_app` Setter statt 170 direkter Writes.
+  - Trigger: Dirty-Flags, Change-Notifications oder Invarianten-Checks werden gebraucht.
+  - Sonst: `app_lock/app_unlock`-Pattern ist mechanisch und sichtbar, Setter waeren reine Boilerplate.
+- HTTP Retry/Backoff pro Service.
+  - Trigger: konkrete Stabilitaetsprobleme im Feld (z. B. Bright Sky / Coinbase flaky). `http_get` ist schon einheitlich.
 
-- `net_fetcher.c` weiter zerlegen:
-  - `wifi_service.c`
-  - `weather_service.c`
-  - `crypto_service.c`
-  - `klipper_service.c`
-- App-State API kapseln:
-  - direkte `g_app` Writes durch kleine Setter ersetzen.
-  - String-Laengen und Statuswerte zentralisieren.
-- Screen-Rotation konfigurierbar machen statt feste Intervalle in `main.c`.
-- HTTP-Helfer robuster machen:
-  - einheitliche Statuscodes.
-  - Retry/backoff pro Service.
-  - optionale lokale IP statt mDNS-Hostname fuer Moonraker.
-- LVGL-Zugriff strikt im LVGL-Kontext halten:
-  - Fetch-Task schreibt nur State.
-  - UI-Refresh bleibt im LVGL-Timer.
-- Speicher pruefen:
-  - Chart-Buffer PSRAM vs intern dokumentieren.
-  - grosse Font-/Asset-Segmente und Partitiongroesse beobachten.
-
-## Dokumentation
-
-- README nach erstem erfolgreichen Hardware-Test aktualisieren.
+### Dokumentation
+- README mit aktuellem Stand (Runtime-Settings, NVS-Layout, Sub-Screens).
 - Bekannte Abweichungen zum Arduino-Sketch dokumentieren.
-- Pin-/Timing-Entscheidungen aus dem Displaytest kurz im Port-README behalten.
+- Pin-/Timing-Entscheidungen aus dem Displaytest im Port-README behalten.
 - Konfigurationsbeispiele fuer `mainsail`, lokale IP und Crypto-Paare ergaenzen.
 
-## Spaeter optional
-
-- OTA-/Web-Config pruefen.
-- Eigene Partitionstabelle fuer groessere App/Assets.
+### Spaeter optional
+- OTA-/Web-Config pruefen (Partitionen liegen schon).
 - API-Status-/Diagnose-Screen.
 - Screenshots vom IDF-Port aufnehmen und in README verlinken.

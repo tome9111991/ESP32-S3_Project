@@ -85,3 +85,11 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+
+# --- SNTP / Zeit-Sync ---------------------------------------------------------
+# Router-NTP via DHCP Option 42 (typisch <10 ms statt ~50-200 ms zu pool.ntp.org).
+# Erlaubt esp_sntp_servermode_dhcp(true) in net_fetcher.c.
+CONFIG_LWIP_DHCP_GET_NTP_SRV=y
+CONFIG_LWIP_DHCP_MAX_NTP_SERVERS=1
+# Mehrere Fallback-Server (pool/google/cloudflare) fuer schnelleren ersten Sync.
+CONFIG_LWIP_SNTP_MAX_SERVERS=3

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <title>Menu Display</title>
+  <rect x="7" y="12" width="34" height="23" rx="3" fill="none" stroke="#0c0f14" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M18 40h12M24 35v5" fill="none" stroke="#0c0f14" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="24" cy="23.5" r="5.5" fill="#0c0f14"/>
+  <g stroke="#0c0f14" stroke-width="3" stroke-linecap="round">
+    <path d="M24 14v-3"/>
+    <path d="M24 36v-3"/>
+    <path d="M14.5 23.5h-3"/>
+    <path d="M36.5 23.5h-3"/>
+    <path d="M17.3 16.8l-2.1-2.1"/>
+    <path d="M32.8 32.3l-2.1-2.1"/>
+    <path d="M30.7 16.8l2.1-2.1"/>
+    <path d="M15.2 32.3l2.1-2.1"/>
+  </g>
+</svg>

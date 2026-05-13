@@ -135,14 +135,16 @@ bool calculate_sun_times(const struct tm *t, int *sunrise_min, int *sunset_min)
                         0.000907 * sin(2.0 * gamma) -
                         0.002697 * cos(3.0 * gamma) +
                         0.00148  * sin(3.0 * gamma);
-    const double lat_rad = (double)LOCATION_LATITUDE * deg_to_rad;
+    float lat_f = 0.0f, lon_f = 0.0f;
+    location_snapshot(&lat_f, &lon_f);
+    const double lat_rad = (double)lat_f * deg_to_rad;
     const double zen_rad = 90.833 * deg_to_rad;
     const double hour_arg = (cos(zen_rad) / (cos(lat_rad) * cos(decl))) -
                             (tan(lat_rad) * tan(decl));
     if (hour_arg < -1.0 || hour_arg > 1.0) return false;
     const double hour_deg = acos(hour_arg) * rad_to_deg;
     const int utc_off = (t->tm_isdst > 0) ? 120 : 60;
-    const double solar_noon = 720.0 - (4.0 * (double)LOCATION_LONGITUDE) - eq_of_time + utc_off;
+    const double solar_noon = 720.0 - (4.0 * (double)lon_f) - eq_of_time + utc_off;
     *sunrise_min = clamp_minute_of_day((int)round(solar_noon - (4.0 * hour_deg)));
     *sunset_min  = clamp_minute_of_day((int)round(solar_noon + (4.0 * hour_deg)));
     return *sunrise_min < *sunset_min;

@@ -6,6 +6,12 @@
 extern "C" {
 #endif
 
+LV_IMAGE_DECLARE(icon_menu_crypto);
+LV_IMAGE_DECLARE(icon_menu_display);
+LV_IMAGE_DECLARE(icon_menu_location);
+LV_IMAGE_DECLARE(icon_menu_screens);
+LV_IMAGE_DECLARE(icon_menu_touch);
+LV_IMAGE_DECLARE(icon_menu_wifi);
 LV_IMAGE_DECLARE(icon_settings);
 LV_IMAGE_DECLARE(icon_status_day_line);
 LV_IMAGE_DECLARE(icon_status_moon);

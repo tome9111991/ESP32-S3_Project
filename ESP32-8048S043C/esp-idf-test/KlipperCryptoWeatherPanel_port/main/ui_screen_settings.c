@@ -16,6 +16,10 @@ static const char *TAG = "screen_ui";
 #define SCREEN_NVS_PRICE   "price"
 #define SCREEN_NVS_CHART   "chart"
 #define SCREEN_NVS_KLIPPER "klipper"
+#define SCREEN_NVS_DUR_TIME    "d_time"
+#define SCREEN_NVS_DUR_PRICE   "d_price"
+#define SCREEN_NVS_DUR_CHART   "d_chart"
+#define SCREEN_NVS_DUR_KLIPPER "d_klipper"
 
 #define OPTION_COUNT 4
 #define TILE_W       290
@@ -26,6 +30,18 @@ static const char *TAG = "screen_ui";
 #define TILE_GAP_Y   18
 
 static bool s_enabled[OPTION_COUNT] = { true, true, true, true };
+static uint8_t s_duration[OPTION_COUNT] = {
+    SCREEN_DURATION_TIME_DEF,
+    SCREEN_DURATION_OTHER_DEF,
+    SCREEN_DURATION_OTHER_DEF,
+    SCREEN_DURATION_OTHER_DEF,
+};
+static uint8_t s_saved_duration[OPTION_COUNT] = {
+    SCREEN_DURATION_TIME_DEF,
+    SCREEN_DURATION_OTHER_DEF,
+    SCREEN_DURATION_OTHER_DEF,
+    SCREEN_DURATION_OTHER_DEF,
+};
 
 static lv_obj_t *s_screen = NULL;
 static lv_obj_t *s_return_screen = NULL;
@@ -39,9 +55,11 @@ static lv_obj_t *s_settings_btn[OPTION_COUNT];
 static lv_obj_t *s_status_label = NULL;
 static uint8_t s_tile_data[OPTION_COUNT] = { 0, 1, 2, 3 };
 
-// Dummy per-tile detail screen (Schraubenschluessel-Icon -> Platzhalter-Seite).
+// Per-Tile Detail-Screen mit Anzeigedauer-Slider.
 static lv_obj_t *s_detail_screen = NULL;
 static uint8_t   s_detail_index  = 0;
+static lv_obj_t *s_detail_duration_slider = NULL;
+static lv_obj_t *s_detail_duration_value  = NULL;
 
 static bool s_saved_time = true;
 static bool s_saved_price = true;
@@ -86,10 +104,23 @@ static uint32_t color_for_index(uint8_t index)
 
 static bool changed(void)
 {
-    return s_saved_time != s_enabled[SCREEN_TIME] ||
-           s_saved_price != s_enabled[SCREEN_CRYPTO] ||
-           s_saved_chart != s_enabled[SCREEN_BTC_DAY] ||
-           s_saved_klipper != s_enabled[SCREEN_KLIPPER];
+    if (s_saved_time != s_enabled[SCREEN_TIME] ||
+        s_saved_price != s_enabled[SCREEN_CRYPTO] ||
+        s_saved_chart != s_enabled[SCREEN_BTC_DAY] ||
+        s_saved_klipper != s_enabled[SCREEN_KLIPPER]) {
+        return true;
+    }
+    for (int i = 0; i < OPTION_COUNT; i++) {
+        if (s_duration[i] != s_saved_duration[i]) return true;
+    }
+    return false;
+}
+
+static uint8_t clamp_duration(int v)
+{
+    if (v < SCREEN_DURATION_MIN_S) v = SCREEN_DURATION_MIN_S;
+    if (v > SCREEN_DURATION_MAX_S) v = SCREEN_DURATION_MAX_S;
+    return (uint8_t)v;
 }
 
 void screen_settings_init_defaults(void)
@@ -98,6 +129,22 @@ void screen_settings_init_defaults(void)
     s_enabled[SCREEN_CRYPTO] = true;
     s_enabled[SCREEN_BTC_DAY] = true;
     s_enabled[SCREEN_KLIPPER] = true;
+    s_duration[SCREEN_TIME]    = SCREEN_DURATION_TIME_DEF;
+    s_duration[SCREEN_CRYPTO]  = SCREEN_DURATION_OTHER_DEF;
+    s_duration[SCREEN_BTC_DAY] = SCREEN_DURATION_OTHER_DEF;
+    s_duration[SCREEN_KLIPPER] = SCREEN_DURATION_OTHER_DEF;
+}
+
+uint8_t screen_settings_duration_seconds(screen_state_t state)
+{
+    if (!state_valid(state)) return SCREEN_DURATION_OTHER_DEF;
+    return s_duration[state];
+}
+
+void screen_settings_set_duration_seconds(screen_state_t state, uint8_t seconds)
+{
+    if (!state_valid(state)) return;
+    s_duration[state] = clamp_duration(seconds);
 }
 
 int screen_settings_enabled_count(void)
@@ -153,14 +200,34 @@ bool screen_settings_load(void)
         s_enabled[SCREEN_KLIPPER] = value != 0;
         loaded = true;
     }
+    if (nvs_get_u8(h, SCREEN_NVS_DUR_TIME, &value) == ESP_OK) {
+        s_duration[SCREEN_TIME] = clamp_duration(value);
+        loaded = true;
+    }
+    if (nvs_get_u8(h, SCREEN_NVS_DUR_PRICE, &value) == ESP_OK) {
+        s_duration[SCREEN_CRYPTO] = clamp_duration(value);
+        loaded = true;
+    }
+    if (nvs_get_u8(h, SCREEN_NVS_DUR_CHART, &value) == ESP_OK) {
+        s_duration[SCREEN_BTC_DAY] = clamp_duration(value);
+        loaded = true;
+    }
+    if (nvs_get_u8(h, SCREEN_NVS_DUR_KLIPPER, &value) == ESP_OK) {
+        s_duration[SCREEN_KLIPPER] = clamp_duration(value);
+        loaded = true;
+    }
     nvs_close(h);
 
     screen_settings_ensure_one_enabled();
+    for (int i = 0; i < OPTION_COUNT; i++) s_saved_duration[i] = s_duration[i];
     ESP_LOGI(TAG, "Screen Settings geladen: time=%u price=%u chart=%u klipper=%u",
              s_enabled[SCREEN_TIME] ? 1u : 0u,
              s_enabled[SCREEN_CRYPTO] ? 1u : 0u,
              s_enabled[SCREEN_BTC_DAY] ? 1u : 0u,
              s_enabled[SCREEN_KLIPPER] ? 1u : 0u);
+    ESP_LOGI(TAG, "Screen Dauer: time=%us price=%us chart=%us klipper=%us",
+             s_duration[SCREEN_TIME], s_duration[SCREEN_CRYPTO],
+             s_duration[SCREEN_BTC_DAY], s_duration[SCREEN_KLIPPER]);
     return loaded;
 }
 
@@ -179,6 +246,10 @@ bool screen_settings_save(void)
     if (ok) ok = nvs_set_u8(h, SCREEN_NVS_PRICE, s_enabled[SCREEN_CRYPTO] ? 1 : 0) == ESP_OK;
     if (ok) ok = nvs_set_u8(h, SCREEN_NVS_CHART, s_enabled[SCREEN_BTC_DAY] ? 1 : 0) == ESP_OK;
     if (ok) ok = nvs_set_u8(h, SCREEN_NVS_KLIPPER, s_enabled[SCREEN_KLIPPER] ? 1 : 0) == ESP_OK;
+    if (ok) ok = nvs_set_u8(h, SCREEN_NVS_DUR_TIME, s_duration[SCREEN_TIME]) == ESP_OK;
+    if (ok) ok = nvs_set_u8(h, SCREEN_NVS_DUR_PRICE, s_duration[SCREEN_CRYPTO]) == ESP_OK;
+    if (ok) ok = nvs_set_u8(h, SCREEN_NVS_DUR_CHART, s_duration[SCREEN_BTC_DAY]) == ESP_OK;
+    if (ok) ok = nvs_set_u8(h, SCREEN_NVS_DUR_KLIPPER, s_duration[SCREEN_KLIPPER]) == ESP_OK;
     if (ok) ok = nvs_commit(h) == ESP_OK;
     nvs_close(h);
     return ok;
@@ -244,6 +315,27 @@ static void destroy_detail_screen(void)
     if (!s_detail_screen) return;
     lv_obj_delete_async(s_detail_screen);
     s_detail_screen = NULL;
+    s_detail_duration_slider = NULL;
+    s_detail_duration_value  = NULL;
+}
+
+static void update_duration_value_label(uint8_t seconds)
+{
+    if (!s_detail_duration_value) return;
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%u s", (unsigned)seconds);
+    lv_label_set_text(s_detail_duration_value, buf);
+}
+
+static void on_duration_slider_changed(lv_event_t *e)
+{
+    (void)e;
+    if (!s_detail_duration_slider) return;
+    if (s_detail_index >= OPTION_COUNT) return;
+    int32_t v = lv_slider_get_value(s_detail_duration_slider);
+    uint8_t seconds = clamp_duration((int)v);
+    s_duration[state_for_index(s_detail_index)] = seconds;
+    update_duration_value_label(seconds);
 }
 
 static void on_detail_back_clicked(lv_event_t *e)
@@ -292,13 +384,45 @@ static void open_tile_detail(uint8_t index)
     lv_obj_center(back_label);
     lv_obj_add_flag(back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    // Dummy body placeholder.
-    make_label(s_detail_screen, &lv_font_montserrat_28, COLOR_TEXT,
-               LV_TEXT_ALIGN_CENTER, 60, 200, 680, 40,
-               "Pro-Screen Einstellungen folgen.");
+    // Anzeigedauer-Slider (5-120 s) mit Live-Label.
+    const uint32_t accent_color = color_for_index(index);
+    const uint8_t  current_dur  = s_duration[state_for_index(index)];
+
+    make_label(s_detail_screen, &lv_font_montserrat_30, COLOR_TEXT,
+               LV_TEXT_ALIGN_LEFT, 100, 160, 360, 36, "Anzeigedauer");
+
+    s_detail_duration_value = make_label(s_detail_screen, &lv_font_montserrat_24,
+                                         COLOR_CYAN, LV_TEXT_ALIGN_RIGHT,
+                                         460, 164, 240, 32, "");
+    update_duration_value_label(current_dur);
+
+    s_detail_duration_slider = lv_slider_create(s_detail_screen);
+    lv_obj_set_size(s_detail_duration_slider, 600, 24);
+    lv_obj_set_pos(s_detail_duration_slider, 100, 230);
+    lv_slider_set_range(s_detail_duration_slider,
+                        SCREEN_DURATION_MIN_S, SCREEN_DURATION_MAX_S);
+    lv_slider_set_value(s_detail_duration_slider, current_dur, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_detail_duration_slider,
+                              lv_color_hex(0x232b38), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_detail_duration_slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_detail_duration_slider,
+                              lv_color_hex(accent_color), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_detail_duration_slider, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_detail_duration_slider,
+                              lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s_detail_duration_slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(s_detail_duration_slider, 8, LV_PART_KNOB);
+    lv_obj_add_event_cb(s_detail_duration_slider, on_duration_slider_changed,
+                        LV_EVENT_VALUE_CHANGED, NULL);
+
     make_label(s_detail_screen, &lv_font_montserrat_24, COLOR_MUTED,
-               LV_TEXT_ALIGN_CENTER, 60, 248, 680, 32,
-               "Hier kommen kuenftig Optionen fuer diese Kachel.");
+               LV_TEXT_ALIGN_LEFT, 100, 274, 200, 28, "5 s");
+    make_label(s_detail_screen, &lv_font_montserrat_24, COLOR_MUTED,
+               LV_TEXT_ALIGN_RIGHT, 500, 274, 200, 28, "120 s");
+
+    make_label(s_detail_screen, &lv_font_montserrat_24, COLOR_MUTED,
+               LV_TEXT_ALIGN_CENTER, 60, 340, 680, 32,
+               "Wird beim Zurueckgehen gespeichert");
 
     lv_screen_load(s_detail_screen);
 }
@@ -376,6 +500,7 @@ static void close_screen(void)
             s_saved_price = s_enabled[SCREEN_CRYPTO];
             s_saved_chart = s_enabled[SCREEN_BTC_DAY];
             s_saved_klipper = s_enabled[SCREEN_KLIPPER];
+            for (int i = 0; i < OPTION_COUNT; i++) s_saved_duration[i] = s_duration[i];
             ESP_LOGI(TAG, "Screen Settings gespeichert");
         } else {
             ESP_LOGW(TAG, "Screen Settings speichern fehlgeschlagen");
@@ -499,6 +624,7 @@ void ui_screen_settings_open(void)
     s_saved_price = s_enabled[SCREEN_CRYPTO];
     s_saved_chart = s_enabled[SCREEN_BTC_DAY];
     s_saved_klipper = s_enabled[SCREEN_KLIPPER];
+    for (int i = 0; i < OPTION_COUNT; i++) s_saved_duration[i] = s_duration[i];
 
     s_screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(s_screen);

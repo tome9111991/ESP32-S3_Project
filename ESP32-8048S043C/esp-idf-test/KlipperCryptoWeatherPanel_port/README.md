@@ -9,16 +9,33 @@ RGB-panel + GT911 + LVGL scaffold.
 
 - Initializes the RGB panel with double framebuffer in PSRAM and a bounce
   buffer in internal SRAM
-- Starts the display mirrored by 180 degrees by default, matching the Arduino
-  sketch
-- Reads GT911 touch over I2C and calibrates it to screen pixels
+- Reads GT911 touch over I2C and calibrates it to screen pixels via the driver
+  callback; 5-point recalibration UI available from the settings menu
 - Starts LVGL via `esp_lvgl_port`
 - Shows the four dashboard screens: time/weather, live crypto price, crypto
   candle chart, and Klipper/Moonraker status
-- Connects WiFi from compile-time `main/config_private.h`
-- Fetches weather from Bright Sky, crypto data from Coinbase, and printer data
-  from Moonraker using native ESP-IDF HTTP + cJSON
-- Taps left/right switch screens; the dashboard also auto-rotates screens
+- Tap left/right to switch screens; auto-rotation cycles enabled screens with
+  per-screen durations
+- Long-press anywhere opens a popup with Settings / Reboot / Factory-Reset
+  (factory reset clears the whole NVS partition and reboots back to the
+  compile-time defaults)
+- Settings menu has five real sub-screens:
+  - **WLAN** — SSID list + on-screen keyboard, credentials in NVS
+  - **Screens** — enable/disable each dashboard screen, per-screen rotation
+    duration (5..120 s)
+  - **Crypto** — base / quote / chart-timeframe (15M / 1H / 6H / 1D)
+  - **Display** — brightness slider (32..255) with live preview, 180-degree
+    rotation toggle (reboot on change)
+  - **Touch calibration** — 5-point flow that stores affine map in NVS and
+    honors the current 180-degree rotation
+- Backlight runs on LEDC PWM (250 Hz, 8 bit); day/night brightness follows the
+  computed sun position (full brightness from sunrise+90 min, night value after
+  sunset)
+- Fetches weather from Bright Sky, crypto from Coinbase (spot, 24h stats,
+  candles), and printer data from Moonraker (`/server/info`,
+  `/printer/info`, `/printer/objects/query`, `/server/files/metadata`) using
+  native ESP-IDF HTTP + cJSON; MMU tool / gate / colors / status are rendered
+  on the Klipper screen when present
 
 ## Hardware
 
@@ -53,22 +70,37 @@ idf.py -p COMx flash monitor
 KlipperCryptoWeatherPanel_port/
 ├── CMakeLists.txt
 ├── README.md                      # this file
+├── TODO.md                        # current open items
+├── partitions.csv                 # 4 MB factory + 2x 4 MB OTA + ~4 MB SPIFFS
 ├── sdkconfig.defaults             # board-specific IDF defaults
 └── main/
     ├── CMakeLists.txt             # component sources/requires
     ├── idf_component.yml          # managed dependencies (LVGL, touch)
-    ├── app_state.h                # shared state/config/API boundaries
+    ├── app_state.h                # shared state, constants, public APIs
+    ├── config_private.example.h   # copy to config_private.h locally
     ├── main.c                     # panel + touch + LVGL host loop
-    ├── ui_screens.c               # dashboard screens
+    ├── net_fetcher.c              # WiFi/NTP/Bright Sky/Coinbase/Moonraker
+    ├── display_brightness.c       # LEDC PWM + sun-based day/night curve
+    ├── touch_calibration.c        # CAL map, NVS, 5-point UI
+    ├── ui_screens.c               # the four dashboard screens
     ├── ui_chart.c                 # candle chart renderer
-    ├── net_fetcher.c              # WiFi/NTP/API fetch task
-    └── config_private.example.h   # copy to config_private.h locally
+    ├── ui_popup.c                 # long-press popup (Settings/Reboot/Reset)
+    ├── ui_settings_menu.c         # settings list (port of 12_SettingsMenu)
+    ├── ui_wifi_setup.c            # WLAN sub-screen (scan + keyboard)
+    ├── ui_keyboard.c              # on-screen keyboard widget
+    ├── ui_screen_settings.c       # enable/disable + per-screen durations
+    ├── ui_crypto_settings.c       # base / quote / timeframe selector
+    ├── ui_display_settings.c      # brightness + rotate-180
+    ├── ui_font_price_digits.*     # large crypto price font
+    ├── ui_font_time_digits.*      # large clock font
+    ├── ui_assets.h                # icon table
+    └── ui_assets/                 # LVGL image C-arrays (weather, status, ...)
 ```
 
 `sdkconfig` is .gitignored and gets generated from `sdkconfig.defaults` on
-the first `idf.py reconfigure`. The project uses `partitions.csv` so the
-larger LVGL/font binary fits in the ESP32-8048S043C's 16 MB flash. When
-changing the defaults: delete `sdkconfig` and regenerate.
+the first `idf.py reconfigure`. `partitions.csv` provides 4 MB factory +
+2× 4 MB OTA slots + a SPIFFS storage partition in the remaining flash. When
+changing defaults: delete `sdkconfig` and regenerate.
 
 ## Dependencies
 
@@ -87,10 +119,24 @@ changing the defaults: delete `sdkconfig` and regenerate.
 Copy `main/config_private.example.h` to `main/config_private.h` and edit the
 private values there. `main/config_private.h` is ignored by Git.
 
-The native port currently uses compile-time configuration only. The Arduino
-runtime settings overlays, LittleFS persistence, brightness settings, runtime
-rotation controls, touch calibration UI, and MMU gate detail display are not
-ported yet.
+The compile-time values act as defaults; once the device has been configured
+through the on-screen settings menu, the corresponding runtime values come from
+NVS. A factory reset wipes the NVS partition, so the build-time defaults take
+over again — which is intentional, so the device is always usable after a
+reset without needing a console.
+
+### Runtime settings (NVS-persisted)
+
+| Domain | Keys | Source |
+|---|---|---|
+| WiFi | `wifi/ssid`, `wifi/pass` | WLAN sub-screen |
+| Display | `display/day_bright`, `display/rotate180` | Display sub-screen |
+| Screens | enable + duration per screen | Screens sub-screen |
+| Crypto | base, quote, timeframe | Crypto sub-screen |
+| Touch | calibration affine map | Touch sub-screen |
+
+Fields not (yet) exposed via UI — location/timezone, Coinbase vs. another
+service, Klipper base URL — stay in `config_private.h`.
 
 ## Technical decisions
 
@@ -153,15 +199,19 @@ the `esp_lcd_touch` handle. This way **every** consumer (LVGL input and our
 own polling) receives already-mapped screen pixels — no per-call conversion
 needed.
 
-### 180-degree display default via panel mirror
+### 180-degree display rotation via panel mirror
 
-The Arduino sketch defaults to `DISPLAY_ROTATE_180_DEFAULT = true`. The IDF
-port keeps that behavior by setting `LV_DISPLAY_ROTATION_180` after adding the
-RGB display and mirrors touch coordinates in the GT911 coordinate callback.
-When the rotation default is enabled, LVGL uses a small 20-line partial buffer
-and flushes through `esp_lcd_panel_draw_bitmap()`, because that path honors the
-LCD panel mirror on RGB panels. Software rotation stays disabled, so no extra
-rotation buffer is allocated.
+`DISPLAY_ROTATE_180_DEFAULT = 1` matches the Arduino sketch. The actual rotation
+flag is loaded from NVS (`display/rotate180`) at boot and applied via
+`LV_DISPLAY_ROTATION_180` after the RGB display is added. The touch coordinate
+callback returns panel pixels; LVGL applies the rotation internally via
+`lv_display_rotate_point`, and the local touch polling timer mirrors manually
+for screen-switch detection and the feedback arc. With rotation enabled, LVGL
+uses a small 20-line partial buffer and flushes through
+`esp_lcd_panel_draw_bitmap()`, since that path honors the panel mirror on RGB
+panels. Software rotation stays disabled — no extra rotation buffer. Toggling
+the option in the Display sub-screen persists to NVS and triggers a clean
+reboot so the buffer layout and touch map come up in the new orientation.
 
 ## Pitfalls
 
@@ -178,13 +228,19 @@ rotation buffer is allocated.
 | Constant subtle wobble even without UI changes | CPU instruction fetches hit PSRAM during DMA bursts | Disable `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` |
 | Image unstable even with bounce buffer | PCLK too high for panel timing | Lower PCLK to 14 MHz |
 
-## Next steps
+## Open items
 
-1. **NVS config/provisioning UI** — replace compile-time WiFi with on-device
-   setup and persisted settings.
-2. **Display settings** — brightness and 180-degree rotation controls.
-3. **Klipper parity** — metadata-based ETA and MMU gate/status detail.
-4. **Touch/settings overlays** — popup menu, reboot/reset, calibration flow.
+Feature parity with the Arduino sketch is reached. See `TODO.md` for the
+remaining items, which are mostly nice-to-have:
+
+- OTA / web-based config (OTA partitions are already laid out).
+- API status / diagnostics screen.
+- README screenshots.
+
+Two refactor ideas (`net_fetcher.c` split into per-service files, `g_app` write
+setters) are tracked but intentionally on hold — the current shape is
+mechanical and works; refactoring is only worth it once a service grows real
+new complexity.
 
 ## Sources
 

@@ -27,6 +27,22 @@ static const char *TAG = "net";
 #define CRYPTO_NVS_BASE      "base"
 #define CRYPTO_NVS_QUOTE     "quote"
 #define CRYPTO_NVS_TIMEFRAME "timeframe"
+#define LOCATION_NVS_NS      "location"
+#define LOCATION_NVS_LAT     "lat"
+#define LOCATION_NVS_LON     "lon"
+
+// Lat/Lon sind Floats; in NVS landen sie als u32-Bitmuster, damit nvs_get_blob
+// nicht mit Endianness/Float-Repraesentation kaempfen muss.
+static inline uint32_t float_to_u32(float v) { union { float f; uint32_t u; } x; x.f = v; return x.u; }
+static inline float    u32_to_float(uint32_t u) { union { float f; uint32_t u; } x; x.u = u; return x.f; }
+
+static bool location_valid(float lat, float lon)
+{
+    if (!isfinite(lat) || !isfinite(lon)) return false;
+    if (lat < -90.0f  || lat > 90.0f)  return false;
+    if (lon < -180.0f || lon > 180.0f) return false;
+    return true;
+}
 
 crypto_config_t g_crypto = {
     .base = CRYPTO_BASE_SYMBOL,
@@ -63,6 +79,11 @@ typedef struct {
 
 static TaskHandle_t s_fetch_task;
 static volatile bool s_crypto_refresh_requested;
+static volatile bool s_sntp_started;
+static volatile bool s_time_synced;
+// Reverse-Geocoding nur einmal pro Boot; bei Location-Wechsel zuruecksetzen,
+// damit der City-Name neu aufgeloest wird.
+static volatile bool s_location_name_resolved;
 
 static void update_live_candle_from_price(float price);
 
@@ -192,6 +213,76 @@ bool crypto_settings_save(void)
     if (ok) ok = (nvs_commit(h) == ESP_OK);
     nvs_close(h);
     return ok;
+}
+
+// location_settings_load() laeuft vor init_app_state() (vgl. crypto_settings_load
+// in main.c), daher ist g_app.mutex noch nicht initialisiert. Wir muessen die
+// Locks bedingt nehmen wie crypto_snapshot.
+void location_settings_init_defaults(void)
+{
+    if (g_app.mutex) app_lock();
+    g_app.location_latitude  = (float)LOCATION_LATITUDE;
+    g_app.location_longitude = (float)LOCATION_LONGITUDE;
+    if (g_app.mutex) app_unlock();
+}
+
+bool location_settings_load(void)
+{
+    location_settings_init_defaults();
+
+    nvs_handle_t h;
+    if (nvs_open(LOCATION_NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+
+    uint32_t lat_bits = 0, lon_bits = 0;
+    bool have_lat = (nvs_get_u32(h, LOCATION_NVS_LAT, &lat_bits) == ESP_OK);
+    bool have_lon = (nvs_get_u32(h, LOCATION_NVS_LON, &lon_bits) == ESP_OK);
+    nvs_close(h);
+
+    if (!have_lat || !have_lon) return false;
+    float lat = u32_to_float(lat_bits);
+    float lon = u32_to_float(lon_bits);
+    if (!location_valid(lat, lon)) return false;
+
+    if (g_app.mutex) app_lock();
+    g_app.location_latitude  = lat;
+    g_app.location_longitude = lon;
+    if (g_app.mutex) app_unlock();
+    return true;
+}
+
+bool location_settings_save(float latitude, float longitude)
+{
+    if (!location_valid(latitude, longitude)) return false;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(LOCATION_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "location nvs_open RW: %s", esp_err_to_name(err));
+        return false;
+    }
+    bool ok = (nvs_set_u32(h, LOCATION_NVS_LAT, float_to_u32(latitude)) == ESP_OK);
+    if (ok) ok = (nvs_set_u32(h, LOCATION_NVS_LON, float_to_u32(longitude)) == ESP_OK);
+    if (ok) ok = (nvs_commit(h) == ESP_OK);
+    nvs_close(h);
+
+    if (ok) {
+        if (g_app.mutex) app_lock();
+        g_app.location_latitude  = latitude;
+        g_app.location_longitude = longitude;
+        // Reverse-Geocoding-Name neu anfragen lassen.
+        g_app.weather_location[0] = '\0';
+        if (g_app.mutex) app_unlock();
+        s_location_name_resolved = false;
+    }
+    return ok;
+}
+
+void location_snapshot(float *latitude, float *longitude)
+{
+    if (g_app.mutex) app_lock();
+    if (latitude)  *latitude  = g_app.location_latitude;
+    if (longitude) *longitude = g_app.location_longitude;
+    if (g_app.mutex) app_unlock();
 }
 
 void crypto_request_refresh(void)
@@ -447,93 +538,72 @@ static bool time_due(uint32_t now, uint32_t target)
     return (int32_t)(now - target) >= 0;
 }
 
-static void weather_station_name(const cJSON *sources, int source_id, char *out, size_t out_size)
+// Reverse-Geocoding via BigDataCloud (kein API-Key, kein User-Agent-Zwang).
+// Wird einmalig pro Boot vor dem ersten Wetter-Fetch versucht, Ergebnis lebt
+// in g_app.weather_location. Bei Misserfolg bleibt WEATHER_LOCATION_NAME stehen.
+static bool resolve_location_name(char *out, size_t out_size)
 {
-    if (!cJSON_IsArray(sources) || source_id < 0) return;
-    const cJSON *source = NULL;
-    cJSON_ArrayForEach(source, sources) {
-        if ((int)json_num(json_obj(source, "id"), -1) == source_id) {
-            app_set_str(out, out_size, json_str(json_obj(source, "station_name"), ""));
-            return;
-        }
-    }
-}
+    float lat_f = 0.0f, lon_f = 0.0f;
+    location_snapshot(&lat_f, &lon_f);
+    char url[224];
+    snprintf(url, sizeof(url),
+             "https://api.bigdatacloud.net/data/reverse-geocode-client"
+             "?latitude=%.6f&longitude=%.6f&localityLanguage=de",
+             (double)lat_f, (double)lon_f);
 
-static int weather_priority_code_from_text(const char *text)
-{
-    if (!text) return -1;
-    char lower[64];
-    size_t n = strlen(text);
-    if (n >= sizeof(lower)) n = sizeof(lower) - 1;
-    for (size_t i = 0; i < n; i++) lower[i] = (char)tolower((unsigned char)text[i]);
-    lower[n] = '\0';
+    char *payload = NULL;
+    if (!http_get(url, true, NULL, NULL, &payload)) return false;
 
-    if (strstr(lower, "thunder") || strstr(lower, "storm") || strstr(lower, "gewitter")) return 95;
-    if (strstr(lower, "snow") || strstr(lower, "sleet") || strstr(lower, "hail") || strstr(lower, "schnee")) return 71;
-    if (strstr(lower, "rain") || strstr(lower, "drizzle") || strstr(lower, "regen")) return 61;
-    if (strstr(lower, "fog") || strstr(lower, "mist") || strstr(lower, "nebel")) return 45;
-    return -1;
-}
+    cJSON *root = cJSON_Parse(payload);
+    free(payload);
+    if (!root) return false;
 
-static int weather_code_from_text(const char *text)
-{
-    if (!text) return -1;
-    char lower[64];
-    size_t n = strlen(text);
-    if (n >= sizeof(lower)) n = sizeof(lower) - 1;
-    for (size_t i = 0; i < n; i++) lower[i] = (char)tolower((unsigned char)text[i]);
-    lower[n] = '\0';
+    // city ist der lesbare Stadt-/Ortsname; locality ist der Stadtteil und
+    // fuer ein Wetter-Display meist zu granular.
+    const char *city = json_str(json_obj(root, "city"), "");
+    if (!city[0]) city = json_str(json_obj(root, "locality"), "");
+    if (!city[0]) city = json_str(json_obj(root, "principalSubdivision"), "");
 
-    if (strstr(lower, "thunder") || strstr(lower, "storm") || strstr(lower, "gewitter")) return 95;
-    if (strstr(lower, "snow") || strstr(lower, "sleet") || strstr(lower, "hail") || strstr(lower, "schnee")) return 71;
-    if (strstr(lower, "rain") || strstr(lower, "drizzle") || strstr(lower, "regen")) return 61;
-    if (strstr(lower, "fog") || strstr(lower, "mist") || strstr(lower, "nebel")) return 45;
-    if (strstr(lower, "partly")) return 2;
-    if (strstr(lower, "cloud") || strstr(lower, "overcast") || strstr(lower, "wolke")) return 3;
-    if (strstr(lower, "clear") || strstr(lower, "sun") || strstr(lower, "dry") || strstr(lower, "sonne")) return 0;
-    return -1;
-}
-
-static bool weather_has_recent_sunshine(const cJSON *weather)
-{
-    return json_num(json_obj(weather, "sunshine_30"), 0.0) >= 5.0 ||
-           json_num(json_obj(weather, "sunshine_60"), 0.0) >= 10.0;
-}
-
-static bool weather_has_recent_precipitation(const cJSON *weather)
-{
-    return json_num(json_obj(weather, "precipitation_10"), 0.0) > 0.0 ||
-           json_num(json_obj(weather, "precipitation_30"), 0.0) >= 0.1 ||
-           json_num(json_obj(weather, "precipitation_60"), 0.0) >= 0.1;
-}
-
-static int weather_code_from_brightsky(const cJSON *weather, const char *icon, const char *condition)
-{
-    int code = weather_priority_code_from_text(condition);
-    if (code >= 0) return code;
-
-    code = weather_priority_code_from_text(icon);
-    if (code >= 0) return code;
-
-    if (weather_has_recent_precipitation(weather)) return 61;
-
-    code = weather_code_from_text(icon);
-    if (code < 0) code = weather_code_from_text(condition);
-    if (code == 3 && weather_has_recent_sunshine(weather)) code = 2;
-    return code;
+    bool ok = (city[0] != '\0');
+    if (ok) app_set_str(out, out_size, city);
+    cJSON_Delete(root);
+    return ok;
 }
 
 static bool fetch_weather(void)
 {
-    char url[160];
+    if (!s_location_name_resolved) {
+        char name[48] = {0};
+        if (resolve_location_name(name, sizeof(name))) {
+            app_lock();
+            app_set_str(g_app.weather_location, sizeof(g_app.weather_location), name);
+            app_unlock();
+            ESP_LOGI(TAG, "Standort aufgeloest: %s", name);
+            s_location_name_resolved = true;
+        } else {
+            // Bei Fehler nicht endlos hammern; naechster Versuch beim naechsten
+            // Weather-Refresh oder nach erneutem location_settings_save().
+            s_location_name_resolved = true;
+        }
+    }
+
+    // open-meteo waehlt mit models=best_match automatisch das beste Modell:
+    // DWD-ICON-D2 (2.2 km) in DE, ICON-EU in Europa, ECMWF/GFS sonst.
+    // weather_code ist direkt WMO-konform (passt zu weather_visual_from_code).
+    float lat_f = 0.0f, lon_f = 0.0f;
+    location_snapshot(&lat_f, &lon_f);
+    char url[224];
     snprintf(url, sizeof(url),
-             "https://api.brightsky.dev/current_weather?lat=%.6f&lon=%.6f",
-             (double)LOCATION_LATITUDE, (double)LOCATION_LONGITUDE);
+             "https://api.open-meteo.com/v1/forecast"
+             "?latitude=%.6f&longitude=%.6f"
+             "&current=temperature_2m,weather_code,is_day"
+             "&timezone=auto&models=best_match",
+             (double)lat_f, (double)lon_f);
 
     char *payload = NULL;
     if (!http_get(url, true, NULL, NULL, &payload)) {
         app_lock();
-        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "DWD: HTTP");
+        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "OM: HTTP");
         app_unlock();
         return false;
     }
@@ -542,32 +612,24 @@ static bool fetch_weather(void)
     free(payload);
     if (!root) {
         app_lock();
-        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "DWD: JSON");
+        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "OM: JSON");
         app_unlock();
         return false;
     }
 
-    const cJSON *weather = json_obj(root, "weather");
-    double temp = json_num(json_obj(weather, "temperature"), NAN);
-    const char *icon = json_str(json_obj(weather, "icon"), "");
-    const char *condition = json_str(json_obj(weather, "condition"), "");
-    int code = weather_code_from_brightsky(weather, icon, condition);
-
-    char station[48] = "";
-    int source_id = (int)json_num(json_obj(json_obj(weather, "fallback_source_ids"), "temperature"), -1);
-    if (source_id < 0) source_id = (int)json_num(json_obj(weather, "source_id"), -1);
-    weather_station_name(json_obj(root, "sources"), source_id, station, sizeof(station));
-    if (!station[0]) {
-        weather_station_name(json_obj(root, "sources"),
-                             (int)json_num(json_obj(weather, "source_id"), -1),
-                             station, sizeof(station));
-    }
+    const cJSON *current = json_obj(root, "current");
+    double temp = json_num(json_obj(current, "temperature_2m"), NAN);
+    int code = (int)json_num(json_obj(current, "weather_code"), -1);
 
     app_lock();
     if (isfinite(temp)) snprintf(g_app.current_temp, sizeof(g_app.current_temp), "%.1f", temp);
-    if (station[0]) app_set_str(g_app.weather_location, sizeof(g_app.weather_location), station);
+    if (g_app.weather_location[0] == '\0') {
+        // Fallback nur wenn Reverse-Geocoding fehlschlug; UI zeigt "Standort"
+        // statt einer leeren Zeile.
+        app_set_str(g_app.weather_location, sizeof(g_app.weather_location), "Standort");
+    }
     if (code >= 0) g_app.weather_code = code;
-    app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: DWD");
+    app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: open-meteo");
     app_unlock();
 
     cJSON_Delete(root);
@@ -1424,6 +1486,38 @@ static bool fetch_klipper(void)
     return true;
 }
 
+static void on_time_synced(struct timeval *tv)
+{
+    (void)tv;
+    s_time_synced = true;
+    time_t now = time(NULL);
+    struct tm tm_local;
+    localtime_r(&now, &tm_local);
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_local);
+    ESP_LOGI(TAG, "SNTP synced: %s", buf);
+}
+
+static void start_sntp(void)
+{
+    if (s_sntp_started) return;
+    setenv("TZ", TIMEZONE_POSIX, 1);
+    tzset();
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+#if LWIP_DHCP_GET_NTP_SRV
+    esp_sntp_servermode_dhcp(true);                     // Router-NTP via DHCP Option 42
+#endif
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_setservername(2, "time.cloudflare.com");
+    esp_sntp_set_sync_interval(15 * 1000);              // schneller erster Sync
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_time_sync_notification_cb(on_time_synced);
+    esp_sntp_init();
+    s_sntp_started = true;
+    ESP_LOGI(TAG, "SNTP started after GOT_IP");
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
@@ -1441,16 +1535,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         g_app.wifi_connected = true;
         g_app.internet_available = true;
         app_unlock();
+        // Zeit-Sync hat Prio: SNTP erst nach GOT_IP starten, sonst scheitert DNS.
+        start_sntp();
     }
-}
-
-static void start_sntp(void)
-{
-    setenv("TZ", TIMEZONE_POSIX, 1);
-    tzset();
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
 }
 
 static void fetch_task(void *arg)
@@ -1488,6 +1575,15 @@ static void fetch_task(void *arg)
         }
 
         if (!schedule_initialized) {
+            // Zeit-Sync hat Prio: erst loslegen wenn SNTP eine plausible Zeit gesetzt hat,
+            // sonst stehen Candles/Stats mit Epoch ~1970 und Klipper-Status zeigt Muell.
+            if (!s_time_synced && time(NULL) < 1700000000) {
+                app_lock();
+                app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "ZEIT SYNC");
+                app_unlock();
+                vTaskDelay(pdMS_TO_TICKS(250));
+                continue;
+            }
             uint32_t start = now + WIFI_STABLE_BEFORE_FETCH_MS;
             next_price = start;
             next_candles = start + 5000U;
@@ -1657,7 +1753,7 @@ void net_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
-    start_sntp();
+    // start_sntp() laeuft jetzt im GOT_IP-Handler, sobald die Verbindung steht.
 
     if (!s_fetch_task) {
         xTaskCreatePinnedToCore(fetch_task, "net_fetch", FETCH_TASK_STACK, NULL,

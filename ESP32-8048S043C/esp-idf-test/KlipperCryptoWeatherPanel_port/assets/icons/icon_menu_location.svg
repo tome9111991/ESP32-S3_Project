@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <title>Menu Location</title>
+  <path d="M24 42s14-13.2 14-24c0-7.2-6-13-14-13S10 10.8 10 18c0 10.8 14 24 14 24z" fill="#0c0f14"/>
+  <circle cx="24" cy="18.5" r="5.5" fill="#5dd6ff"/>
+  <path d="M8 42h32" fill="none" stroke="#0c0f14" stroke-width="4" stroke-linecap="round"/>
+  <path d="M24 8v4M24 25v4M15 18.5h4M29 18.5h4" fill="none" stroke="#5dd6ff" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

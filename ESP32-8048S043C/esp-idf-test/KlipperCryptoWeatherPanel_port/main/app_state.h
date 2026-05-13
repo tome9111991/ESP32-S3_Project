@@ -156,6 +156,10 @@ typedef struct {
     // Network / WiFi
     bool wifi_connected;
     bool internet_available;
+
+    // Location (runtime, NVS-gepuffert mit Fallback auf LOCATION_LATITUDE/LONGITUDE)
+    float location_latitude;
+    float location_longitude;
 } app_state_t;
 
 extern app_state_t g_app;
@@ -253,6 +257,11 @@ void ui_display_settings_open(void);
 bool ui_display_settings_is_open(void);
 
 // --- Screen-Settings (implemented in ui_screen_settings.c) -----------------
+#define SCREEN_DURATION_MIN_S      5
+#define SCREEN_DURATION_MAX_S      120
+#define SCREEN_DURATION_TIME_DEF   30
+#define SCREEN_DURATION_OTHER_DEF  15
+
 void screen_settings_init_defaults(void);
 bool screen_settings_load(void);
 bool screen_settings_save(void);
@@ -260,6 +269,8 @@ bool screen_settings_is_enabled(screen_state_t state);
 void screen_settings_set_enabled(screen_state_t state, bool enabled);
 int  screen_settings_enabled_count(void);
 void screen_settings_ensure_one_enabled(void);
+uint8_t screen_settings_duration_seconds(screen_state_t state);
+void    screen_settings_set_duration_seconds(screen_state_t state, uint8_t seconds);
 void ui_screen_settings_open(void);
 bool ui_screen_settings_is_open(void);
 
@@ -307,6 +318,16 @@ void     format_quote_compact(float value, char *buffer, size_t bufferSize);
 // --- Crypto-Settings-Screen (implemented in ui_crypto_settings.c) -----------
 void ui_crypto_settings_open(void);
 bool ui_crypto_settings_is_open(void);
+
+// --- Location-Settings (implemented in net_fetcher.c / ui_location_settings.c)
+// Lat/Lon werden zur Laufzeit aus NVS geladen; Fallback sind die Compile-Time-
+// Werte LOCATION_LATITUDE/LONGITUDE. snapshot ist mutex-sicher.
+void location_settings_init_defaults(void);
+bool location_settings_load(void);
+bool location_settings_save(float latitude, float longitude);
+void location_snapshot(float *latitude, float *longitude);
+void ui_location_settings_open(void);
+bool ui_location_settings_is_open(void);
 
 #ifdef __cplusplus
 }
