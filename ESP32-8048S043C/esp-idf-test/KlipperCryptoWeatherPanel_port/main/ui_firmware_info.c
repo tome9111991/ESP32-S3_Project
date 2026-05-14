@@ -8,16 +8,24 @@
 #include "ota_service.h"
 #include "version.h"
 
+#include "esp_lvgl_port.h"
+
 #include <stdio.h>
 #include <string.h>
 
 static lv_obj_t *s_screen        = NULL;
 static lv_obj_t *s_return_screen = NULL;
+static lv_obj_t *s_ota_screen    = NULL;
+static lv_obj_t *s_ota_bar_fill  = NULL;
+static lv_obj_t *s_ota_percent_label = NULL;
 
 static lv_obj_t *s_status_label  = NULL;
 static lv_obj_t *s_check_btn     = NULL;
 static lv_obj_t *s_install_btn   = NULL;
 static lv_timer_t *s_status_timer = NULL;
+static char s_status_line[160];
+static ota_state_t s_last_rendered_state = OTA_STATE_IDLE;
+static int s_ota_last_percent = -1;
 
 static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
 {
@@ -46,20 +54,31 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t co
 
 static void close_screen(void)
 {
-    if (!s_screen) return;
+    if (!s_screen && !s_ota_screen) return;
     if (s_status_timer) {
         lv_timer_delete(s_status_timer);
         s_status_timer = NULL;
     }
+    if (s_ota_screen) {
+        lv_obj_delete_async(s_ota_screen);
+        s_ota_screen = NULL;
+        s_ota_bar_fill = NULL;
+        s_ota_percent_label = NULL;
+        s_ota_last_percent = -1;
+    }
     if (s_return_screen) {
         lv_screen_load(s_return_screen);
     }
-    lv_obj_delete_async(s_screen);
+    if (s_screen) {
+        lv_obj_delete_async(s_screen);
+    }
     s_screen        = NULL;
     s_return_screen = NULL;
     s_status_label  = NULL;
     s_check_btn     = NULL;
     s_install_btn   = NULL;
+    s_status_line[0] = '\0';
+    s_last_rendered_state = OTA_STATE_IDLE;
 }
 
 static void on_back_clicked(lv_event_t *e)
@@ -103,10 +122,17 @@ static void status_timer_cb(lv_timer_t *t)
     ota_status_t st;
     ota_service_get_status(&st);
 
+    // Beim eigentlichen OTA-Download schreibt der ESP permanent Flash. Auf dem
+    // RGB-Panel erzeugt jedes LVGL-Redraw dabei sichtbare Artefakte, deshalb
+    // bleibt der Bildschirm waehrend DOWNLOADING ruhig.
+    if (st.state == OTA_STATE_DOWNLOADING && s_last_rendered_state == OTA_STATE_DOWNLOADING) {
+        return;
+    }
+    s_last_rendered_state = st.state;
+
     char line[160];
     if (st.state == OTA_STATE_DOWNLOADING) {
-        snprintf(line, sizeof(line), "%s  %d%%", ota_state_label(st.state),
-                 st.progress_percent);
+        snprintf(line, sizeof(line), "%s", ota_state_label(st.state));
     } else if (st.state == OTA_STATE_UPDATE_AVAILABLE && st.available_version[0]) {
         snprintf(line, sizeof(line), "%s: %s", ota_state_label(st.state),
                  st.available_version);
@@ -115,7 +141,11 @@ static void status_timer_cb(lv_timer_t *t)
     } else {
         snprintf(line, sizeof(line), "%s", ota_state_label(st.state));
     }
-    lv_label_set_text(s_status_label, line);
+    // LVGL nur neu zeichnen lassen, wenn sich der sichtbare OTA-Text aendert.
+    if (strcmp(s_status_line, line) != 0) {
+        snprintf(s_status_line, sizeof(s_status_line), "%s", line);
+        lv_label_set_text(s_status_label, s_status_line);
+    }
 
     // Install-Button nur sichtbar wenn ein Update bereitsteht.
     bool show_install = (st.state == OTA_STATE_UPDATE_AVAILABLE);
@@ -157,14 +187,117 @@ static lv_obj_t *make_action_button(lv_obj_t *parent, int x, int y, int w, int h
 
 bool ui_firmware_info_is_open(void)
 {
-    return s_screen != NULL;
+    return s_screen != NULL || s_ota_screen != NULL;
+}
+
+static void ota_progress_apply_locked(int percent)
+{
+    if (!s_ota_bar_fill || !s_ota_percent_label) return;
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+
+    const int bar_w = 420;
+    int fill_w = (bar_w * percent) / 100;
+    if (percent > 0 && fill_w < 4) fill_w = 4;
+    lv_obj_set_width(s_ota_bar_fill, fill_w);
+
+    char text[12];
+    snprintf(text, sizeof(text), "%d%%", percent);
+    lv_label_set_text(s_ota_percent_label, text);
+    s_ota_last_percent = percent;
+}
+
+void ui_firmware_info_enter_ota_mode(void)
+{
+    // Wird aus dem OTA-Task gerufen: LVGL-Zugriffe daher kurz locken.
+    if (!lvgl_port_lock(1000)) return;
+
+    if (s_status_timer) {
+        lv_timer_delete(s_status_timer);
+        s_status_timer = NULL;
+    }
+
+    if (!s_ota_screen) {
+        s_ota_screen = lv_obj_create(NULL);
+        lv_obj_remove_style_all(s_ota_screen);
+        lv_obj_set_style_bg_color(s_ota_screen, lv_color_hex(0x05070a), 0);
+        lv_obj_set_style_bg_opa(s_ota_screen, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(s_ota_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+        make_label(s_ota_screen, &lv_font_montserrat_40, COLOR_TEXT,
+                   LV_TEXT_ALIGN_CENTER, 0, 170, LCD_H_RES, 54,
+                   "Firmware-Update");
+        make_label(s_ota_screen, &lv_font_montserrat_24, COLOR_MUTED,
+                   LV_TEXT_ALIGN_CENTER, 0, 238, LCD_H_RES, 34,
+                   "Bitte nicht ausschalten");
+
+        lv_obj_t *bar_bg = lv_obj_create(s_ota_screen);
+        style_filled_rect(bar_bg, 0x151b24, 6);
+        lv_obj_set_size(bar_bg, 424, 20);
+        lv_obj_set_pos(bar_bg, (LCD_H_RES - 424) / 2, 292);
+        lv_obj_set_style_border_width(bar_bg, 2, 0);
+        lv_obj_set_style_border_color(bar_bg, lv_color_hex(COLOR_DIM), 0);
+
+        s_ota_bar_fill = lv_obj_create(bar_bg);
+        style_filled_rect(s_ota_bar_fill, COLOR_GREEN, 4);
+        lv_obj_set_size(s_ota_bar_fill, 0, 16);
+        lv_obj_set_pos(s_ota_bar_fill, 2, 2);
+
+        s_ota_percent_label = make_label(s_ota_screen, &lv_font_montserrat_18,
+                                         COLOR_MUTED, LV_TEXT_ALIGN_CENTER,
+                                         0, 324, LCD_H_RES, 28, "0%");
+    }
+
+    ota_progress_apply_locked(0);
+    lv_screen_load(s_ota_screen);
+    // Einmal komplett zeichnen, danach erzeugt der OTA-Screen keine Timer-Redraws.
+    lv_refr_now(NULL);
+    lvgl_port_unlock();
+}
+
+void ui_firmware_info_ota_progress(int percent)
+{
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    if (!s_ota_screen || percent == s_ota_last_percent) return;
+    if (!lvgl_port_lock(50)) return;
+
+    ota_progress_apply_locked(percent);
+    // Progress wird nur selten aus dem OTA-Loop gerufen, deshalb direkt flushen.
+    lv_refr_now(NULL);
+    lvgl_port_unlock();
+}
+
+void ui_firmware_info_leave_ota_mode(void)
+{
+    if (!lvgl_port_lock(1000)) return;
+
+    if (s_ota_screen) {
+        if (s_screen) {
+            lv_screen_load(s_screen);
+        }
+        lv_obj_delete_async(s_ota_screen);
+        s_ota_screen = NULL;
+        s_ota_bar_fill = NULL;
+        s_ota_percent_label = NULL;
+        s_ota_last_percent = -1;
+    }
+
+    if (s_screen && !s_status_timer) {
+        s_status_timer = lv_timer_create(status_timer_cb, 250, NULL);
+        status_timer_cb(s_status_timer);
+    }
+
+    lvgl_port_unlock();
 }
 
 void ui_firmware_info_open(void)
 {
-    if (s_screen) return;
+    if (s_screen || s_ota_screen) return;
 
     s_return_screen = lv_screen_active();
+    s_status_line[0] = '\0';
+    s_last_rendered_state = OTA_STATE_IDLE;
 
     s_screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(s_screen);

@@ -286,6 +286,7 @@ static bool ui_control_screen_is_open(void)
 static void dashboard_refresh_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (ota_service_is_installing()) return;
     if (ui_control_screen_is_open()) return;
     // Bei WLAN-Verlust sofort zurueck auf den Verbindet-Screen.
     if (!wifi_is_connected() && ui_current_screen() != SCREEN_TIME) {
@@ -305,12 +306,14 @@ static void dashboard_refresh_timer_cb(lv_timer_t *t)
 static void brightness_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (ota_service_is_installing()) return;
     display_brightness_update_by_sun();
 }
 
 static void dashboard_rotate_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (ota_service_is_installing()) return;
     int64_t now_us = esp_timer_get_time();
     if (!wifi_is_connected() || s_touch_was_down || ui_control_screen_is_open()) {
         s_last_auto_switch_us = now_us;
@@ -327,6 +330,7 @@ static void dashboard_rotate_timer_cb(lv_timer_t *t)
 static void touch_poll_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (ota_service_is_installing()) return;
     if (touch_calibration_is_open()) {
         destroy_lp_feedback();
         s_touch_was_down = false;

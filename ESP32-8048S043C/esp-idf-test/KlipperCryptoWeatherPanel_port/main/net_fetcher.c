@@ -82,6 +82,8 @@ static TaskHandle_t s_fetch_task;
 static volatile bool s_crypto_refresh_requested;
 static volatile bool s_sntp_started;
 static volatile bool s_time_synced;
+static volatile bool s_fetch_pause_requested;
+static volatile bool s_http_get_active;
 // Reverse-Geocoding nur einmal pro Boot; bei Location-Wechsel zuruecksetzen,
 // damit der City-Name neu aufgeloest wird.
 static volatile bool s_location_name_resolved;
@@ -482,6 +484,7 @@ static bool http_get(const char *url, bool use_crt_bundle,
 {
     *out = NULL;
     if (status_out) *status_out = 0;
+    s_http_get_active = true;
     http_buf_t buf = {0};
     esp_http_client_config_t cfg = {
         .url = url,
@@ -496,7 +499,10 @@ static bool http_get(const char *url, bool use_crt_bundle,
     }
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return false;
+    if (!client) {
+        s_http_get_active = false;
+        return false;
+    }
     if (user_agent && user_agent[0]) {
         esp_http_client_set_header(client, "User-Agent", user_agent);
     }
@@ -510,12 +516,14 @@ static bool http_get(const char *url, bool use_crt_bundle,
     if (err != ESP_OK || status < 200 || status >= 300) {
         ESP_LOGW(TAG, "GET failed status=%d err=%s url=%s", status, esp_err_to_name(err), url);
         free(buf.data);
+        s_http_get_active = false;
         return false;
     }
     if (!buf.data) {
         buf.data = calloc(1, 1);
     }
     *out = buf.data;
+    s_http_get_active = false;
     return *out != NULL;
 }
 
@@ -1759,6 +1767,11 @@ static void fetch_task(void *arg)
     bool schedule_initialized = false;
 
     while (true) {
+        if (s_fetch_pause_requested) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+
         uint32_t now = (uint32_t)(esp_log_timestamp());
         bool connected;
         app_lock();
@@ -1915,6 +1928,18 @@ bool wifi_credentials_save(const char *ssid, const char *pass)
     nvs_close(h);
     if (ok) ESP_LOGI(TAG, "WLAN-Daten in NVS gespeichert (SSID=\"%s\")", ssid);
     return ok;
+}
+
+void net_pause_fetches(bool pause)
+{
+    s_fetch_pause_requested = pause;
+    if (!pause) return;
+
+    // OTA braucht exklusiven TLS/HTTP-Speicher; kurz warten bis ein laufender
+    // normaler API-Request aus dem HTTP-Client raus ist.
+    for (int i = 0; i < 60 && s_http_get_active; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
 
 void net_start(void)

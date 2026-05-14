@@ -42,6 +42,7 @@ void ota_service_init(void);
 bool ota_service_start_check(void);    // false = bereits laufend
 bool ota_service_start_install(void);  // false = kein Update bereit / busy
 void ota_service_get_status(ota_status_t *out);
+bool ota_service_is_installing(void);
 
 #ifdef __cplusplus
 }

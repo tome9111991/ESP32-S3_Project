@@ -14,7 +14,7 @@
 #endif
 
 #ifndef APP_FW_VERSION
-#define APP_FW_VERSION "20260514"
+#define APP_FW_VERSION "20260515"
 #endif
 
 // GitHub-Repo, in dem die Releases liegen. Per CMake ueberschreibbar:

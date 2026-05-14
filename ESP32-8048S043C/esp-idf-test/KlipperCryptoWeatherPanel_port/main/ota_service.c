@@ -11,6 +11,7 @@
 //   - Asset-URL wird gespeichert; bei start_install ruft esp_https_ota auf
 //     genau diese URL und reboot bei Erfolg.
 
+#include "app_state.h"
 #include "ota_service.h"
 #include "version.h"
 
@@ -30,18 +31,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
 static const char *TAG = "ota";
 
-#define OTA_TASK_STACK         8192
+#define OTA_TASK_STACK         12288
 #define OTA_TASK_PRIO          4
 #define OTA_HTTP_TIMEOUT_MS    15000
 #define OTA_USER_AGENT         "ESP32-KCWP-OTA"
 #define OTA_API_RELEASES_FMT   "https://api.github.com/repos/%s/%s/releases?per_page=20"
 #define OTA_API_LATEST_FMT     "https://api.github.com/repos/%s/%s/releases/latest"
 #define OTA_ASSET_URL_MAX      384
-#define OTA_DOWNLOAD_URL_MAX   2048
+#define OTA_PERFORM_DELAY_MS   80
 
 typedef struct {
     char *data;
@@ -51,13 +51,13 @@ typedef struct {
 
 typedef struct {
     int last_status;
-    char redirect_url[OTA_DOWNLOAD_URL_MAX];
 } ota_install_http_ctx_t;
 
 static SemaphoreHandle_t s_mutex;
 static TaskHandle_t      s_task;       // != NULL = check oder install laeuft
 static ota_status_t      s_status;
 static char              s_asset_url[OTA_ASSET_URL_MAX];
+static volatile bool     s_installing;
 
 static void status_set(ota_state_t state, const char *msg)
 {
@@ -159,15 +159,6 @@ static esp_err_t ota_install_http_event(esp_http_client_event_t *evt)
         evt->data_len == sizeof(int)) {
         ctx->last_status = *(int *)evt->data;
         ESP_LOGI(TAG, "OTA HTTP status=%d", ctx->last_status);
-    } else if (evt->event_id == HTTP_EVENT_ON_HEADER && evt->header_key &&
-               evt->header_value && strcasecmp(evt->header_key, "Location") == 0) {
-        size_t n = strlen(evt->header_value);
-        if (n < sizeof(ctx->redirect_url)) {
-            memcpy(ctx->redirect_url, evt->header_value, n + 1);
-        } else {
-            ctx->redirect_url[0] = '\0';
-            ESP_LOGW(TAG, "OTA redirect URL zu lang (%u Bytes)", (unsigned)n);
-        }
     }
     return ESP_OK;
 }
@@ -182,64 +173,6 @@ static esp_err_t ota_install_client_init(esp_http_client_handle_t client)
     err = esp_http_client_set_header(client, "X-GitHub-Api-Version", "2022-11-28");
     if (err != ESP_OK) return err;
     return ESP_OK;
-}
-
-static bool ota_resolve_download_url(const char *asset_url, char *out, size_t out_size,
-                                     int *status_out)
-{
-    if (!asset_url || !out || out_size == 0) return false;
-    out[0] = '\0';
-    if (status_out) *status_out = 0;
-
-    ota_install_http_ctx_t http_ctx = {0};
-    esp_http_client_config_t cfg = {
-        .url                   = asset_url,
-        .method                = HTTP_METHOD_HEAD,
-        .timeout_ms            = OTA_HTTP_TIMEOUT_MS,
-        .user_agent            = OTA_USER_AGENT,
-        .event_handler         = ota_install_http_event,
-        .user_data             = &http_ctx,
-        .crt_bundle_attach     = esp_crt_bundle_attach,
-        .keep_alive_enable     = false,
-        .disable_auto_redirect = true,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return false;
-
-    if (ota_install_client_init(client) != ESP_OK) {
-        esp_http_client_cleanup(client);
-        return false;
-    }
-    esp_err_t err = esp_http_client_perform(client);
-    int code = esp_http_client_get_status_code(client);
-    if (http_ctx.last_status > 0) code = http_ctx.last_status;
-    if (status_out) *status_out = code;
-    esp_http_client_cleanup(client);
-
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Redirect-Aufloesung fehlgeschlagen status=%d err=%s",
-                 code, esp_err_to_name(err));
-        return false;
-    }
-
-    if (code >= 300 && code < 400 && http_ctx.redirect_url[0]) {
-        size_t n = strlen(http_ctx.redirect_url);
-        if (n >= out_size) return false;
-        memcpy(out, http_ctx.redirect_url, n + 1);
-        ESP_LOGI(TAG, "OTA Redirect aufgeloest");
-        return true;
-    }
-
-    // Direkte Download-URLs ohne Redirect duerfen unveraendert an esp_https_ota.
-    if (code >= 200 && code < 300 && !strstr(asset_url, "api.github.com/")) {
-        size_t n = strlen(asset_url);
-        if (n >= out_size) return false;
-        memcpy(out, asset_url, n + 1);
-        return true;
-    }
-
-    ESP_LOGW(TAG, "Kein nutzbarer OTA-Redirect status=%d", code);
-    return false;
 }
 
 static void expected_ota_asset_name(char *out, size_t out_size)
@@ -424,27 +357,26 @@ static void ota_install_task(void *arg)
     }
 
     ESP_LOGI(TAG, "OTA von %s", url_copy);
+    s_installing = true;
     status_set(OTA_STATE_DOWNLOADING, "Starte OTA...");
     status_set_progress(0);
-
-    char download_url[OTA_DOWNLOAD_URL_MAX];
-    int resolve_status = 0;
-    if (!ota_resolve_download_url(url_copy, download_url, sizeof(download_url),
-                                  &resolve_status)) {
-        char msg[64];
-        snprintf(msg, sizeof(msg), "OTA-Redirect HTTP %d", resolve_status);
-        status_set(OTA_STATE_ERROR, msg);
-        goto done;
-    }
+    net_pause_fetches(true);
+    ui_firmware_info_enter_ota_mode();
+    // Dem RGB-Panel Zeit geben, den ruhigen OTA-Screen komplett zu uebernehmen.
+    vTaskDelay(pdMS_TO_TICKS(300));
 
     ota_install_http_ctx_t http_ctx = {0};
     esp_http_client_config_t http_cfg = {
-        .url               = download_url,
+        .url               = url_copy,
         .timeout_ms        = 30000,
         .user_agent        = OTA_USER_AGENT,
         .event_handler     = ota_install_http_event,
         .user_data         = &http_ctx,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size       = 2048,
+        .buffer_size_tx    = 1024,
+        // Zertifikatspruefung fuer den Firmware-Stream ist deaktiviert
+        // (CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP + CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY),
+        // damit der grosse GitHub-Download nicht in mbedTLS/X.509-Heap laeuft.
         .keep_alive_enable = true,
         .disable_auto_redirect = false,
         .max_redirection_count = 10,
@@ -482,9 +414,30 @@ static void ota_install_task(void *arg)
              app_desc.version);
 
     int total = esp_https_ota_get_image_size(handle);
+    int last_progress = 0;
+    TickType_t last_progress_tick = xTaskGetTickCount();
     while ((err = esp_https_ota_perform(handle)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+        bool update_visual = false;
         int read = esp_https_ota_get_image_len_read(handle);
-        if (total > 0) status_set_progress((int)((int64_t)read * 100 / total));
+        if (total > 0) {
+            int percent = (int)((int64_t)read * 100 / total);
+            TickType_t now = xTaskGetTickCount();
+            // UI-Redraws waehrend Flash-Writes stark drosseln: 5%-Schritte
+            // oder spaetestens einmal pro Sekunde.
+            if (percent >= last_progress + 5 ||
+                now - last_progress_tick >= pdMS_TO_TICKS(1000)) {
+                status_set_progress(percent);
+                last_progress = percent;
+                last_progress_tick = now;
+                update_visual = true;
+            }
+        }
+        // Kurze Luft zwischen HTTP/Flash-Chunks: reduziert RGB/PSRAM-Artefakte,
+        // ohne den OTA-Download komplett zu verstecken.
+        vTaskDelay(pdMS_TO_TICKS(OTA_PERFORM_DELAY_MS));
+        if (update_visual) {
+            ui_firmware_info_ota_progress(last_progress);
+        }
     }
 
     if (err != ESP_OK || !esp_https_ota_is_complete_data_received(handle)) {
@@ -514,12 +467,16 @@ static void ota_install_task(void *arg)
     }
 
     status_set_progress(100);
+    ui_firmware_info_ota_progress(100);
     status_set(OTA_STATE_SUCCESS, "Erfolg, starte neu...");
     vTaskDelay(pdMS_TO_TICKS(1500));
     esp_restart();
     // unreachable
 
 done:
+    ui_firmware_info_leave_ota_mode();
+    s_installing = false;
+    net_pause_fetches(false);
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_task = NULL;
     xSemaphoreGive(s_mutex);
@@ -601,4 +558,9 @@ void ota_service_get_status(ota_status_t *out)
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     *out = s_status;
     xSemaphoreGive(s_mutex);
+}
+
+bool ota_service_is_installing(void)
+{
+    return s_installing;
 }

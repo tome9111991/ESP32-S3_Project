@@ -271,6 +271,9 @@ void ui_perform_factory_reset(void);
 // --- Firmware-Info-Screen (implemented in ui_firmware_info.c) --------------
 void ui_firmware_info_open(void);
 bool ui_firmware_info_is_open(void);
+void ui_firmware_info_enter_ota_mode(void);  // friert UI auf einfachem OTA-Screen ein
+void ui_firmware_info_ota_progress(int percent);  // zeichnet groben OTA-Fortschritt
+void ui_firmware_info_leave_ota_mode(void);  // stellt Firmware-Screen nach Fehler wieder her
 
 // --- Display-Brightness API (implemented in display_brightness.c) ----------
 #define DAY_BRIGHTNESS_MIN       32
@@ -340,6 +343,7 @@ bool ui_wifi_setup_is_open(void);
 
 // --- Network API (implemented in net_fetcher.c) -----------------------------
 void net_start(void);
+void net_pause_fetches(bool pause);  // pausiert normale API-Requests fuer OTA
 // WLAN-Credentials persistent in NVS (Fallback: Compile-Time WIFI_SSID/PASSWORD).
 // load schreibt SSID/Passwort in die Puffer und liefert true, wenn SSID nicht leer.
 bool wifi_credentials_load(char *ssid_out, size_t ssid_size,

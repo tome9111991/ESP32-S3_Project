@@ -91,9 +91,10 @@ CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 # explizit "valid" markiert wird (ota_service.c ruft das nach erfolgreichem
 # Boot), faellt der Bootloader auf die vorherige Partition zurueck.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
-# esp_https_ota braucht das fuer den Stream-Modus auf HTTPS-Redirects (GitHub
-# Releases redirected auf objects.githubusercontent.com).
-CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=n
+# OTA nutzt HTTPS, aber ohne Server-Zertifikatspruefung fuer den eigentlichen
+# Firmware-Stream. Das spart mbedTLS/X.509-Heap beim grossen GitHub-Download;
+# die Release-API-Abfrage nutzt weiterhin das Zertifikatsbundle.
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
 CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
 
 # --- SNTP / Zeit-Sync ---------------------------------------------------------
