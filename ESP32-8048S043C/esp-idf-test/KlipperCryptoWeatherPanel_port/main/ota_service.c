@@ -38,6 +38,7 @@ static const char *TAG = "ota";
 #define OTA_HTTP_TIMEOUT_MS    15000
 #define OTA_USER_AGENT         "ESP32-KCWP-OTA"
 #define OTA_API_RELEASES_FMT   "https://api.github.com/repos/%s/%s/releases?per_page=20"
+#define OTA_API_LATEST_FMT     "https://api.github.com/repos/%s/%s/releases/latest"
 
 typedef struct {
     char *data;
@@ -179,6 +180,50 @@ static const char *tag_version_suffix(const char *tag)
     return tag + plen + 1;
 }
 
+// Pruefft ein einzelnes Release-Objekt. Wenn es nicht draft/prerelease ist,
+// der Tag mit "APP_FW_NAME-" beginnt und ein passendes Asset enthaelt, wird
+// dessen Version/URL in best_*/best_url uebernommen sofern hoeher als bisher.
+static void process_release_obj(cJSON *rel,
+                                char *best_version, size_t bv_size,
+                                char *best_url,     size_t bu_size)
+{
+    if (!cJSON_IsObject(rel)) return;
+
+    cJSON *draft = cJSON_GetObjectItemCaseSensitive(rel, "draft");
+    if (cJSON_IsBool(draft) && cJSON_IsTrue(draft)) return;
+    cJSON *pre = cJSON_GetObjectItemCaseSensitive(rel, "prerelease");
+    if (cJSON_IsBool(pre) && cJSON_IsTrue(pre)) return;
+
+    cJSON *tag = cJSON_GetObjectItemCaseSensitive(rel, "tag_name");
+    const char *ver = tag_version_suffix(cJSON_IsString(tag) ? tag->valuestring : NULL);
+    if (!ver || !*ver) return;
+
+    if (best_version[0] && strcmp(ver, best_version) <= 0) return;
+
+    cJSON *assets = cJSON_GetObjectItemCaseSensitive(rel, "assets");
+    if (!cJSON_IsArray(assets)) return;
+    const char *asset_url = NULL;
+    int an = cJSON_GetArraySize(assets);
+    for (int j = 0; j < an; ++j) {
+        cJSON *a = cJSON_GetArrayItem(assets, j);
+        cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
+        if (!cJSON_IsString(name)) continue;
+        if (!asset_matches(name->valuestring)) continue;
+        cJSON *du = cJSON_GetObjectItemCaseSensitive(a, "browser_download_url");
+        if (cJSON_IsString(du) && du->valuestring) {
+            asset_url = du->valuestring;
+            break;
+        }
+    }
+    if (!asset_url) return;
+
+    size_t vlen = strlen(ver);
+    size_t ulen = strlen(asset_url);
+    if (vlen >= bv_size || ulen >= bu_size) return;
+    memcpy(best_version, ver, vlen + 1);
+    memcpy(best_url,     asset_url, ulen + 1);
+}
+
 static void ota_check_task(void *arg)
 {
     (void)arg;
@@ -189,11 +234,15 @@ static void ota_check_task(void *arg)
     }
 
     char url[160];
-    snprintf(url, sizeof(url), OTA_API_RELEASES_FMT,
-             APP_OTA_REPO_OWNER, APP_OTA_REPO_NAME);
-
     char *body = NULL;
     int   http_status = 0;
+
+    char best_version[24] = {0};
+    char best_url[256]    = {0};
+
+    // Schritt 1: Releases-Liste abfragen und alle passenden durchgehen.
+    snprintf(url, sizeof(url), OTA_API_RELEASES_FMT,
+             APP_OTA_REPO_OWNER, APP_OTA_REPO_NAME);
     if (!ota_http_get(url, &body, &http_status)) {
         char msg[64];
         snprintf(msg, sizeof(msg), "GitHub HTTP %d", http_status);
@@ -203,58 +252,34 @@ static void ota_check_task(void *arg)
 
     cJSON *root = cJSON_Parse(body);
     free(body);
-    if (!cJSON_IsArray(root)) {
-        cJSON_Delete(root);
-        status_set(OTA_STATE_ERROR, "JSON ungueltig");
-        goto done;
-    }
-
-    char best_version[24] = {0};
-    char best_url[256]    = {0};
-
-    int n = cJSON_GetArraySize(root);
-    for (int i = 0; i < n; ++i) {
-        cJSON *rel = cJSON_GetArrayItem(root, i);
-        if (!cJSON_IsObject(rel)) continue;
-
-        cJSON *draft = cJSON_GetObjectItemCaseSensitive(rel, "draft");
-        if (cJSON_IsBool(draft) && cJSON_IsTrue(draft)) continue;
-        cJSON *pre = cJSON_GetObjectItemCaseSensitive(rel, "prerelease");
-        if (cJSON_IsBool(pre) && cJSON_IsTrue(pre)) continue;
-
-        cJSON *tag = cJSON_GetObjectItemCaseSensitive(rel, "tag_name");
-        const char *ver = tag_version_suffix(cJSON_IsString(tag) ? tag->valuestring : NULL);
-        if (!ver || !*ver) continue;
-
-        // Wir wollen den hoechsten Versions-Suffix - auch wenn er <= current ist,
-        // dient er noch zur Anzeige "schon aktuell".
-        if (best_version[0] && strcmp(ver, best_version) <= 0) continue;
-
-        // Passendes Asset im Release suchen
-        cJSON *assets = cJSON_GetObjectItemCaseSensitive(rel, "assets");
-        if (!cJSON_IsArray(assets)) continue;
-        const char *asset_url = NULL;
-        int an = cJSON_GetArraySize(assets);
-        for (int j = 0; j < an; ++j) {
-            cJSON *a = cJSON_GetArrayItem(assets, j);
-            cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
-            if (!cJSON_IsString(name)) continue;
-            if (!asset_matches(name->valuestring)) continue;
-            cJSON *du = cJSON_GetObjectItemCaseSensitive(a, "browser_download_url");
-            if (cJSON_IsString(du) && du->valuestring) {
-                asset_url = du->valuestring;
-                break;
-            }
+    body = NULL;
+    if (cJSON_IsArray(root)) {
+        int n = cJSON_GetArraySize(root);
+        for (int i = 0; i < n; ++i) {
+            process_release_obj(cJSON_GetArrayItem(root, i),
+                                best_version, sizeof(best_version),
+                                best_url,     sizeof(best_url));
         }
-        if (!asset_url) continue;
-
-        size_t vlen = strlen(ver);
-        size_t ulen = strlen(asset_url);
-        if (vlen >= sizeof(best_version) || ulen >= sizeof(best_url)) continue;
-        memcpy(best_version, ver, vlen + 1);
-        memcpy(best_url,     asset_url, ulen + 1);
     }
     cJSON_Delete(root);
+
+    // Schritt 2: Fallback. GitHub's /releases-Listing kann fuer einzelne Repos
+    // leer zurueckkommen (CDN-Cache-Effekt nach urspruenglichem
+    // --latest=false). /releases/latest funktioniert in dem Fall noch und
+    // liefert genau das Release, das der User als "Latest" markiert hat.
+    if (!best_version[0]) {
+        snprintf(url, sizeof(url), OTA_API_LATEST_FMT,
+                 APP_OTA_REPO_OWNER, APP_OTA_REPO_NAME);
+        if (ota_http_get(url, &body, &http_status)) {
+            cJSON *latest = cJSON_Parse(body);
+            free(body);
+            body = NULL;
+            process_release_obj(latest,
+                                best_version, sizeof(best_version),
+                                best_url,     sizeof(best_url));
+            cJSON_Delete(latest);
+        }
+    }
 
     if (!best_version[0]) {
         status_set(OTA_STATE_ERROR, "Kein passendes Release gefunden");
