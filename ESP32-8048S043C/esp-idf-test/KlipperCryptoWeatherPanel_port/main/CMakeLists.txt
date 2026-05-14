@@ -1,4 +1,10 @@
-file(GLOB UI_ASSET_SRCS "ui_assets/*.c")
+# ESP-IDF liest diese Datei auch im Script-Modus fuer Requirements ein.
+# CONFIGURE_DEPENDS ist dort ungueltig, hilft aber beim normalen Configure.
+if(CMAKE_SCRIPT_MODE_FILE)
+    file(GLOB UI_ASSET_SRCS "ui_assets/*.c")
+else()
+    file(GLOB UI_ASSET_SRCS CONFIGURE_DEPENDS "ui_assets/*.c")
+endif()
 
 idf_component_register(
     SRCS
@@ -11,6 +17,7 @@ idf_component_register(
         "ui_crypto_settings.c"
         "ui_display_settings.c"
         "ui_location_settings.c"
+        "ui_weather_detail.c"
         "ui_wifi_setup.c"
         "ui_keyboard.c"
         "touch_calibration.c"

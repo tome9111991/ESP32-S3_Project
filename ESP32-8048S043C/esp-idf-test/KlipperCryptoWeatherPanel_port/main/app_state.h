@@ -99,6 +99,19 @@ typedef struct {
     char timeframe[CRYPTO_TIMEFRAME_MAX_LEN + 1];
 } crypto_config_t;
 
+// --- Forecast storage --------------------------------------------------------
+#define WEATHER_DAILY_COUNT     5
+
+typedef struct {
+    int   code;            // WMO, -1 wenn ungueltig
+    float tmin;            // NaN wenn ungueltig
+    float tmax;            // NaN wenn ungueltig
+    int   precip_prob_max; // 0..100, -1 wenn ungueltig
+    int   sunrise_min;     // Minuten seit Mitternacht, -1 wenn ungueltig
+    int   sunset_min;      // Minuten seit Mitternacht, -1 wenn ungueltig
+    int   weekday;         // 0=So..6=Sa (passt zu WEEKDAYS_DE in ui_screens.c)
+} weather_daily_slot_t;
+
 // --- Shared, mutex-protected app state --------------------------------------
 typedef struct {
     SemaphoreHandle_t mutex;
@@ -108,6 +121,20 @@ typedef struct {
     char weather_status[32];
     char weather_location[48];
     int  weather_code;
+
+    // Wetter-Extras (Open-Meteo current=) fuer Detail-Screen.
+    // NaN bzw. -1 wenn noch nicht abgerufen.
+    float weather_apparent_temp;
+    float weather_wind_speed;       // km/h
+    int   weather_wind_dir;         // Grad, 0..359; -1 wenn ungueltig
+    int   weather_humidity;         // %, 0..100; -1 wenn ungueltig
+    int   weather_is_day;           // 0/1, -1 wenn ungueltig
+
+    // Forecast (Open-Meteo daily) fuer Detail-Screen.
+    // Slot-Inhalt 0-initialisiert; weather_forecast_ready erst nach erstem Fetch.
+    weather_daily_slot_t  weather_daily[WEATHER_DAILY_COUNT];
+    int  weather_daily_count;
+    bool weather_forecast_ready;
 
     // Crypto
     char crypto_price[24];
@@ -215,6 +242,14 @@ screen_state_t ui_current_screen(void);
 screen_state_t ui_next_screen(screen_state_t state);
 screen_state_t ui_previous_screen(screen_state_t state);
 bool ui_screen_is_available(screen_state_t state);
+
+// Hitbox des Wetter-Icons auf dem Time-Screen (User-Space-Koordinaten).
+// main.c benutzt das, um einen Tap aufs Icon vom Screen-Swipe zu trennen.
+bool ui_time_weather_hitbox_contains(int x, int y);
+
+// --- Wetter-Detail-Screen (implemented in ui_weather_detail.c) -------------
+void ui_weather_detail_open(void);
+bool ui_weather_detail_is_open(void);
 
 // Used by chart module to access labels.
 lv_obj_t *ui_get_btc_chart_canvas(void);

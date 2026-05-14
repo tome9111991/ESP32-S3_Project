@@ -23,8 +23,9 @@ static const char *TAG = "ui";
 #define TIME_SECOND_BAR_X     ((UI_LOGICAL_W - TIME_SECOND_BAR_W) / 2)
 #define CRYPTO_PRICE_BAR_W    460
 #define CRYPTO_PRICE_BAR_X    ((UI_LOGICAL_W - CRYPTO_PRICE_BAR_W) / 2)
-#define WEATHER_ICON_W        93
-#define WEATHER_ICON_H        80
+#define WEATHER_ICON_W        112
+#define WEATHER_ICON_H        96
+#define WEATHER_ICON_Y        155
 #define SCREEN_TRANSITION_MS  180
 
 static const char *const WEEKDAYS_DE[] = {
@@ -228,7 +229,8 @@ static void place_weather_image(const char *time_text)
         weather_x = time_right + visual_gap - weather_visual_left_inset(s_last_weather_visual);
     }
     lv_obj_set_size(s_weather_image, WEATHER_ICON_W, WEATHER_ICON_H);
-    lv_obj_set_pos(s_weather_image, weather_x, 184);
+    // 30 % der Icon-Hoehe hoeher als vorher, damit es naeher an der Uhr sitzt.
+    lv_obj_set_pos(s_weather_image, weather_x, WEATHER_ICON_Y);
 }
 
 static void update_weather_image(int code)
@@ -1101,6 +1103,26 @@ void ui_load_current_screen_no_anim(void)
     s_current_screen = target;
     ui_refresh_current();
     lv_screen_load(targets[target]);
+}
+
+// Liefert true, wenn (x,y) im User-Space innerhalb des Wetter-Icons auf dem
+// Time-Screen liegt. main.c benutzt das, um einen Tap aufs Icon vom normalen
+// Screen-Swipe (linke/rechte Bildschirmhaelfte) zu trennen.
+bool ui_time_weather_hitbox_contains(int x, int y)
+{
+    if (s_current_screen != SCREEN_TIME) return false;
+    if (!s_weather_image) return false;
+    if (lv_obj_has_flag(s_weather_image, LV_OBJ_FLAG_HIDDEN)) return false;
+    int ix = lv_obj_get_x(s_weather_image);
+    int iy = lv_obj_get_y(s_weather_image);
+    int iw = lv_obj_get_width(s_weather_image);
+    int ih = lv_obj_get_height(s_weather_image);
+    if (iw <= 0) iw = WEATHER_ICON_W;
+    if (ih <= 0) ih = WEATHER_ICON_H;
+    // 16 px Komfort-Padding fuer Fat-Finger.
+    const int pad = 16;
+    return x >= ix - pad && x < ix + iw + pad &&
+           y >= iy - pad && y < iy + ih + pad;
 }
 
 lv_obj_t *ui_get_btc_chart_canvas(void)     { return s_btc_day_chart_canvas; }

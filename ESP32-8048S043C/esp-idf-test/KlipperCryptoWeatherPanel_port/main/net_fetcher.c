@@ -533,6 +533,63 @@ static double json_num(const cJSON *item, double fallback)
     return cJSON_IsNumber(item) ? item->valuedouble : fallback;
 }
 
+static bool weather_code_is_thunder(int code)
+{
+    return code >= 95 && code <= 99;
+}
+
+static bool weather_current_has_precip(double precipitation, double rain,
+                                       double showers, double snowfall)
+{
+    const double mm_eps = 0.01;
+    const double cm_eps = 0.001;
+    if (isfinite(precipitation) && precipitation > mm_eps) return true;
+    if (isfinite(rain)          && rain          > mm_eps) return true;
+    if (isfinite(showers)       && showers       > mm_eps) return true;
+    if (isfinite(snowfall)      && snowfall      > cm_eps) return true;
+    return false;
+}
+
+static int weather_hourly_code_for_current_hour(const char *current_time,
+                                                const cJSON *h_time,
+                                                const cJSON *h_code)
+{
+    if (!current_time || strlen(current_time) < 13 ||
+        !cJSON_IsArray(h_time) || !cJSON_IsArray(h_code)) {
+        return -1;
+    }
+
+    int hn = cJSON_GetArraySize(h_time);
+    int cn = cJSON_GetArraySize(h_code);
+    if (hn > cn) hn = cn;
+    for (int i = 0; i < hn; i++) {
+        const cJSON *ht = cJSON_GetArrayItem(h_time, i);
+        const char *hts = cJSON_IsString(ht) ? ht->valuestring : NULL;
+        if (!hts || strlen(hts) < 13) continue;
+        if (strncmp(hts, current_time, 13) != 0) continue;
+
+        int code = (int)json_num(cJSON_GetArrayItem(h_code, i), -1);
+        return (code >= 0 && code < 100) ? code : -1;
+    }
+    return -1;
+}
+
+static int weather_display_code_from_current(int code, const char *current_time,
+                                             double precipitation, double rain,
+                                             double showers, double snowfall,
+                                             const cJSON *h_time,
+                                             const cJSON *h_code)
+{
+    if (!weather_code_is_thunder(code)) return code;
+    if (weather_current_has_precip(precipitation, rain, showers, snowfall)) return code;
+
+    // Open-Meteo kann Gewitter melden, obwohl aktuell kein Niederschlag anliegt.
+    // Dann ist fuer die Anzeige der Stunden-Code plausibler als ein Alarm-Icon.
+    int hourly_code = weather_hourly_code_for_current_hour(current_time, h_time, h_code);
+    if (hourly_code >= 0 && !weather_code_is_thunder(hourly_code)) return hourly_code;
+    return 3;
+}
+
 static bool time_due(uint32_t now, uint32_t target)
 {
     return (int32_t)(now - target) >= 0;
@@ -590,13 +647,23 @@ static bool fetch_weather(void)
     // open-meteo waehlt mit models=best_match automatisch das beste Modell:
     // DWD-ICON-D2 (2.2 km) in DE, ICON-EU in Europa, ECMWF/GFS sonst.
     // weather_code ist direkt WMO-konform (passt zu weather_visual_from_code).
+    // Zusaetzlich daily (5 Tage) und hourly weather_code; aus letzterem
+    // berechnen wir den dominanten Tagescode (8-20 Uhr), damit der Forecast
+    // nicht jedes Mal "Gewitter" zeigt, sobald irgendwo am Tag 30 min Sturm
+    // durchzieht. daily.weather_code von Open-Meteo ist immer Worst-Case.
     float lat_f = 0.0f, lon_f = 0.0f;
     location_snapshot(&lat_f, &lon_f);
-    char url[224];
+    char url[520];
     snprintf(url, sizeof(url),
              "https://api.open-meteo.com/v1/forecast"
              "?latitude=%.6f&longitude=%.6f"
-             "&current=temperature_2m,weather_code,is_day"
+             "&current=temperature_2m,weather_code,precipitation,rain,showers,snowfall,"
+                       "is_day,apparent_temperature,"
+                       "relative_humidity_2m,wind_speed_10m,wind_direction_10m"
+             "&hourly=weather_code"
+             "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+                     "precipitation_probability_max,sunrise,sunset"
+             "&forecast_days=5"
              "&timezone=auto&models=best_match",
              (double)lat_f, (double)lon_f);
 
@@ -618,8 +685,123 @@ static bool fetch_weather(void)
     }
 
     const cJSON *current = json_obj(root, "current");
-    double temp = json_num(json_obj(current, "temperature_2m"), NAN);
-    int code = (int)json_num(json_obj(current, "weather_code"), -1);
+    const char *current_time = json_str(json_obj(current, "time"), "");
+    double temp     = json_num(json_obj(current, "temperature_2m"), NAN);
+    int    code     = (int)json_num(json_obj(current, "weather_code"), -1);
+    double precip   = json_num(json_obj(current, "precipitation"), NAN);
+    double rain     = json_num(json_obj(current, "rain"), NAN);
+    double showers  = json_num(json_obj(current, "showers"), NAN);
+    double snowfall = json_num(json_obj(current, "snowfall"), NAN);
+    int    is_day   = (int)json_num(json_obj(current, "is_day"), -1);
+    double apparent = json_num(json_obj(current, "apparent_temperature"), NAN);
+    double wind_kmh = json_num(json_obj(current, "wind_speed_10m"), NAN);
+    int    wind_dir = (int)json_num(json_obj(current, "wind_direction_10m"), -1);
+    int    humidity = (int)json_num(json_obj(current, "relative_humidity_2m"), -1);
+
+    // --- daily: bis zu 5 Tage --------------------------------------------------
+    const cJSON *daily        = json_obj(root, "daily");
+    const cJSON *d_time       = json_obj(daily, "time");
+    const cJSON *d_code       = json_obj(daily, "weather_code");
+    const cJSON *d_tmax       = json_obj(daily, "temperature_2m_max");
+    const cJSON *d_tmin       = json_obj(daily, "temperature_2m_min");
+    const cJSON *d_prec       = json_obj(daily, "precipitation_probability_max");
+    const cJSON *d_sunrise    = json_obj(daily, "sunrise");
+    const cJSON *d_sunset     = json_obj(daily, "sunset");
+
+    weather_daily_slot_t daily_buf[WEATHER_DAILY_COUNT] = {0};
+    int daily_count = 0;
+    if (cJSON_IsArray(d_time)) {
+        int n = cJSON_GetArraySize(d_time);
+        if (n > WEATHER_DAILY_COUNT) n = WEATHER_DAILY_COUNT;
+        for (int i = 0; i < n; i++) {
+            const cJSON *t_item = cJSON_GetArrayItem(d_time, i);
+            const char *t_str = cJSON_IsString(t_item) ? t_item->valuestring : NULL;
+            int weekday = -1;
+            if (t_str && strlen(t_str) >= 10) {
+                struct tm day_tm = {0};
+                int y = 0, mo = 0, d = 0;
+                if (sscanf(t_str, "%d-%d-%d", &y, &mo, &d) == 3) {
+                    day_tm.tm_year = y - 1900;
+                    day_tm.tm_mon  = mo - 1;
+                    day_tm.tm_mday = d;
+                    day_tm.tm_hour = 12; // Mittags, damit DST-Switch nicht stoert
+                    time_t tt = mktime(&day_tm);
+                    if (tt != (time_t)-1) {
+                        struct tm out_tm;
+                        if (localtime_r(&tt, &out_tm)) weekday = out_tm.tm_wday;
+                    }
+                }
+            }
+            // sunrise/sunset im Format "YYYY-MM-DDTHH:MM" -> Minuten seit Mitternacht
+            int sr_min = -1, ss_min = -1;
+            const cJSON *sr_item = cJSON_GetArrayItem(d_sunrise, i);
+            const cJSON *ss_item = cJSON_GetArrayItem(d_sunset, i);
+            if (cJSON_IsString(sr_item) && strlen(sr_item->valuestring) >= 16) {
+                const char *s = sr_item->valuestring;
+                sr_min = ((s[11]-'0')*10 + (s[12]-'0')) * 60 + ((s[14]-'0')*10 + (s[15]-'0'));
+            }
+            if (cJSON_IsString(ss_item) && strlen(ss_item->valuestring) >= 16) {
+                const char *s = ss_item->valuestring;
+                ss_min = ((s[11]-'0')*10 + (s[12]-'0')) * 60 + ((s[14]-'0')*10 + (s[15]-'0'));
+            }
+            daily_buf[daily_count].code            = (int)json_num(cJSON_GetArrayItem(d_code, i), -1);
+            daily_buf[daily_count].tmax            = (float)json_num(cJSON_GetArrayItem(d_tmax, i), NAN);
+            daily_buf[daily_count].tmin            = (float)json_num(cJSON_GetArrayItem(d_tmin, i), NAN);
+            daily_buf[daily_count].precip_prob_max = (int)json_num(cJSON_GetArrayItem(d_prec, i), -1);
+            daily_buf[daily_count].sunrise_min     = sr_min;
+            daily_buf[daily_count].sunset_min      = ss_min;
+            daily_buf[daily_count].weekday         = weekday;
+            daily_count++;
+        }
+    }
+
+    // --- Dominanten Tagescode aus hourly berechnen ---------------------------
+    // daily.weather_code von Open-Meteo ist immer Worst-Case. Wir ersetzen ihn
+    // durch den haeufigsten weather_code zwischen 8 und 20 Uhr (Tagzeit), damit
+    // ein 30-Minuten-Gewitter den ganzen Tag nicht als "Gewitter" markiert.
+    // Tie-Break: niedrigerer WMO-Code (weniger schlimm) gewinnt.
+    const cJSON *hourly  = json_obj(root, "hourly");
+    const cJSON *h_time  = json_obj(hourly, "time");
+    const cJSON *h_code  = json_obj(hourly, "weather_code");
+    int display_code = weather_display_code_from_current(code, current_time,
+                                                         precip, rain,
+                                                         showers, snowfall,
+                                                         h_time, h_code);
+    if (cJSON_IsArray(h_time) && cJSON_IsArray(h_code) && cJSON_IsArray(d_time)) {
+        int hn = cJSON_GetArraySize(h_time);
+        for (int di = 0; di < daily_count; di++) {
+            const cJSON *day_t = cJSON_GetArrayItem(d_time, di);
+            if (!cJSON_IsString(day_t)) continue;
+            const char *day_prefix = day_t->valuestring;
+            if (strlen(day_prefix) < 10) continue;
+
+            int counts[100] = {0};
+            int total = 0;
+            int max_code_seen = -1;
+            for (int hi = 0; hi < hn; hi++) {
+                const cJSON *ht = cJSON_GetArrayItem(h_time, hi);
+                const char *hts = cJSON_IsString(ht) ? ht->valuestring : NULL;
+                if (!hts || strlen(hts) < 13) continue;
+                if (strncmp(hts, day_prefix, 10) != 0) continue;
+                int hour = (hts[11] - '0') * 10 + (hts[12] - '0');
+                if (hour < 8 || hour > 20) continue;
+                int c = (int)json_num(cJSON_GetArrayItem(h_code, hi), -1);
+                if (c < 0 || c >= 100) continue;
+                counts[c]++;
+                total++;
+                if (c > max_code_seen) max_code_seen = c;
+            }
+            if (total == 0) continue;  // Keine Tagstunden gefunden -> Worst-Case lassen
+            int best_code = -1, best_count = 0;
+            for (int c = 0; c <= max_code_seen; c++) {
+                if (counts[c] > best_count) {
+                    best_count = counts[c];
+                    best_code  = c;
+                }
+            }
+            if (best_code >= 0) daily_buf[di].code = best_code;
+        }
+    }
 
     app_lock();
     if (isfinite(temp)) snprintf(g_app.current_temp, sizeof(g_app.current_temp), "%.1f", temp);
@@ -628,7 +810,15 @@ static bool fetch_weather(void)
         // statt einer leeren Zeile.
         app_set_str(g_app.weather_location, sizeof(g_app.weather_location), "Standort");
     }
-    if (code >= 0) g_app.weather_code = code;
+    if (display_code >= 0) g_app.weather_code = display_code;
+    g_app.weather_apparent_temp = (float)apparent;
+    g_app.weather_wind_speed    = (float)wind_kmh;
+    g_app.weather_wind_dir      = wind_dir;
+    g_app.weather_humidity      = humidity;
+    g_app.weather_is_day        = is_day;
+    memcpy(g_app.weather_daily,  daily_buf,  sizeof(daily_buf));
+    g_app.weather_daily_count  = daily_count;
+    g_app.weather_forecast_ready = (daily_count > 0);
     app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: open-meteo");
     app_unlock();
 

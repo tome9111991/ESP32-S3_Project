@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <title>Weather Temperature Range</title>
+  <!-- Thermometer markiert Min/Max-Temperatur in der Tagesvorschau. -->
+  <path fill="#8490a0" opacity="0.5" d="M10 4a4 4 0 0 1 8 0v8.1a6 6 0 1 1-8 5.7V4z"/>
+  <path fill="#eef2f7" d="M12 4a2 2 0 0 1 4 0v8.9l.7.6a4.4 4.4 0 1 1-5.4 0l.7-.6V4z"/>
+  <path fill="#ff5d6c" d="M13.2 6h1.6v8.5a2.8 2.8 0 1 1-1.6 0V6z"/>
+  <path fill="#5dd6ff" d="M16.9 4.8h3.1v1.5h-3.1zM16.9 8.1h2.4v1.5h-2.4z"/>
+</svg>

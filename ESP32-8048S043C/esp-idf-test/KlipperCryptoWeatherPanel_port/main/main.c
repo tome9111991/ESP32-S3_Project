@@ -3,6 +3,7 @@
 // separate native ESP-IDF modules.
 
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -276,6 +277,7 @@ static bool ui_control_screen_is_open(void)
     return ui_popup_is_open() || ui_display_settings_is_open() ||
            ui_settings_menu_is_open() || ui_wifi_setup_is_open() ||
            ui_screen_settings_is_open() || ui_crypto_settings_is_open() ||
+           ui_weather_detail_is_open() ||
            touch_calibration_is_open();
 }
 
@@ -341,7 +343,8 @@ static void touch_poll_timer_cb(lv_timer_t *t)
     // "handled", damit ein Release (das das Popup gerade geschlossen hat) keinen
     // Screen-Wechsel ausloest.
     if (ui_popup_is_open() || ui_display_settings_is_open() || ui_settings_menu_is_open() ||
-        ui_wifi_setup_is_open() || ui_screen_settings_is_open() || ui_crypto_settings_is_open()) {
+        ui_wifi_setup_is_open() || ui_screen_settings_is_open() || ui_crypto_settings_is_open() ||
+        ui_weather_detail_is_open()) {
         destroy_lp_feedback();
         if (down) s_long_press_handled = true;
         s_touch_was_down = down;
@@ -381,13 +384,22 @@ static void touch_poll_timer_cb(lv_timer_t *t)
         // Auf Release Screen wechseln, falls kein Long-Press ausgeloest hat.
         if (!s_long_press_handled &&
             (now_us - s_last_touch_switch_us) / 1000 >= TOUCH_MIN_GAP_MS) {
-            screen_state_t current = ui_current_screen();
-            screen_state_t target = s_touch_start_x < (LCD_H_RES / 2)
-                ? ui_previous_screen(current)
-                : ui_next_screen(current);
-            ui_switch_screen(target);
-            s_last_touch_switch_us = now_us;
-            s_last_auto_switch_us  = now_us;
+            // Tap auf das Wetter-Icon oeffnet stattdessen den Detail-Screen.
+            // Hitbox-Check basiert auf der Press-Start-Position, damit kleine
+            // Wackler im Finger nicht ungewollt einen Swipe ausloesen.
+            if (ui_time_weather_hitbox_contains(s_touch_start_x, s_touch_start_y)) {
+                ui_weather_detail_open();
+                s_last_touch_switch_us = now_us;
+                s_last_auto_switch_us  = now_us;
+            } else {
+                screen_state_t current = ui_current_screen();
+                screen_state_t target = s_touch_start_x < (LCD_H_RES / 2)
+                    ? ui_previous_screen(current)
+                    : ui_next_screen(current);
+                ui_switch_screen(target);
+                s_last_touch_switch_us = now_us;
+                s_last_auto_switch_us  = now_us;
+            }
         }
         s_long_press_handled = false;
     }
@@ -411,6 +423,20 @@ static void init_app_state(void)
     snprintf(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: --");
     g_app.weather_location[0] = '\0';
     g_app.weather_code = -1;
+    g_app.weather_apparent_temp = NAN;
+    g_app.weather_wind_speed = NAN;
+    g_app.weather_wind_dir = -1;
+    g_app.weather_humidity = -1;
+    g_app.weather_is_day = -1;
+    for (int i = 0; i < WEATHER_DAILY_COUNT; i++) {
+        g_app.weather_daily[i].code = -1;
+        g_app.weather_daily[i].tmin = NAN;
+        g_app.weather_daily[i].tmax = NAN;
+        g_app.weather_daily[i].precip_prob_max = -1;
+        g_app.weather_daily[i].sunrise_min = -1;
+        g_app.weather_daily[i].sunset_min = -1;
+        g_app.weather_daily[i].weekday = -1;
+    }
 
     snprintf(g_app.crypto_price, sizeof(g_app.crypto_price), "Laden...");
     snprintf(g_app.crypto_status, sizeof(g_app.crypto_status), "%s %s",
