@@ -278,7 +278,7 @@ static bool ui_control_screen_is_open(void)
     return ui_popup_is_open() || ui_display_settings_is_open() ||
            ui_settings_menu_is_open() || ui_wifi_setup_is_open() ||
            ui_screen_settings_is_open() || ui_crypto_settings_is_open() ||
-           ui_weather_detail_is_open() ||
+           ui_weather_detail_is_open() || ui_firmware_info_is_open() ||
            touch_calibration_is_open();
 }
 
@@ -345,7 +345,7 @@ static void touch_poll_timer_cb(lv_timer_t *t)
     // Screen-Wechsel ausloest.
     if (ui_popup_is_open() || ui_display_settings_is_open() || ui_settings_menu_is_open() ||
         ui_wifi_setup_is_open() || ui_screen_settings_is_open() || ui_crypto_settings_is_open() ||
-        ui_weather_detail_is_open()) {
+        ui_weather_detail_is_open() || ui_firmware_info_is_open()) {
         destroy_lp_feedback();
         if (down) s_long_press_handled = true;
         s_touch_was_down = down;

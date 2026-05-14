@@ -22,6 +22,7 @@ extern "C" {
     X(COMMON_SAVED_ON_BACK,           "Wird beim Zurueckgehen gespeichert",     "Saved when going back") \
     X(COMMON_SELECTION_SAVED_ON_BACK, "Auswahl wird beim Zurueckgehen gespeichert", "Selection saved when going back") \
     X(COMMON_CANCEL,                  "Abbrechen",                             "Cancel")         \
+    X(COMMON_CLOSE,                   "Schliessen",                            "Close")          \
     X(COMMON_RESET,                   "Zuruecksetzen",                         "Reset")          \
     X(COMMON_ACTIVE,                  "Aktiv",                                 "On")             \
     X(COMMON_OFF,                     "Aus",                                   "Off")            \
@@ -71,6 +72,10 @@ extern "C" {
     X(SCREEN_KLIPPER_ONLY_ONLINE,     "Klipper erscheint nur, wenn der Drucker erreichbar ist", "Klipper only appears when the printer is reachable") \
     X(POPUP_FACTORY_DELETE_1,         "Alle Einstellungen werden geloescht",    "All settings will be deleted") \
     X(POPUP_FACTORY_DELETE_2,         "und das Geraet startet neu.",            "and the device will restart.") \
+    X(POPUP_FIRMWARE,                 "Firmware",                              "Firmware")       \
+    X(POPUP_FW_VERSION,               "Version",                               "Version")        \
+    X(POPUP_FW_BOARD,                 "Board",                                 "Board")          \
+    X(POPUP_FW_LANGUAGE,              "Sprache",                               "Language")       \
     X(TOUCH_TITLE,                    "Touch kalibrieren",                     "Calibrate touch") \
     X(TOUCH_POINT_FMT,                "Punkt %d / %d",                         "Point %d / %d")  \
     X(TOUCH_HINT,                     "Punkt antippen. Halten zum Abbrechen.",  "Tap the point. Hold to cancel.") \

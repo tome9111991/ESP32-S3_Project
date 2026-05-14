@@ -268,6 +268,10 @@ bool ui_popup_is_open(void);
 void ui_perform_clean_reboot(void);
 void ui_perform_factory_reset(void);
 
+// --- Firmware-Info-Screen (implemented in ui_firmware_info.c) --------------
+void ui_firmware_info_open(void);
+bool ui_firmware_info_is_open(void);
+
 // --- Display-Brightness API (implemented in display_brightness.c) ----------
 #define DAY_BRIGHTNESS_MIN       32
 #define DAY_BRIGHTNESS_MAX       255

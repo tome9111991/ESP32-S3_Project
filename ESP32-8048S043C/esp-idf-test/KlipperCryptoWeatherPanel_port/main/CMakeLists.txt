@@ -1,7 +1,7 @@
 # ESP-IDF liest diese Datei auch im Script-Modus fuer Requirements ein.
 # CONFIGURE_DEPENDS ist dort ungueltig, hilft aber beim normalen Configure.
 if(CMAKE_SCRIPT_MODE_FILE)
-    file(GLOB UI_ASSET_SRCS "ui_assets/*.c")
+    file(GLOB UI_ASSET_SRCS "ui_firmware_info.c" "ui_assets/*.c")
 else()
     file(GLOB UI_ASSET_SRCS CONFIGURE_DEPENDS "ui_assets/*.c")
 endif()
@@ -13,6 +13,7 @@ idf_component_register(
         "ui_screens.c"
         "ui_chart.c"
         "ui_popup.c"
+        "ui_firmware_info.c"
         "ui_settings_menu.c"
         "ui_screen_settings.c"
         "ui_crypto_settings.c"
@@ -47,3 +48,13 @@ idf_component_register(
         espressif__esp_lcd_touch_gt911
         lvgl__lvgl
 )
+
+# Erlaubt dem Release-Workflow, Version und Board-Namen in der Firmware zu
+# setzen, z. B. `idf.py build -DAPP_FW_VERSION="0.1.0" -DAPP_FW_BOARD="..."`.
+# Ohne Override greifen die Fallbacks in main/version.h.
+if(DEFINED APP_FW_VERSION)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_FW_VERSION="${APP_FW_VERSION}")
+endif()
+if(DEFINED APP_FW_BOARD)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_FW_BOARD="${APP_FW_BOARD}")
+endif()

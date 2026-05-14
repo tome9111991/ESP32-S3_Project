@@ -11,11 +11,11 @@
 static const char *TAG = "popup";
 
 #define POPUP_MENU_W            360
-#define POPUP_MENU_H            330
+#define POPUP_MENU_H            410
 #define POPUP_BUTTON_W          240
 #define POPUP_BUTTON_H          64
 #define POPUP_BUTTON_GAP        16
-#define POPUP_BUTTONS_TOTAL_H   (POPUP_BUTTON_H * 3 + POPUP_BUTTON_GAP * 2)
+#define POPUP_BUTTONS_TOTAL_H   (POPUP_BUTTON_H * 4 + POPUP_BUTTON_GAP * 3)
 #define POPUP_BUTTONS_TOP_PAD   ((POPUP_MENU_H - POPUP_BUTTONS_TOTAL_H) / 2)
 
 #define CONFIRM_PANEL_W         600
@@ -23,10 +23,10 @@ static const char *TAG = "popup";
 #define CONFIRM_BTN_W           240
 #define CONFIRM_BTN_H           64
 
-static lv_obj_t *s_backdrop      = NULL;
-static lv_obj_t *s_panel         = NULL;
-static lv_obj_t *s_confirm_back  = NULL;
-static lv_obj_t *s_confirm_panel = NULL;
+static lv_obj_t *s_backdrop       = NULL;
+static lv_obj_t *s_panel          = NULL;
+static lv_obj_t *s_confirm_back   = NULL;
+static lv_obj_t *s_confirm_panel  = NULL;
 
 // --- kleine Helfer -----------------------------------------------------------
 
@@ -96,6 +96,13 @@ static void on_factory_reset_clicked(lv_event_t *e)
 {
     (void)e;
     open_factory_confirm();
+}
+
+static void on_firmware_clicked(lv_event_t *e)
+{
+    (void)e;
+    ui_popup_close();
+    ui_firmware_info_open();
 }
 
 // Tap ausserhalb des Panels: Popup schliessen (entspricht Arduino-Verhalten).
@@ -195,7 +202,8 @@ void ui_popup_open(void)
     int btn_x = (POPUP_MENU_W - POPUP_BUTTON_W) / 2;
     int settings_y = POPUP_BUTTONS_TOP_PAD;
     int reboot_y   = settings_y + POPUP_BUTTON_H + POPUP_BUTTON_GAP;
-    int reset_y    = reboot_y   + POPUP_BUTTON_H + POPUP_BUTTON_GAP;
+    int firmware_y = reboot_y   + POPUP_BUTTON_H + POPUP_BUTTON_GAP;
+    int reset_y    = firmware_y + POPUP_BUTTON_H + POPUP_BUTTON_GAP;
 
     // Settings
     lv_obj_t *settings = lv_obj_create(s_panel);
@@ -224,6 +232,16 @@ void ui_popup_open(void)
     lv_obj_add_event_cb(reboot, on_reboot_clicked, LV_EVENT_CLICKED, NULL);
     make_label(reboot, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
                0, 14, POPUP_BUTTON_W, POPUP_BUTTON_H - 14, "Reboot");
+
+    // Firmware
+    lv_obj_t *firmware = lv_obj_create(s_panel);
+    style_filled_rect(firmware, COLOR_SETTINGS, 8);
+    lv_obj_set_size(firmware, POPUP_BUTTON_W, POPUP_BUTTON_H);
+    lv_obj_set_pos(firmware, btn_x, firmware_y);
+    lv_obj_add_flag(firmware, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(firmware, on_firmware_clicked, LV_EVENT_CLICKED, NULL);
+    make_label(firmware, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
+               0, 14, POPUP_BUTTON_W, POPUP_BUTTON_H - 14, T(POPUP_FIRMWARE));
 
     // Factory Reset
     lv_obj_t *reset = lv_obj_create(s_panel);
