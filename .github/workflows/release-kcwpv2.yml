@@ -104,6 +104,9 @@ jobs:
           idf.py \
             -B "build-${{ matrix.language }}" \
             -DSDKCONFIG="sdkconfig.ci.${{ matrix.language }}" \
+            -DAPP_FW_NAME="${FW_NAME}" \
+            -DAPP_FW_VERSION="${FW_VERSION}" \
+            -DAPP_FW_BOARD="${BOARD_NAME}" \
             -DAPP_OTA_REPO_OWNER="${GITHUB_REPOSITORY_OWNER}" \
             -DAPP_OTA_REPO_NAME="${GITHUB_REPOSITORY##*/}" \
             build

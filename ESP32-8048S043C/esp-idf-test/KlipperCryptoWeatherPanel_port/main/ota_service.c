@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static const char *TAG = "ota";
 
@@ -39,6 +40,8 @@ static const char *TAG = "ota";
 #define OTA_USER_AGENT         "ESP32-KCWP-OTA"
 #define OTA_API_RELEASES_FMT   "https://api.github.com/repos/%s/%s/releases?per_page=20"
 #define OTA_API_LATEST_FMT     "https://api.github.com/repos/%s/%s/releases/latest"
+#define OTA_ASSET_URL_MAX      384
+#define OTA_DOWNLOAD_URL_MAX   2048
 
 typedef struct {
     char *data;
@@ -46,10 +49,15 @@ typedef struct {
     int   cap;
 } ota_http_buf_t;
 
+typedef struct {
+    int last_status;
+    char redirect_url[OTA_DOWNLOAD_URL_MAX];
+} ota_install_http_ctx_t;
+
 static SemaphoreHandle_t s_mutex;
 static TaskHandle_t      s_task;       // != NULL = check oder install laeuft
 static ota_status_t      s_status;
-static char              s_asset_url[256];
+static char              s_asset_url[OTA_ASSET_URL_MAX];
 
 static void status_set(ota_state_t state, const char *msg)
 {
@@ -140,33 +148,112 @@ static bool ota_http_get(const char *url, char **out, int *status_out)
     return *out != NULL;
 }
 
-// Asset-Name muss einen Token genau gleich lang(case-sensitive) enthalten,
-// abgegrenzt durch -, _, . oder Stringgrenze. Schuetzt davor, dass "DE" in
-// "OTHER-DE-BOARD" matched waehrend die Sprache eigentlich "EN" ist.
-static bool name_contains_token(const char *name, const char *token)
+static esp_err_t ota_install_http_event(esp_http_client_event_t *evt)
 {
-    if (!name || !token || !*token) return false;
-    size_t tlen = strlen(token);
-    const char *p = name;
-    while ((p = strstr(p, token)) != NULL) {
-        bool left_ok  = (p == name) || p[-1] == '-' || p[-1] == '_' || p[-1] == '.';
-        char r = p[tlen];
-        bool right_ok = r == '\0' || r == '-' || r == '_' || r == '.';
-        if (left_ok && right_ok) return true;
-        p += 1;
+    ota_install_http_ctx_t *ctx = (ota_install_http_ctx_t *)evt->user_data;
+    if (!ctx) {
+        return ESP_OK;
     }
+
+    if (evt->event_id == HTTP_EVENT_ON_STATUS_CODE && evt->data &&
+        evt->data_len == sizeof(int)) {
+        ctx->last_status = *(int *)evt->data;
+        ESP_LOGI(TAG, "OTA HTTP status=%d", ctx->last_status);
+    } else if (evt->event_id == HTTP_EVENT_ON_HEADER && evt->header_key &&
+               evt->header_value && strcasecmp(evt->header_key, "Location") == 0) {
+        size_t n = strlen(evt->header_value);
+        if (n < sizeof(ctx->redirect_url)) {
+            memcpy(ctx->redirect_url, evt->header_value, n + 1);
+        } else {
+            ctx->redirect_url[0] = '\0';
+            ESP_LOGW(TAG, "OTA redirect URL zu lang (%u Bytes)", (unsigned)n);
+        }
+    }
+    return ESP_OK;
+}
+
+static esp_err_t ota_install_client_init(esp_http_client_handle_t client)
+{
+    // GitHub erwartet einen User-Agent; application/octet-stream triggert den Asset-Download.
+    esp_err_t err = esp_http_client_set_header(client, "User-Agent", OTA_USER_AGENT);
+    if (err != ESP_OK) return err;
+    err = esp_http_client_set_header(client, "Accept", "application/octet-stream");
+    if (err != ESP_OK) return err;
+    err = esp_http_client_set_header(client, "X-GitHub-Api-Version", "2022-11-28");
+    if (err != ESP_OK) return err;
+    return ESP_OK;
+}
+
+static bool ota_resolve_download_url(const char *asset_url, char *out, size_t out_size,
+                                     int *status_out)
+{
+    if (!asset_url || !out || out_size == 0) return false;
+    out[0] = '\0';
+    if (status_out) *status_out = 0;
+
+    ota_install_http_ctx_t http_ctx = {0};
+    esp_http_client_config_t cfg = {
+        .url                   = asset_url,
+        .method                = HTTP_METHOD_HEAD,
+        .timeout_ms            = OTA_HTTP_TIMEOUT_MS,
+        .user_agent            = OTA_USER_AGENT,
+        .event_handler         = ota_install_http_event,
+        .user_data             = &http_ctx,
+        .crt_bundle_attach     = esp_crt_bundle_attach,
+        .keep_alive_enable     = false,
+        .disable_auto_redirect = true,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return false;
+
+    if (ota_install_client_init(client) != ESP_OK) {
+        esp_http_client_cleanup(client);
+        return false;
+    }
+    esp_err_t err = esp_http_client_perform(client);
+    int code = esp_http_client_get_status_code(client);
+    if (http_ctx.last_status > 0) code = http_ctx.last_status;
+    if (status_out) *status_out = code;
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Redirect-Aufloesung fehlgeschlagen status=%d err=%s",
+                 code, esp_err_to_name(err));
+        return false;
+    }
+
+    if (code >= 300 && code < 400 && http_ctx.redirect_url[0]) {
+        size_t n = strlen(http_ctx.redirect_url);
+        if (n >= out_size) return false;
+        memcpy(out, http_ctx.redirect_url, n + 1);
+        ESP_LOGI(TAG, "OTA Redirect aufgeloest");
+        return true;
+    }
+
+    // Direkte Download-URLs ohne Redirect duerfen unveraendert an esp_https_ota.
+    if (code >= 200 && code < 300 && !strstr(asset_url, "api.github.com/")) {
+        size_t n = strlen(asset_url);
+        if (n >= out_size) return false;
+        memcpy(out, asset_url, n + 1);
+        return true;
+    }
+
+    ESP_LOGW(TAG, "Kein nutzbarer OTA-Redirect status=%d", code);
     return false;
+}
+
+static void expected_ota_asset_name(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return;
+    snprintf(out, out_size, "%s-%s-%s.bin", APP_FW_NAME, APP_FW_BOARD, APP_FW_LANG);
 }
 
 static bool asset_matches(const char *name)
 {
     if (!name) return false;
-    // Board als Substring (kann selbst Bindestriche enthalten, daher kein Token-Match).
-    if (!strstr(name, APP_FW_BOARD)) return false;
-    if (!name_contains_token(name, APP_FW_LANG)) return false;
-    // OTA-only, nicht das "-full"-Flash-Image
-    if (strstr(name, "-full")) return false;
-    return true;
+    char expected[96];
+    expected_ota_asset_name(expected, sizeof(expected));
+    return strcmp(name, expected) == 0;
 }
 
 // Erwartet tag_name in der Form "APP_FW_NAME-<version>". Liefert Pointer auf
@@ -203,19 +290,32 @@ static void process_release_obj(cJSON *rel,
     cJSON *assets = cJSON_GetObjectItemCaseSensitive(rel, "assets");
     if (!cJSON_IsArray(assets)) return;
     const char *asset_url = NULL;
+    char expected_name[96];
+    expected_ota_asset_name(expected_name, sizeof(expected_name));
     int an = cJSON_GetArraySize(assets);
     for (int j = 0; j < an; ++j) {
         cJSON *a = cJSON_GetArrayItem(assets, j);
         cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
         if (!cJSON_IsString(name)) continue;
         if (!asset_matches(name->valuestring)) continue;
+        ESP_LOGI(TAG, "OTA Asset gefunden: %s", name->valuestring);
+        // Browser-Download-URL wird vor OTA separat auf den finalen
+        // Redirect aufgeloest; das ist robuster als esp_https_ota mit 302.
         cJSON *du = cJSON_GetObjectItemCaseSensitive(a, "browser_download_url");
         if (cJSON_IsString(du) && du->valuestring) {
             asset_url = du->valuestring;
             break;
         }
+        cJSON *api_url = cJSON_GetObjectItemCaseSensitive(a, "url");
+        if (cJSON_IsString(api_url) && api_url->valuestring) {
+            asset_url = api_url->valuestring;
+            break;
+        }
     }
-    if (!asset_url) return;
+    if (!asset_url) {
+        ESP_LOGI(TAG, "Release ohne OTA-App-Asset: erwartet %s", expected_name);
+        return;
+    }
 
     size_t vlen = strlen(ver);
     size_t ulen = strlen(asset_url);
@@ -324,27 +424,62 @@ static void ota_install_task(void *arg)
     }
 
     ESP_LOGI(TAG, "OTA von %s", url_copy);
-    status_set(OTA_STATE_DOWNLOADING, "Lade Firmware...");
+    status_set(OTA_STATE_DOWNLOADING, "Starte OTA...");
     status_set_progress(0);
 
+    char download_url[OTA_DOWNLOAD_URL_MAX];
+    int resolve_status = 0;
+    if (!ota_resolve_download_url(url_copy, download_url, sizeof(download_url),
+                                  &resolve_status)) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "OTA-Redirect HTTP %d", resolve_status);
+        status_set(OTA_STATE_ERROR, msg);
+        goto done;
+    }
+
+    ota_install_http_ctx_t http_ctx = {0};
     esp_http_client_config_t http_cfg = {
-        .url               = url_copy,
+        .url               = download_url,
         .timeout_ms        = 30000,
+        .user_agent        = OTA_USER_AGENT,
+        .event_handler     = ota_install_http_event,
+        .user_data         = &http_ctx,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .keep_alive_enable = true,
+        .disable_auto_redirect = false,
+        .max_redirection_count = 10,
     };
     esp_https_ota_config_t ota_cfg = {
         .http_config = &http_cfg,
+        .http_client_init_cb = ota_install_client_init,
     };
 
     esp_https_ota_handle_t handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_cfg, &handle);
     if (err != ESP_OK || !handle) {
         char msg[64];
-        snprintf(msg, sizeof(msg), "OTA-Start: %s", esp_err_to_name(err));
+        if (http_ctx.last_status > 0) {
+            snprintf(msg, sizeof(msg), "OTA-Start HTTP %d: %s",
+                     http_ctx.last_status, esp_err_to_name(err));
+        } else {
+            snprintf(msg, sizeof(msg), "OTA-Start: %s", esp_err_to_name(err));
+        }
         status_set(OTA_STATE_ERROR, msg);
         goto done;
     }
+    status_set(OTA_STATE_DOWNLOADING, "Lade Firmware...");
+
+    esp_app_desc_t app_desc;
+    err = esp_https_ota_get_img_desc(handle, &app_desc);
+    if (err != ESP_OK) {
+        esp_https_ota_abort(handle);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Image-Header: %s", esp_err_to_name(err));
+        status_set(OTA_STATE_ERROR, msg);
+        goto done;
+    }
+    ESP_LOGI(TAG, "OTA Image: project=%s version=%s", app_desc.project_name,
+             app_desc.version);
 
     int total = esp_https_ota_get_image_size(handle);
     while ((err = esp_https_ota_perform(handle)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
@@ -353,9 +488,19 @@ static void ota_install_task(void *arg)
     }
 
     if (err != ESP_OK || !esp_https_ota_is_complete_data_received(handle)) {
+        int status = esp_https_ota_get_status_code(handle);
+        int read = esp_https_ota_get_image_len_read(handle);
         esp_https_ota_abort(handle);
         char msg[64];
-        snprintf(msg, sizeof(msg), "Download fehlgeschlagen: %s", esp_err_to_name(err));
+        if (status > 0) {
+            snprintf(msg, sizeof(msg), "Download HTTP %d: %s", status,
+                     esp_err_to_name(err));
+        } else if (read >= 0) {
+            snprintf(msg, sizeof(msg), "Download %dB: %s", read,
+                     esp_err_to_name(err));
+        } else {
+            snprintf(msg, sizeof(msg), "Download: %s", esp_err_to_name(err));
+        }
         status_set(OTA_STATE_ERROR, msg);
         goto done;
     }
