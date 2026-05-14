@@ -59,7 +59,7 @@ Use 115200 baud on the CH340/UART serial port. Each phase prints lines like:
 PSRAMBench: test=write, buffer=..., loops=..., elapsed=..., throughput=... MB/s, checksum=...
 Stats: run=A, phase=psram read_modify_write load, frames=..., fps=..., draw_avg=..., present_avg=..., msync_avg=..., submit_avg=..., wait_avg=..., draw_pct=..., present_pct=..., wait_pct=..., stress_chunks_s=..., fb_write_min=... MB/s, psram_stress=... MB/s, panel_psram_read_est=... MB/s, psram_total_est=... MB/s
 RunSummary: run=A, pclk=..., refresh_est=..., bounce_lines=..., double_fb=..., bb_invalidate_cache=..., frames=..., fps=..., timeouts=..., draw_max=..., present_max=..., msync_max=..., submit_max=..., wait_max=..., fb_write_min_avg=... MB/s, psram_stress_avg=... MB/s, panel_psram_read_est=... MB/s, psram_total_est_avg=... MB/s, result=timing-ok
-VisualResult: run=A, phase=psram read_modify_write load, visual=good
+VisualResult: run=A, phase=psram read_modify_write load, visual=yes
 ```
 
 The `PSRAMBench` lines run once before the display benchmark starts. They measure
@@ -102,16 +102,21 @@ Treat a configuration as suspect when:
 - `present_max` repeatedly spikes far above the average
 - the real application still shows artifacts after the benchmark looked stable
 
-`RunSummary` only judges timing. If the LCD visibly glitches, mark that run as
-bad even when the summary says `timing-ok`.
+`RunSummary` only judges timing. If the LCD visibly glitches, answer `no` for
+that phase even when the summary says `timing-ok`. The same applies the other
+way around: if the picture looks clean but the FPS is so low the GUI feels
+sluggish, answer `no` — the prompt asks whether the *combination* of image
+quality and frame rate is good enough to ship.
 
-After every phase, the sketch pauses on a colored confirmation screen. Tap the
-left/middle/right colored panel or use one Serial Monitor key:
+After every phase, the sketch pauses on a confirmation screen with two buttons.
+The question is a single decision: **would I ship these settings?** Answer that
+by weighing both image quality *and* the measured FPS together — a run that
+looks clean but only delivers a few FPS is still a `no`. Tap one of the two
+colored panels or use one Serial Monitor key:
 
-- left / `g`: visually good
-- middle / `s`: skip / unsure
-- right / `b`: visually bad
-- `a`: mark this and all remaining phases good without further pauses
+- left (green) / `y`: yes — usable, I would ship this combination
+- right (red) / `n`: no — too slow, glitches, tearing, or otherwise unusable
+- `a`: mark this and all remaining phases yes without further pauses
 
 Touch uses the GT911 on SDA19/SCL20 with the saved 800x480 calibration from
 `displaytest_esp_lcd_doublefb`. If touch is not detected, serial feedback still

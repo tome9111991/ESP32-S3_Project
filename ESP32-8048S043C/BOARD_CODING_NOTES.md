@@ -1,6 +1,7 @@
 # ESP32-8048S043C Coding Notes
 
-Status: 2026-05-08, cleaned up after local display and touch tests
+Status: 2026-05-14, cleaned up after local display and touch tests and full
+`display_benchmark` sweep
 
 These notes apply to the `ESP32-8048S043C` board with an `ESP32-S3-WROOM-1`
 module and a 4.3-inch `800x480` display.
@@ -79,7 +80,10 @@ Tested timing starting values:
 
 - Resolution: `800x480`
 - RGB: 16 bit / RGB565
-- PCLK: `16000000`, test `14000000` if unstable
+- PCLK: `14000000` (16 MHz and 18 MHz showed artifacts even at baseline in the
+  `display_benchmark` sweep on 2026-05-14)
+- Bounce buffer: `bounce_lines = 10` (sweet spot 8..10; below 8 or above 14
+  failed visually under load)
 - HSYNC: polarity `0`, front `8`, pulse `4`, back `16`
 - VSYNC: polarity `0`, front `4`, pulse `4`, back `4`
 - PCLK active negative: `1`
@@ -110,9 +114,103 @@ sketch from `50` to `30` or `25`.
 
 If memory or initialization problems occur:
 
-- verify that PSRAM is enabled
-- test `LCD_BOUNCE_LINES` from `10` down to `0`
-- lower PCLK from `16000000` to `14000000`
+- verify that OPI PSRAM is enabled (`Tools -> PSRAM -> OPI PSRAM`)
+- keep `LCD_BOUNCE_LINES` in `8..10`; the benchmark showed `0` and `4` always
+  visually broken, and `16` failed under CPU stress
+- if 14 MHz still glitches, try lower (12 MHz) before changing buffers — 16 MHz
+  is already past the stable point on this board
+
+## Display Benchmark Findings (2026-05-14)
+
+Full sweep of `display_benchmark/display_benchmark.ino` (9 runs x 5 stress
+phases each), evaluated with the new yes/no prompt ("would you ship these
+settings, considering both image quality and FPS?").
+
+### PSRAM speed
+
+PSRAMBench (pure CPU access without RGB DMA running):
+
+| Test | Throughput |
+| --- | ---: |
+| write | 48.6 MB/s |
+| read | 52.5 MB/s |
+| read-modify-write | 84.9 MB/s |
+
+These numbers are typical for OPI PSRAM at 80 MHz DDR with 32-byte cachelines.
+Quad PSRAM would sit around 25..35 MB/s, so OPI is correctly active. Arduino
+IDE only exposes `OPI PSRAM` / `QSPI PSRAM` in the dropdown, no clock speed —
+80 MHz is the fixed default in the arduino-esp32 core. Pushing to 120 MHz
+requires ESP-IDF with `CONFIG_SPIRAM_SPEED_120M` and a matching Flash mode, so
+it is not reachable from the stock Arduino IDE on this board.
+
+### Visual matrix (yes/no per phase)
+
+All runs are at `num_fbs = 2`, `fb_in_psram = true` unless noted.
+
+| Run | pclk | bounce | double_fb | bb_inval | baseline | cpu | psram_r | psram_w | psram_rmw |
+| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |
+| A | 18 MHz | 12 | true | false | no | no | no | no | no |
+| B | 16 MHz | 10 | true | false | no | no | no | no | no |
+| C | 14 MHz | 10 | true | false | **yes** | **yes** | no | no | no |
+| D | 14 MHz | 8 | true | false | **yes** | **yes** | no | no | no |
+| E | 14 MHz | 4 | true | false | no | no | no | no | no |
+| F | 14 MHz | 0 | true | false | no | no | no | no | no |
+| G | 14 MHz | 16 | true | false | **yes** | no | no | no | no |
+| **H** | 14 MHz | 10 | **false** | false | **yes** | **yes** | no | no | no |
+| I | 14 MHz | 10 | true | **true** | **yes** | **yes** | no | no | no |
+
+### Rules derived from the matrix
+
+- pclk >= 16 MHz on this board produces artifacts even at baseline (Runs A, B).
+  Do not push past 14 MHz.
+- bounce_lines < 8 (Runs E with 4, F with 0) is visually broken regardless of
+  pclk, even though Run F had the highest FPS (12.7) — fastest is not safest.
+- bounce_lines = 16 (Run G) survives baseline but fails under CPU load.
+- The sweet spot is bounce_lines = 8..10 with pclk = 14 MHz.
+- `double_fb` and `bb_invalidate_cache` have no visible effect on yes/no
+  outcomes in the baseline+cpu phases (C, H, I all pass).
+
+### Why all PSRAM-stress phases were marked "no"
+
+Not because the picture was corrupted, but because FPS collapsed to 0.2..5
+FPS. Mechanism: three masters share the PSRAM bus when the framebuffer lives
+in PSRAM:
+
+1. RGB panel DMA reads ~26 MB/s constantly to refresh the LCD.
+2. CPU writes the next frame into PSRAM (~10 MB/s at full redraw).
+3. The stress task hammers PSRAM with extra reads/writes.
+
+The arbiter has to give DMA priority (otherwise tearing), so the CPU starves.
+`draw_avg` jumps from ~52 ms to ~2700 ms in the PSRAM-write phase. This is bus
+contention, not PSRAM speed.
+
+### Implication for the real GUI
+
+If the application does heavy parallel PSRAM work during redraws (full-frame
+animations, image decode into PSRAM, large LVGL canvases), expect the same FPS
+drop in production — no display setting fixes it. Levers that actually help:
+
+- Place LVGL draw buffers in internal SRAM instead of PSRAM (smaller buffers,
+  but no contention with the panel DMA).
+- Use partial-refresh / dirty-rect updates instead of full-frame redraws.
+- Avoid hot loops that scan large PSRAM regions on the same core as the
+  drawing task.
+
+### Chosen winner
+
+**Run H** — already matches the current app config:
+
+```cpp
+pclk_hz = 14000000
+bounce_lines = 10
+num_fbs = 2
+fb_in_psram = true
+double_fb = false
+bb_invalidate_cache = false
+```
+
+Fallback if cache artifacts appear in the real app: **Run I** (same but
+`double_fb = true`, `bb_invalidate_cache = true`).
 
 ## Arduino_GFX Use
 

@@ -36,11 +36,13 @@ static const char *TAG = "brightness";
 #define NVS_NS         "display"
 #define NVS_KEY_DAY    "day_bright"
 #define NVS_KEY_ROT180 "rotate180"
+#define NVS_KEY_NIGHT  "night_en"
 
 static bool    s_ledc_ready = false;
 static uint8_t s_day_brightness = DAY_BRIGHTNESS_DEFAULT;
 static uint8_t s_applied_brightness = 0;
 static bool    s_sun_state_known = false;
+static bool    s_night_mode_enabled = true;
 
 static uint32_t duty_for_brightness(uint8_t brightness)
 {
@@ -112,6 +114,45 @@ void display_rotate_180_save(bool enabled)
     nvs_commit(h);
     nvs_close(h);
     ESP_LOGI(TAG, "rotate180=%u gespeichert", enabled ? 1u : 0u);
+}
+
+bool display_night_mode_enabled_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return true;
+    uint8_t v = 1;
+    esp_err_t err = nvs_get_u8(h, NVS_KEY_NIGHT, &v);
+    nvs_close(h);
+    if (err != ESP_OK) return true;
+    return v != 0;
+}
+
+bool display_night_mode_get(void)
+{
+    return s_night_mode_enabled;
+}
+
+void display_night_mode_save(bool enabled)
+{
+    s_night_mode_enabled = enabled;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_open RW: %s", esp_err_to_name(err));
+    } else {
+        nvs_set_u8(h, NVS_KEY_NIGHT, enabled ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "night_enable=%u gespeichert", enabled ? 1u : 0u);
+    }
+    // Sun-Tick neu auswerten, damit der Wechsel sofort sichtbar wird.
+    s_sun_state_known = false;
+    display_brightness_update_by_sun();
+    // Falls update_by_sun nicht aktiv werden konnte (NTP noch nicht gelaufen),
+    // mindestens die Tag-Helligkeit anschreiben, wenn Nacht-Modus deaktiviert ist.
+    if (!enabled) {
+        write_duty(s_day_brightness);
+    }
 }
 
 // Sonnenstand (geteilt mit ui_screens.c) -------------------------------------
@@ -187,6 +228,8 @@ void display_brightness_init(void)
         s_day_brightness = stored;
         ESP_LOGI(TAG, "NVS day_brightness=%u", s_day_brightness);
     }
+    s_night_mode_enabled = display_night_mode_enabled_load();
+    ESP_LOGI(TAG, "NVS night_enable=%u", s_night_mode_enabled ? 1u : 0u);
     // Startwert: Tag-Helligkeit. updateBrightnessBySun() korrigiert spaeter,
     // sobald NTP gelaufen ist und der Nacht-Modus erkannt wird.
     write_duty(s_day_brightness);
@@ -245,7 +288,8 @@ void display_brightness_update_by_sun(void)
     day_start = clamp_minute_of_day(day_start);
 
     const bool night = (now_min < day_start) || (now_min >= sunset_min);
-    const uint8_t target = night ? NIGHT_BRIGHTNESS : s_day_brightness;
+    const uint8_t target = (night && s_night_mode_enabled) ? NIGHT_BRIGHTNESS
+                                                           : s_day_brightness;
 
     if (s_sun_state_known && target == s_applied_brightness) return;
 

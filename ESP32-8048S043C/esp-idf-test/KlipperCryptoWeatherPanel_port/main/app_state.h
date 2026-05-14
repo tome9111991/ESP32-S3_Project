@@ -249,6 +249,11 @@ void    display_brightness_request_sun_refresh(void);  // force next update_by_s
 bool display_rotate_180_load(void);          // liest NVS, fallback DISPLAY_ROTATE_180_DEFAULT
 void display_rotate_180_save(bool enabled);  // schreibt NVS
 
+// Nacht-Helligkeits-Feature (sonnenstandsgesteuert) deaktivierbar; Default an.
+bool display_night_mode_enabled_load(void);
+bool display_night_mode_get(void);
+void display_night_mode_save(bool enabled);  // schreibt NVS und triggert Sun-Refresh
+
 // Geteilte Sonnenstand-Berechnung (genutzt von Brightness und Sun-Icon).
 bool calculate_sun_times(const struct tm *t, int *sunrise_min, int *sunset_min);
 

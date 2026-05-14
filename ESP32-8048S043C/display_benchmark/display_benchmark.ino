@@ -46,10 +46,11 @@ static constexpr bool BENCH_REQUIRE_VISUAL_CONFIRM = true;
 static constexpr uint32_t TOUCH_CONFIRM_ARM_MS = 500;
 static constexpr uint32_t TOUCH_CONFIRM_STABLE_MS = 180;
 static constexpr uint32_t TOUCH_CONFIRM_POLL_MS = 25;
-static constexpr int VISUAL_BUTTON_MARGIN = 36;
-static constexpr int VISUAL_BUTTON_GAP = 20;
+static constexpr int VISUAL_BUTTON_MARGIN = 60;
+static constexpr int VISUAL_BUTTON_GAP = 40;
 static constexpr int VISUAL_BUTTON_Y = 145;
 static constexpr int VISUAL_BUTTON_H = 190;
+static constexpr int VISUAL_BUTTON_COUNT = 2;
 static constexpr bool BENCH_STRESS_CORE_1 = true;
 static constexpr int STRESS_WORK_CHUNK = 4096;
 static constexpr TickType_t STRESS_IDLE_TICKS = 1;
@@ -379,7 +380,6 @@ static void drawVisualPromptScreen()
   const uint16_t white = rgb565(255, 255, 255);
   const uint16_t green = rgb565(0, 180, 70);
   const uint16_t red = rgb565(220, 20, 20);
-  const uint16_t yellow = rgb565(230, 190, 0);
   const uint16_t grey = rgb565(50, 55, 65);
   const uint16_t run_color = runMarkerColor(run_index);
 
@@ -389,38 +389,40 @@ static void drawVisualPromptScreen()
 
   const int margin = VISUAL_BUTTON_MARGIN;
   const int gap = VISUAL_BUTTON_GAP;
-  const int button_w = (LCD_W - (2 * margin) - (2 * gap)) / 3;
+  const int button_w = (LCD_W - (2 * margin) - gap) / VISUAL_BUTTON_COUNT;
   const int button_h = VISUAL_BUTTON_H;
   const int button_y = VISUAL_BUTTON_Y;
 
-  fillRect(draw_fb, margin, button_y, button_w, button_h, green);
-  fillRect(draw_fb, margin + button_w + gap, button_y, button_w, button_h, yellow);
-  fillRect(draw_fb, margin + (2 * (button_w + gap)), button_y, button_w, button_h, red);
+  const int yes_x = margin;
+  const int no_x = margin + button_w + gap;
+  fillRect(draw_fb, yes_x, button_y, button_w, button_h, green);
+  fillRect(draw_fb, no_x, button_y, button_w, button_h, red);
 
   fillRect(draw_fb, 60, 55, LCD_W - 120, 54, grey);
   fillRect(draw_fb, 82 + (run_index * 26), 68, 18, 28, white);
 
-  // Simple letter markers: G, S, B as block shapes.
-  fillRect(draw_fb, margin + 52, button_y + 48, 90, 18, white);
-  fillRect(draw_fb, margin + 52, button_y + 48, 18, 96, white);
-  fillRect(draw_fb, margin + 52, button_y + 126, 90, 18, white);
-  fillRect(draw_fb, margin + 124, button_y + 92, 18, 52, white);
-  fillRect(draw_fb, margin + 92, button_y + 92, 50, 18, white);
+  // "Y" letter centered in the YES button: two diagonal arms meeting a stem.
+  {
+    const int cx = yes_x + (button_w / 2);
+    const int top = button_y + 48;
+    fillRect(draw_fb, cx - 45, top, 18, 28, white);
+    fillRect(draw_fb, cx - 31, top + 22, 18, 28, white);
+    fillRect(draw_fb, cx + 27, top, 18, 28, white);
+    fillRect(draw_fb, cx + 13, top + 22, 18, 28, white);
+    fillRect(draw_fb, cx - 9, top + 40, 18, 56, white);
+  }
 
-  const int sx = margin + button_w + gap + 54;
-  fillRect(draw_fb, sx, button_y + 48, 90, 18, white);
-  fillRect(draw_fb, sx, button_y + 48, 18, 48, white);
-  fillRect(draw_fb, sx, button_y + 87, 90, 18, white);
-  fillRect(draw_fb, sx + 72, button_y + 87, 18, 57, white);
-  fillRect(draw_fb, sx, button_y + 126, 90, 18, white);
-
-  const int bx = margin + (2 * (button_w + gap)) + 54;
-  fillRect(draw_fb, bx, button_y + 48, 18, 96, white);
-  fillRect(draw_fb, bx, button_y + 48, 72, 18, white);
-  fillRect(draw_fb, bx, button_y + 87, 80, 18, white);
-  fillRect(draw_fb, bx, button_y + 126, 72, 18, white);
-  fillRect(draw_fb, bx + 72, button_y + 66, 18, 21, white);
-  fillRect(draw_fb, bx + 72, button_y + 105, 18, 21, white);
+  // "N" letter centered in the NO button: two verticals with a stepped diagonal.
+  {
+    const int cx = no_x + (button_w / 2);
+    const int top = button_y + 48;
+    fillRect(draw_fb, cx - 45, top, 18, 96, white);
+    fillRect(draw_fb, cx + 27, top, 18, 96, white);
+    fillRect(draw_fb, cx - 27, top, 18, 30, white);
+    fillRect(draw_fb, cx - 9, top + 22, 18, 30, white);
+    fillRect(draw_fb, cx + 9, top + 44, 18, 30, white);
+    fillRect(draw_fb, cx + 27, top + 66, 18, 30, white);
+  }
 }
 
 static bool presentFrame()
@@ -610,24 +612,20 @@ static bool readTouch(int16_t &x, int16_t &y)
 
 static char visualResultFromTouch(int16_t x, int16_t y)
 {
-  const int button_w = (LCD_W - (2 * VISUAL_BUTTON_MARGIN) - (2 * VISUAL_BUTTON_GAP)) / 3;
-  const int good_x1 = VISUAL_BUTTON_MARGIN;
-  const int skip_x1 = VISUAL_BUTTON_MARGIN + button_w + VISUAL_BUTTON_GAP;
-  const int bad_x1 = VISUAL_BUTTON_MARGIN + (2 * (button_w + VISUAL_BUTTON_GAP));
+  const int button_w = (LCD_W - (2 * VISUAL_BUTTON_MARGIN) - VISUAL_BUTTON_GAP) / VISUAL_BUTTON_COUNT;
+  const int yes_x1 = VISUAL_BUTTON_MARGIN;
+  const int no_x1 = VISUAL_BUTTON_MARGIN + button_w + VISUAL_BUTTON_GAP;
   const int y1 = VISUAL_BUTTON_Y;
   const int y2 = VISUAL_BUTTON_Y + VISUAL_BUTTON_H;
 
   if (y < y1 || y > y2) {
     return 0;
   }
-  if (x >= good_x1 && x < good_x1 + button_w) {
-    return 'g';
+  if (x >= yes_x1 && x < yes_x1 + button_w) {
+    return 'y';
   }
-  if (x >= skip_x1 && x < skip_x1 + button_w) {
-    return 's';
-  }
-  if (x >= bad_x1 && x < bad_x1 + button_w) {
-    return 'b';
+  if (x >= no_x1 && x < no_x1 + button_w) {
+    return 'n';
   }
   return 0;
 }
@@ -1070,14 +1068,11 @@ static void printRunSummary(uint32_t elapsed_ms)
 
 static const char *visualResultName(char result)
 {
-  if (result == 'g') {
-    return "good";
+  if (result == 'y') {
+    return "yes";
   }
-  if (result == 'b') {
-    return "bad";
-  }
-  if (result == 's') {
-    return "skip";
+  if (result == 'n') {
+    return "no";
   }
   return "unknown";
 }
@@ -1088,11 +1083,11 @@ static char waitForVisualResult()
   const BenchPhase &phase = BENCH_PHASES[phase_index];
   if (!BENCH_REQUIRE_VISUAL_CONFIRM) {
     DebugSerial.printf("VisualResult: run=%s, phase=%s, visual=not-requested\n", run.id, phase.name);
-    return 'g';
+    return 'y';
   }
   if (visual_confirm_all_good) {
-    DebugSerial.printf("VisualResult: run=%s, phase=%s, visual=good, note=auto-all-remaining-good\n", run.id, phase.name);
-    return 'g';
+    DebugSerial.printf("VisualResult: run=%s, phase=%s, visual=yes, note=auto-all-remaining-yes\n", run.id, phase.name);
+    return 'y';
   }
 
   stress_mode = 0;
@@ -1101,7 +1096,7 @@ static char waitForVisualResult()
   drainTouchEvents(TOUCH_CONFIRM_ARM_MS);
 
   DebugSerial.println();
-  DebugSerial.printf("Visual check for run %s phase %u/%u (%s): touch left=good, middle=skip, right=bad; serial g/b/s/a also works\n",
+  DebugSerial.printf("Visual check for run %s phase %u/%u (%s): would you use these settings? touch left=yes, right=no; serial y/n/a also works\n",
                      run.id,
                      phase_index + 1,
                      PHASE_COUNT,
@@ -1127,14 +1122,14 @@ static char waitForVisualResult()
       if (c >= 'A' && c <= 'Z') {
         c = (char)(c + ('a' - 'A'));
       }
-      if (c == 'g' || c == 'b' || c == 's') {
+      if (c == 'y' || c == 'n') {
         DebugSerial.printf("VisualResult: run=%s, phase=%s, visual=%s\n", run.id, phase.name, visualResultName(c));
         return c;
       }
       if (c == 'a') {
         visual_confirm_all_good = true;
-        DebugSerial.printf("VisualResult: run=%s, phase=%s, visual=good, note=all-remaining-good\n", run.id, phase.name);
-        return 'g';
+        DebugSerial.printf("VisualResult: run=%s, phase=%s, visual=yes, note=all-remaining-yes\n", run.id, phase.name);
+        return 'y';
       }
     }
     delay(20);

@@ -17,11 +17,15 @@ static lv_obj_t *s_slider           = NULL;
 static lv_obj_t *s_value_label      = NULL;
 static lv_obj_t *s_return_screen    = NULL;
 static bool      s_from_settings_menu = false;
+static lv_obj_t *s_night_switch     = NULL;
+static lv_obj_t *s_night_hint       = NULL;
 static lv_obj_t *s_rotate_switch    = NULL;
 static lv_obj_t *s_rotate_hint      = NULL;
 static uint8_t   s_saved_brightness = DAY_BRIGHTNESS_DEFAULT;
 static bool      s_saved_rotate_180 = false;
 static bool      s_draft_rotate_180 = false;
+static bool      s_saved_night_mode = true;
+static bool      s_draft_night_mode = true;
 
 static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
 {
@@ -74,12 +78,16 @@ static void close_screen(void)
     const uint8_t current = display_brightness_get_day();
     const bool brightness_changed = current != s_saved_brightness;
     const bool rotate_changed     = s_draft_rotate_180 != s_saved_rotate_180;
+    const bool night_changed      = s_draft_night_mode != s_saved_night_mode;
 
     if (brightness_changed) {
         display_brightness_commit_day();
     }
     if (rotate_changed) {
         display_rotate_180_save(s_draft_rotate_180);
+    }
+    if (night_changed) {
+        display_night_mode_save(s_draft_night_mode);
     }
 
     // Naechste Sonnenstand-Auswertung sofort, damit Nacht-Modus nach
@@ -94,6 +102,8 @@ static void close_screen(void)
         s_screen        = NULL;
         s_slider        = NULL;
         s_value_label   = NULL;
+        s_night_switch  = NULL;
+        s_night_hint    = NULL;
         s_rotate_switch = NULL;
         s_rotate_hint   = NULL;
         s_return_screen = NULL;
@@ -113,6 +123,8 @@ static void close_screen(void)
     s_screen        = NULL;
     s_slider        = NULL;
     s_value_label   = NULL;
+    s_night_switch  = NULL;
+    s_night_hint    = NULL;
     s_rotate_switch = NULL;
     s_rotate_hint   = NULL;
     s_return_screen = NULL;
@@ -159,6 +171,39 @@ static void on_rotate_switch_changed(lv_event_t *e)
     update_rotate_visuals();
 }
 
+static void update_night_visuals(void)
+{
+    if (s_night_switch) {
+        if (s_draft_night_mode) {
+            lv_obj_add_state(s_night_switch, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_night_switch, LV_STATE_CHECKED);
+        }
+    }
+    if (s_night_hint) {
+        const bool changed = s_draft_night_mode != s_saved_night_mode;
+        lv_obj_set_style_text_color(s_night_hint,
+            lv_color_hex(changed ? COLOR_ORANGE : COLOR_MUTED), 0);
+        lv_label_set_text(s_night_hint,
+            s_draft_night_mode ? "Nach Sonnenuntergang dimmen"
+                               : "Tag-Helligkeit rund um die Uhr");
+    }
+}
+
+static void on_night_row_clicked(lv_event_t *e)
+{
+    (void)e;
+    s_draft_night_mode = !s_draft_night_mode;
+    update_night_visuals();
+}
+
+static void on_night_switch_changed(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target_obj(e);
+    s_draft_night_mode = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    update_night_visuals();
+}
+
 bool ui_display_settings_is_open(void)
 {
     return s_screen != NULL;
@@ -181,6 +226,8 @@ void ui_display_settings_open(void)
     s_saved_brightness = display_brightness_get_day();
     s_saved_rotate_180 = display_rotate_180_load();
     s_draft_rotate_180 = s_saved_rotate_180;
+    s_saved_night_mode = display_night_mode_get();
+    s_draft_night_mode = s_saved_night_mode;
 
     s_screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(s_screen);
@@ -237,11 +284,44 @@ void ui_display_settings_open(void)
     lv_obj_set_style_pad_all(s_slider, 8, LV_PART_KNOB);
     lv_obj_add_event_cb(s_slider, on_slider_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
+    // Nacht-Modus Toggle-Row (oberhalb der Rotation, da haeufiger geaendert)
+    lv_obj_t *night_row = lv_obj_create(s_screen);
+    style_filled_rect(night_row, 0x151b24, 8);
+    lv_obj_set_size(night_row, 600, 80);
+    lv_obj_set_pos(night_row, 100, 268);
+    lv_obj_set_style_border_width(night_row, 2, 0);
+    lv_obj_set_style_border_color(night_row, lv_color_hex(COLOR_DIM), 0);
+    lv_obj_set_style_pad_all(night_row, 0, 0);
+    lv_obj_add_flag(night_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(night_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(night_row, on_night_row_clicked, LV_EVENT_CLICKED, NULL);
+
+    s_night_switch = lv_switch_create(night_row);
+    lv_obj_set_size(s_night_switch, 84, 44);
+    lv_obj_set_pos(s_night_switch, 24, 18);
+    lv_obj_set_style_bg_color(s_night_switch, lv_color_hex(0x232b38), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_night_switch, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_night_switch, lv_color_hex(COLOR_CYAN), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_night_switch, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_night_switch, lv_color_hex(COLOR_TEXT), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(s_night_switch, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_add_event_cb(s_night_switch, on_night_switch_changed,
+                        LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *night_title = make_label(night_row, &lv_font_montserrat_30, COLOR_TEXT,
+                                       LV_TEXT_ALIGN_LEFT, 128, 8, 460, 36,
+                                       "Nacht-Modus");
+    lv_obj_add_flag(night_title, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    s_night_hint = make_label(night_row, &lv_font_montserrat_24, COLOR_MUTED,
+                              LV_TEXT_ALIGN_LEFT, 128, 44, 460, 32, "");
+    lv_obj_add_flag(s_night_hint, LV_OBJ_FLAG_EVENT_BUBBLE);
+
     // Rotate-180 Toggle-Row (klickbarer Container mit LVGL-Switch)
     lv_obj_t *row = lv_obj_create(s_screen);
     style_filled_rect(row, 0x151b24, 8);
-    lv_obj_set_size(row, 600, 96);
-    lv_obj_set_pos(row, 100, 270);
+    lv_obj_set_size(row, 600, 80);
+    lv_obj_set_pos(row, 100, 360);
     lv_obj_set_style_border_width(row, 2, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -251,7 +331,7 @@ void ui_display_settings_open(void)
 
     s_rotate_switch = lv_switch_create(row);
     lv_obj_set_size(s_rotate_switch, 84, 44);
-    lv_obj_set_pos(s_rotate_switch, 24, 26);
+    lv_obj_set_pos(s_rotate_switch, 24, 18);
     lv_obj_set_style_bg_color(s_rotate_switch, lv_color_hex(0x232b38), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_rotate_switch, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_rotate_switch, lv_color_hex(COLOR_CYAN), LV_PART_INDICATOR);
@@ -262,14 +342,15 @@ void ui_display_settings_open(void)
                         LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *title = make_label(row, &lv_font_montserrat_30, COLOR_TEXT,
-                                 LV_TEXT_ALIGN_LEFT, 128, 14, 460, 36,
+                                 LV_TEXT_ALIGN_LEFT, 128, 8, 460, 36,
                                  "Display 180 Grad drehen");
     lv_obj_add_flag(title, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     s_rotate_hint = make_label(row, &lv_font_montserrat_24, COLOR_MUTED,
-                               LV_TEXT_ALIGN_LEFT, 128, 54, 460, 32, "");
+                               LV_TEXT_ALIGN_LEFT, 128, 44, 460, 32, "");
     lv_obj_add_flag(s_rotate_hint, LV_OBJ_FLAG_EVENT_BUBBLE);
 
+    update_night_visuals();
     update_rotate_visuals();
 
     lv_screen_load(s_screen);
