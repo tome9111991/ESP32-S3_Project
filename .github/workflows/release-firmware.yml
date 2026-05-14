@@ -1,4 +1,4 @@
-name: Release ESP32 Firmware
+name: Crypto Panel 8048S043C Firmware Release
 
 on:
   workflow_dispatch:
@@ -14,6 +14,7 @@ permissions:
 env:
   PROJECT_DIR: ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port
   PROJECT_NAME: KlipperCryptoWeatherPanel_port
+  RELEASE_NAME: Klipper Crypto Weather Panel V2
   BOARD_NAME: ESP32-8048S043C
   FIRMWARE_BASENAME: KCWPv2_8048S043C
   IDF_TARGET: esp32s3
@@ -120,6 +121,6 @@ jobs:
             gh release create "${RELEASE_TAG}" \
               release-bins/*.bin \
               --title "${RELEASE_TAG}" \
-              --notes "${BOARD_NAME} ESP-IDF firmware binaries for German (de) and English (en)." \
+              --notes "${RELEASE_NAME} ESP-IDF firmware binaries for ${BOARD_NAME}, German (de) and English (en)." \
               --target "${GITHUB_SHA}"
           fi
