@@ -3,6 +3,7 @@
 // Back und Passwort-Toggle.
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_keyboard.h"
 
 #include "esp_log.h"
@@ -71,9 +72,9 @@ static void on_textarea_event(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     lv_obj_t *ta = lv_event_get_target_obj(e);
     if (ta == s_ssid_ta) {
-        ui_keyboard_open(ta, "SSID eingeben", false, WIFI_SSID_MAX_LEN);
+        ui_keyboard_open(ta, T(WIFI_ENTER_SSID), false, WIFI_SSID_MAX_LEN);
     } else if (ta == s_pass_ta) {
-        ui_keyboard_open(ta, "Passwort eingeben", true, WIFI_PASSWORD_MAX_LEN);
+        ui_keyboard_open(ta, T(WIFI_ENTER_PASSWORD), true, WIFI_PASSWORD_MAX_LEN);
     }
 }
 
@@ -128,16 +129,16 @@ static void on_save_clicked(lv_event_t *e)
         if (*p != ' ' && *p != '\t') { has_ssid = true; break; }
     }
     if (!has_ssid) {
-        set_status("SSID fehlt", COLOR_LOSS);
+        set_status(T(WIFI_MISSING_SSID), COLOR_LOSS);
         return;
     }
 
     if (!wifi_credentials_save(ssid, pass ? pass : "")) {
-        set_status("Speichern fehlgeschlagen", COLOR_LOSS);
+        set_status(T(COMMON_SAVE_FAILED), COLOR_LOSS);
         return;
     }
 
-    set_status("Gespeichert, Neustart...", COLOR_CYAN);
+    set_status(T(COMMON_SAVED_RESTART), COLOR_CYAN);
     ESP_LOGI(TAG, "WLAN-Daten gespeichert, Reboot");
     ui_perform_clean_reboot();
 }
@@ -198,7 +199,7 @@ void ui_wifi_setup_open(void)
     lv_obj_set_pos(accent, 42, 58);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
-               100, 32, 400, 52, "WLAN");
+               100, 32, 400, 52, T(TILE_WIFI));
 
     // Back-Button oben rechts
     lv_obj_t *back = lv_obj_create(s_screen);
@@ -219,10 +220,10 @@ void ui_wifi_setup_open(void)
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
                FORM_LEFT, 138, 140, 30, "SSID");
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
-               FORM_LEFT, 218, 140, 30, "Passwort");
+               FORM_LEFT, 218, 140, 30, T(WIFI_PASSWORD));
 
-    s_ssid_ta = create_textarea(s_screen, FIELD_X, 128, "WLAN-Name", false);
-    s_pass_ta = create_textarea(s_screen, FIELD_X, 208, "WLAN-Passwort", true);
+    s_ssid_ta = create_textarea(s_screen, FIELD_X, 128, T(WIFI_NAME_PLACEHOLDER), false);
+    s_pass_ta = create_textarea(s_screen, FIELD_X, 208, T(WIFI_PASSWORD_PLACEHOLDER), true);
     lv_obj_set_style_pad_right(s_pass_ta, 56, 0);
     lv_obj_add_event_cb(s_ssid_ta, on_textarea_event, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(s_pass_ta, on_textarea_event, LV_EVENT_ALL, NULL);
@@ -244,7 +245,7 @@ void ui_wifi_setup_open(void)
     // Status
     s_status_lbl = make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED,
                               LV_TEXT_ALIGN_LEFT, FORM_LEFT, 290, 700, 32,
-                              "Tippe auf ein Feld, um es zu bearbeiten");
+                              T(WIFI_HINT_EDIT_FIELD));
 
     // Save-Button unten breit. Hauptaktion -> bewusst gross + unten.
     lv_obj_t *save = lv_obj_create(s_screen);
@@ -254,7 +255,7 @@ void ui_wifi_setup_open(void)
     lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(save, on_save_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *save_lbl = make_label(save, &lv_font_montserrat_30, COLOR_BG,
-                                    LV_TEXT_ALIGN_CENTER, 0, 14, 360, 50, "Speichern");
+                                    LV_TEXT_ALIGN_CENTER, 0, 14, 360, 50, T(COMMON_SAVE));
     lv_obj_add_flag(save_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     // Vorbelegen mit aktuellen Credentials.
@@ -266,7 +267,7 @@ void ui_wifi_setup_open(void)
     lv_textarea_set_text(s_pass_ta, pass_buf);
     if (!have_wifi_config) {
         // Boot-Onboarding: Nutzer landet hier automatisch, wenn WLAN fehlt.
-        set_status("Keine WLAN-Daten gespeichert", COLOR_LOSS);
+        set_status(T(WIFI_NO_DATA_SAVED), COLOR_LOSS);
     }
 
     lv_screen_load(s_screen);

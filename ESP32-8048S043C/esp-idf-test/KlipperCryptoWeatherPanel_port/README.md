@@ -75,9 +75,12 @@ KlipperCryptoWeatherPanel_port/
 ├── sdkconfig.defaults             # board-specific IDF defaults
 └── main/
     ├── CMakeLists.txt             # component sources/requires
+    ├── Kconfig.projbuild          # app-level menuconfig options (UI language)
     ├── idf_component.yml          # managed dependencies (LVGL, touch)
     ├── app_state.h                # shared state, constants, public APIs
     ├── config_private.example.h   # copy to config_private.h locally
+    ├── i18n.h                     # UI string catalog (X-Macro + T(id))
+    ├── i18n.c                     # compile-time language selection
     ├── main.c                     # panel + touch + LVGL host loop
     ├── net_fetcher.c              # WiFi/NTP/Bright Sky/Coinbase/Moonraker
     ├── display_brightness.c       # LEDC PWM + sun-based day/night curve
@@ -137,6 +140,24 @@ reset without needing a console.
 
 Fields not (yet) exposed via UI — location/timezone, Coinbase vs. another
 service, Klipper base URL — stay in `config_private.h`.
+
+### UI language (compile-time)
+
+The UI language is selected at build time, not at runtime. `idf.py menuconfig`
+→ **App Localization → UI language** offers `Deutsch` (default) or `English`.
+Only the selected language ends up in the binary — no runtime overhead.
+
+All user-facing strings live in `main/i18n.h` as an X-Macro list
+(`id, deutsch, english`). New strings get added there once and are referenced
+in the UI code via `T(ID)`:
+
+```c
+make_label(..., T(SETTINGS_TITLE));   // "Einstellungen" / "Settings"
+```
+
+Switching the language with `menuconfig` changes `sdkconfig.h`, which most
+TUs include transitively → expect a near-full recompile after the switch.
+Editing only `i18n.c` (e.g. tweaking a translation) rebuilds just that file.
 
 ## Technical decisions
 

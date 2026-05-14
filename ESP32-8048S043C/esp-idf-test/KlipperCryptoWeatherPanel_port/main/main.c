@@ -24,6 +24,7 @@
 #include "nvs_flash.h"
 #include "lvgl.h"
 #include "app_state.h"
+#include "i18n.h"
 
 static const char *TAG = "dashboard";
 
@@ -420,7 +421,7 @@ static void init_app_state(void)
     }
 
     snprintf(g_app.current_temp, sizeof(g_app.current_temp), "--");
-    snprintf(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: --");
+    snprintf(g_app.weather_status, sizeof(g_app.weather_status), "%s", T(WEATHER_STATUS_INIT));
     g_app.weather_location[0] = '\0';
     g_app.weather_code = -1;
     g_app.weather_apparent_temp = NAN;
@@ -438,7 +439,7 @@ static void init_app_state(void)
         g_app.weather_daily[i].weekday = -1;
     }
 
-    snprintf(g_app.crypto_price, sizeof(g_app.crypto_price), "Laden...");
+    snprintf(g_app.crypto_price, sizeof(g_app.crypto_price), "%s", T(LOADING));
     snprintf(g_app.crypto_status, sizeof(g_app.crypto_status), "%s %s",
              g_crypto.service, g_crypto.quote);
     snprintf(g_app.btc_day_change, sizeof(g_app.btc_day_change), "%s --",
@@ -450,7 +451,7 @@ static void init_app_state(void)
 
     snprintf(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), "--");
     snprintf(g_app.klipper_state, sizeof(g_app.klipper_state), "--");
-    snprintf(g_app.klipper_file, sizeof(g_app.klipper_file), "Kein Job");
+    snprintf(g_app.klipper_file, sizeof(g_app.klipper_file), "%s", T(KLIPPER_NO_JOB));
     snprintf(g_app.klipper_progress, sizeof(g_app.klipper_progress), "--");
     snprintf(g_app.klipper_nozzle, sizeof(g_app.klipper_nozzle), "--");
     snprintf(g_app.klipper_bed, sizeof(g_app.klipper_bed), "--");

@@ -8,6 +8,7 @@
 // Rotation und das Swipe-Routing.
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_assets.h"
 
 #include "esp_log.h"
@@ -31,10 +32,6 @@ static const char *TAG = "wdetail";
 #define DAILY_HEADER_Y          318
 #define DAILY_ROW_TOP_Y         352
 #define DAILY_ROW_HEIGHT        24
-
-static const char *const WEEKDAYS_SHORT_DE[] = {
-    "So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"
-};
 
 static lv_obj_t *s_screen        = NULL;
 static lv_obj_t *s_return_screen = NULL;
@@ -72,30 +69,30 @@ static const char *weather_text_from_code(int code)
 {
     if (code < 0) return "--";
     switch (code) {
-        case 0:  return "Klar";
-        case 1:  return "Heiter";
-        case 2:  return "Teilw. bewoelkt";
-        case 3:  return "Bedeckt";
-        case 45: case 48: return "Nebel";
-        case 51: return "Leichter Niesel";
-        case 53: return "Niesel";
-        case 55: return "Starker Niesel";
-        case 56: case 57: return "Gefr. Niesel";
-        case 61: return "Leichter Regen";
-        case 63: return "Regen";
-        case 65: return "Starker Regen";
-        case 66: case 67: return "Gefr. Regen";
-        case 71: return "Leichter Schnee";
-        case 73: return "Schnee";
-        case 75: return "Starker Schnee";
-        case 77: return "Schneegriesel";
-        case 80: return "Leichte Schauer";
-        case 81: return "Schauer";
-        case 82: return "Heftige Schauer";
-        case 85: case 86: return "Schneeschauer";
-        case 95: return "Gewitter";
-        case 96: case 99: return "Gewitter+Hagel";
-        default: return "Wetter";
+        case 0:  return T(WEATHER_CLEAR);
+        case 1:  return T(WEATHER_MAINLY_CLEAR);
+        case 2:  return T(WEATHER_PARTLY_CLOUDY);
+        case 3:  return T(WEATHER_OVERCAST);
+        case 45: case 48: return T(WEATHER_FOG);
+        case 51: return T(WEATHER_DRIZZLE_LIGHT);
+        case 53: return T(WEATHER_DRIZZLE);
+        case 55: return T(WEATHER_DRIZZLE_HEAVY);
+        case 56: case 57: return T(WEATHER_FREEZING_DRIZZLE);
+        case 61: return T(WEATHER_RAIN_LIGHT);
+        case 63: return T(WEATHER_RAIN);
+        case 65: return T(WEATHER_RAIN_HEAVY);
+        case 66: case 67: return T(WEATHER_FREEZING_RAIN);
+        case 71: return T(WEATHER_SNOW_LIGHT);
+        case 73: return T(WEATHER_SNOW);
+        case 75: return T(WEATHER_SNOW_HEAVY);
+        case 77: return T(WEATHER_SNOW_GRAINS);
+        case 80: return T(WEATHER_SHOWERS_LIGHT);
+        case 81: return T(WEATHER_SHOWERS);
+        case 82: return T(WEATHER_SHOWERS_HEAVY);
+        case 85: case 86: return T(WEATHER_SNOW_SHOWERS);
+        case 95: return T(WEATHER_THUNDER);
+        case 96: case 99: return T(WEATHER_THUNDER_HAIL);
+        default: return T(WEATHER_TITLE);
     }
 }
 
@@ -115,8 +112,25 @@ static const char *compass_from_degrees(int deg)
 {
     if (deg < 0) return "";
     int idx = ((deg + 22) / 45) % 8;
-    static const char *const dirs[] = { "N", "NO", "O", "SO", "S", "SW", "W", "NW" };
+    const char *const dirs[] = {
+        T(DIR_N), T(DIR_NE), T(DIR_E), T(DIR_SE),
+        T(DIR_S), T(DIR_SW), T(DIR_W), T(DIR_NW)
+    };
     return dirs[idx];
+}
+
+static const char *weekday_short_name(int weekday)
+{
+    switch (weekday) {
+        case 0: return T(WEEKDAY_SUN_SHORT);
+        case 1: return T(WEEKDAY_MON_SHORT);
+        case 2: return T(WEEKDAY_TUE_SHORT);
+        case 3: return T(WEEKDAY_WED_SHORT);
+        case 4: return T(WEEKDAY_THU_SHORT);
+        case 5: return T(WEEKDAY_FRI_SHORT);
+        case 6: return T(WEEKDAY_SAT_SHORT);
+        default: return "--";
+    }
 }
 
 // --- Close / Open ------------------------------------------------------------
@@ -207,7 +221,7 @@ static void build_tile_icon(int code)
 static void build_tile_temp(double temp_c)
 {
     lv_obj_t *tile = make_tile(1, 0);
-    tile_caption(tile, "Temperatur");
+    tile_caption(tile, T(WEATHER_TEMP));
     char buf[16];
     if (isfinite(temp_c)) snprintf(buf, sizeof(buf), "%.1f%s", temp_c, TEMP_UNIT);
     else                  snprintf(buf, sizeof(buf), "--");
@@ -217,7 +231,7 @@ static void build_tile_temp(double temp_c)
 static void build_tile_apparent(double apparent)
 {
     lv_obj_t *tile = make_tile(2, 0);
-    tile_caption(tile, "Gefuehlt");
+    tile_caption(tile, T(WEATHER_FEELS_LIKE));
     char buf[16];
     if (isfinite(apparent)) snprintf(buf, sizeof(buf), "%.1f%s", apparent, TEMP_UNIT);
     else                    snprintf(buf, sizeof(buf), "--");
@@ -227,7 +241,7 @@ static void build_tile_apparent(double apparent)
 static void build_tile_wind(double wind_kmh, int wind_dir)
 {
     lv_obj_t *tile = make_tile(0, 1);
-    tile_caption(tile, "Wind");
+    tile_caption(tile, T(WEATHER_WIND));
     char buf[24];
     if (isfinite(wind_kmh)) snprintf(buf, sizeof(buf), "%.0f km/h", wind_kmh);
     else                    snprintf(buf, sizeof(buf), "--");
@@ -242,7 +256,7 @@ static void build_tile_wind(double wind_kmh, int wind_dir)
 static void build_tile_humidity(int humidity)
 {
     lv_obj_t *tile = make_tile(1, 1);
-    tile_caption(tile, "Luftfeuchte");
+    tile_caption(tile, T(WEATHER_HUMIDITY));
     char buf[16];
     if (humidity >= 0) snprintf(buf, sizeof(buf), "%d %%", humidity);
     else               snprintf(buf, sizeof(buf), "--");
@@ -252,7 +266,7 @@ static void build_tile_humidity(int humidity)
 static void build_tile_sun(int sunrise_min, int sunset_min)
 {
     lv_obj_t *tile = make_tile(2, 1);
-    tile_caption(tile, "Sonne");
+    tile_caption(tile, T(WEATHER_SUN));
     // Zwei kleine Icons + Zeiten. Klemmt aufrecht in eine Zeile.
     lv_obj_t *sr_icon = lv_image_create(tile);
     lv_image_set_src(sr_icon, &icon_status_sunrise_line);
@@ -283,12 +297,12 @@ static void build_tile_sun(int sunrise_min, int sunset_min)
 static void build_daily(const weather_daily_slot_t *daily, int count)
 {
     make_label(s_screen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_LEFT,
-               TILE_OUTER_X, DAILY_HEADER_Y, 720, 26, "5 Tage");
+               TILE_OUTER_X, DAILY_HEADER_Y, 720, 26, T(WEATHER_5_DAYS));
 
     if (count <= 0) {
         make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
                    TILE_OUTER_X, DAILY_ROW_TOP_Y, 720, 30,
-                   "Tagesvorhersage wird geladen...");
+                   T(WEATHER_DAILY_LOADING));
         return;
     }
 
@@ -309,9 +323,9 @@ static void build_daily(const weather_daily_slot_t *daily, int count)
         // Wochentag-Kurzname; erster Eintrag heisst "Heute".
         char wd_buf[12];
         if (i == 0) {
-            snprintf(wd_buf, sizeof(wd_buf), "Heute");
+            snprintf(wd_buf, sizeof(wd_buf), "%s", T(WEATHER_TODAY));
         } else if (d->weekday >= 0 && d->weekday <= 6) {
-            snprintf(wd_buf, sizeof(wd_buf), "%s", WEEKDAYS_SHORT_DE[d->weekday]);
+            snprintf(wd_buf, sizeof(wd_buf), "%s", weekday_short_name(d->weekday));
         } else {
             snprintf(wd_buf, sizeof(wd_buf), "--");
         }
@@ -420,7 +434,7 @@ void ui_weather_detail_open(void)
     lv_obj_set_pos(accent, 42, 58);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
-               100, 26, 380, 52, "Wetter");
+               100, 26, 380, 52, T(WEATHER_TITLE));
 
     if (location[0]) {
         make_label(s_screen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_RIGHT,

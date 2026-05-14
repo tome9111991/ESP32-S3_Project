@@ -2,6 +2,7 @@
 // Pendant zum Arduino-Sketch 10_PopupMenu.ino.
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_assets.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -132,9 +133,9 @@ static void open_factory_confirm(void)
     make_label(s_confirm_panel, &lv_font_montserrat_30, COLOR_LOSS, LV_TEXT_ALIGN_CENTER,
                20, 24, CONFIRM_PANEL_W - 40, 40, "Factory Reset");
     make_label(s_confirm_panel, &lv_font_montserrat_24, COLOR_TEXT, LV_TEXT_ALIGN_CENTER,
-               30, 78, CONFIRM_PANEL_W - 60, 32, "Alle Einstellungen werden geloescht");
+               30, 78, CONFIRM_PANEL_W - 60, 32, T(POPUP_FACTORY_DELETE_1));
     make_label(s_confirm_panel, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER,
-               30, 116, CONFIRM_PANEL_W - 60, 32, "und das Geraet startet neu.");
+               30, 116, CONFIRM_PANEL_W - 60, 32, T(POPUP_FACTORY_DELETE_2));
 
     int btn_y = CONFIRM_PANEL_H - CONFIRM_BTN_H - 28;
 
@@ -147,7 +148,7 @@ static void open_factory_confirm(void)
     lv_obj_add_flag(cancel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(cancel, on_factory_cancel_clicked, LV_EVENT_CLICKED, NULL);
     make_label(cancel, &lv_font_montserrat_30, COLOR_TEXT, LV_TEXT_ALIGN_CENTER,
-               0, 14, CONFIRM_BTN_W, CONFIRM_BTN_H - 14, "Abbrechen");
+               0, 14, CONFIRM_BTN_W, CONFIRM_BTN_H - 14, T(COMMON_CANCEL));
 
     lv_obj_t *ok = lv_obj_create(s_confirm_panel);
     style_filled_rect(ok, COLOR_LOSS, 8);
@@ -156,7 +157,7 @@ static void open_factory_confirm(void)
     lv_obj_add_flag(ok, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ok, on_factory_confirm_clicked, LV_EVENT_CLICKED, NULL);
     make_label(ok, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
-               0, 14, CONFIRM_BTN_W, CONFIRM_BTN_H - 14, "Zuruecksetzen");
+               0, 14, CONFIRM_BTN_W, CONFIRM_BTN_H - 14, T(COMMON_RESET));
 }
 
 // --- Popup-Menue -------------------------------------------------------------

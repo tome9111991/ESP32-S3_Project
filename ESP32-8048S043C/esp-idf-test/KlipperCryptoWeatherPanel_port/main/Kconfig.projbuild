@@ -1,0 +1,16 @@
+menu "App Localization"
+
+    choice APP_LANGUAGE
+        prompt "UI language"
+        default APP_LANG_DE
+        help
+            Selects the UI language baked into the firmware at compile time.
+
+        config APP_LANG_DE
+            bool "Deutsch"
+
+        config APP_LANG_EN
+            bool "English"
+    endchoice
+
+endmenu

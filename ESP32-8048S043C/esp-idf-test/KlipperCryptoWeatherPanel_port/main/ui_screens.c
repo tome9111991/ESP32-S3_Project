@@ -2,6 +2,7 @@
 // vom Arduino-Original (02_UiWeatherIcon.ino, 03_UiScreens.ino).
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_assets.h"
 #include "ui_font_price_digits.h"
 #include "ui_font_time_digits.h"
@@ -27,10 +28,6 @@ static const char *TAG = "ui";
 #define WEATHER_ICON_H        96
 #define WEATHER_ICON_Y        155
 #define SCREEN_TRANSITION_MS  180
-
-static const char *const WEEKDAYS_DE[] = {
-    "Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"
-};
 
 // --- Screen handles ----------------------------------------------------------
 static lv_obj_t *s_time_screen, *s_crypto_screen, *s_btc_day_screen, *s_klipper_screen;
@@ -160,6 +157,20 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+static const char *weekday_name(int weekday)
+{
+    switch (weekday) {
+        case 0: return T(WEEKDAY_SUN);
+        case 1: return T(WEEKDAY_MON);
+        case 2: return T(WEEKDAY_TUE);
+        case 3: return T(WEEKDAY_WED);
+        case 4: return T(WEEKDAY_THU);
+        case 5: return T(WEEKDAY_FRI);
+        case 6: return T(WEEKDAY_SAT);
+        default: return "--";
+    }
 }
 
 // --- Weather icon / sun icon -------------------------------------------------
@@ -483,7 +494,7 @@ static void create_klipper_screen(void)
     s_klipper_title_label = create_label(s_klipper_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_size(s_klipper_title_label, 420, 40);
     lv_obj_set_pos(s_klipper_title_label, 96, 40);
-    lv_label_set_text(s_klipper_title_label, "KLIPPER");
+    lv_label_set_text(s_klipper_title_label, T(SCREEN_KLIPPER_SHORT));
 
     s_klipper_state_label = create_label(s_klipper_screen, &lv_font_montserrat_48, COLOR_TEXT, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_size(s_klipper_state_label, 260, 62);
@@ -554,7 +565,7 @@ static void create_klipper_screen(void)
     s_klipper_bed_title_label = create_label(s_klipper_screen, &lv_font_montserrat_30, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_size(s_klipper_bed_title_label, 100, 40);
     lv_obj_set_pos(s_klipper_bed_title_label, 440, 320);
-    lv_label_set_text(s_klipper_bed_title_label, "Bett");
+    lv_label_set_text(s_klipper_bed_title_label, T(KLIPPER_BED));
 
     s_klipper_bed_label = create_label(s_klipper_screen, &lv_font_montserrat_30, COLOR_CYAN, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_size(s_klipper_bed_label, 150, 40);
@@ -616,8 +627,8 @@ static void refresh_time_ui(void)
         update_time_second_progress(-1);
         set_hidden(s_sun_icon, true);
         lv_obj_set_style_text_color(s_time_status_title, lv_color_hex(COLOR_RED), 0);
-        set_label_text_if_changed(s_time_status_title, "WLAN verbindet");
-        set_label_text_if_changed(s_time_status_detail, "Bitte warten");
+        set_label_text_if_changed(s_time_status_title, T(WIFI_CONNECTING));
+        set_label_text_if_changed(s_time_status_detail, T(COMMON_WAIT));
         return;
     }
 
@@ -641,7 +652,7 @@ static void refresh_time_ui(void)
         set_label_text_if_changed(s_time_location_label, location);
         set_label_text_if_changed(s_time_label, "--:--");
         place_weather_image("--:--");
-        set_label_text_if_changed(s_weekday_label, "Zeit wird synchronisiert");
+        set_label_text_if_changed(s_weekday_label, T(WEATHER_SYNC_TIME));
         set_label_text_if_changed(s_date_label, status);
         set_label_text_if_changed(s_temp_label, temp_text);
         return;
@@ -651,7 +662,7 @@ static void refresh_time_ui(void)
     strftime(time_buf, sizeof(time_buf), "%H:%M", &tinfo);
     strftime(date_buf, sizeof(date_buf), "%d.%m.%Y", &tinfo);
     snprintf(weekday_date_buf, sizeof(weekday_date_buf), "%s | %s",
-             WEEKDAYS_DE[tinfo.tm_wday], date_buf);
+             weekday_name(tinfo.tm_wday), date_buf);
 
     set_time_normal_visible(true);
     set_hidden(s_date_label, true);
@@ -941,7 +952,7 @@ static void refresh_klipper_ui(void)
 
     if (!available) {
         const char *state_text = host_available ? state : "OFFLINE";
-        const char *detail_text = host_available ? (file[0] ? file : status) : "Moonraker nicht erreichbar";
+        const char *detail_text = host_available ? (file[0] ? file : status) : T(KLIPPER_MOONRAKER_UNREACHABLE);
         uint32_t state_color = COLOR_ORANGE;
         if (!host_available || strcasecmp(connection_state, "error") == 0) {
             state_color = COLOR_LOSS;
@@ -949,10 +960,11 @@ static void refresh_klipper_ui(void)
             state_color = COLOR_DIM;
         }
         set_klipper_offline_layout(state_color);
-        set_label_text_if_changed(s_klipper_title_label, host_available ? printer_name : "KLIPPER");
+        set_label_text_if_changed(s_klipper_title_label, host_available ? printer_name : T(SCREEN_KLIPPER_SHORT));
         set_label_text_if_changed(s_klipper_state_label, state_text);
         set_label_text_if_changed(s_klipper_file_label, detail_text);
-        set_label_text_if_changed(s_klipper_mmu_label, host_available ? "Drucker einschalten" : "Warte auf Mainsail");
+        set_label_text_if_changed(s_klipper_mmu_label,
+                                  host_available ? T(KLIPPER_POWER_ON_PRINTER) : T(KLIPPER_WAITING_MAINSAIL));
         lv_obj_set_style_text_color(s_klipper_state_label, lv_color_hex(state_color), 0);
         lv_obj_set_style_text_color(s_klipper_file_label, lv_color_hex(COLOR_TEXT), 0);
         lv_obj_set_style_text_color(s_klipper_mmu_label, lv_color_hex(COLOR_MUTED), 0);
@@ -968,12 +980,12 @@ static void refresh_klipper_ui(void)
     set_label_text_if_changed(s_klipper_bed_label, bed);
     set_label_text_if_changed(s_klipper_duration_label, duration);
     set_label_text_if_changed(s_klipper_status_label, display_msg[0] ? display_msg : status);
-    set_label_text_if_changed(s_klipper_mmu_label, mmu_available ? mmu_info : "MMU nicht aktiv");
+    set_label_text_if_changed(s_klipper_mmu_label, mmu_available ? mmu_info : T(KLIPPER_MMU_INACTIVE));
 
     uint32_t state_color = COLOR_GREEN;
-    if (strcmp(state, "PAUSE") == 0) state_color = COLOR_ORANGE;
-    else if (strcmp(state, "FEHLER") == 0) state_color = COLOR_LOSS;
-    else if (strcmp(state, "BEREIT") == 0 || strcmp(state, "STANDBY") == 0) state_color = COLOR_MUTED;
+    if (strcmp(state, T(PRINT_STATE_PAUSED)) == 0) state_color = COLOR_ORANGE;
+    else if (strcmp(state, T(PRINT_STATE_ERROR)) == 0) state_color = COLOR_LOSS;
+    else if (strcmp(state, T(PRINT_STATE_READY)) == 0 || strcmp(state, "STANDBY") == 0) state_color = COLOR_MUTED;
 
     lv_obj_set_style_text_color(s_klipper_state_label, lv_color_hex(state_color), 0);
     lv_obj_set_style_text_color(s_klipper_progress_label, lv_color_hex(state_color), 0);

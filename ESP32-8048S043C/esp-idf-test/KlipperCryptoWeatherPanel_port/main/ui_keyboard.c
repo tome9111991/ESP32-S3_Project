@@ -6,6 +6,7 @@
 #include "ui_keyboard.h"
 
 #include "app_state.h"
+#include "i18n.h"
 
 #include "lvgl.h"
 
@@ -152,7 +153,7 @@ void ui_keyboard_open(lv_obj_t *target_ta,
     lv_obj_set_style_text_align(done_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_size(done_lbl, 130, 32);
     lv_obj_set_pos(done_lbl, 0, 4);
-    lv_label_set_text(done_lbl, "Fertig");
+    lv_label_set_text(done_lbl, T(KEYBOARD_DONE));
     lv_obj_add_flag(done_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     // Live-Editor unter dem Header.

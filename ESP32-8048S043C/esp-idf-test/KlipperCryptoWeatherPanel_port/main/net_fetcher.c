@@ -1,4 +1,5 @@
 #include "app_state.h"
+#include "i18n.h"
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_event.h"
@@ -322,7 +323,7 @@ void crypto_reset_data_state(const char *status_text)
     char ok_status[32];
     snprintf(ok_status, sizeof(ok_status), "%s %s", cfg.service, cfg.quote);
     app_lock();
-    app_set_str(g_app.crypto_price, sizeof(g_app.crypto_price), "Laden...");
+    app_set_str(g_app.crypto_price, sizeof(g_app.crypto_price), T(LOADING));
     g_app.crypto_live_price = 0.0f;
     g_app.crypto_price_direction = 0;
     app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status),
@@ -364,11 +365,11 @@ static void crypto_set_error_state(const char *status_text)
     crypto_config_t cfg;
     crypto_snapshot(&cfg);
     char fallback_price[24];
-    snprintf(fallback_price, sizeof(fallback_price), "%s FEHLER", cfg.base);
+    snprintf(fallback_price, sizeof(fallback_price), "%s %s", cfg.base, T(STATUS_ERROR_SHORT));
 
     app_lock();
     app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status), status_text);
-    if (strcmp(g_app.crypto_price, "Laden...") == 0) {
+    if (strcmp(g_app.crypto_price, T(LOADING)) == 0) {
         app_set_str(g_app.crypto_price, sizeof(g_app.crypto_price), fallback_price);
     }
     app_unlock();
@@ -823,7 +824,7 @@ static bool fetch_weather(void)
     if (g_app.weather_location[0] == '\0') {
         // Fallback nur wenn Reverse-Geocoding fehlschlug; UI zeigt "Standort"
         // statt einer leeren Zeile.
-        app_set_str(g_app.weather_location, sizeof(g_app.weather_location), "Standort");
+        app_set_str(g_app.weather_location, sizeof(g_app.weather_location), T(LOCATION_FALLBACK));
     }
     if (display_code >= 0) g_app.weather_code = display_code;
     g_app.weather_apparent_temp = (float)apparent;
@@ -834,7 +835,7 @@ static bool fetch_weather(void)
     memcpy(g_app.weather_daily,  daily_buf,  sizeof(daily_buf));
     g_app.weather_daily_count  = daily_count;
     g_app.weather_forecast_ready = (daily_count > 0);
-    app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WETTER: open-meteo");
+    app_set_str(g_app.weather_status, sizeof(g_app.weather_status), T(WEATHER_STATUS_OK));
     app_unlock();
 
     cJSON_Delete(root);
@@ -874,7 +875,7 @@ static bool fetch_price(void)
     if (live <= 0.0f) {
         cJSON_Delete(root);
         char status_text[32];
-        snprintf(status_text, sizeof(status_text), "%s PREIS", cfg.base);
+        snprintf(status_text, sizeof(status_text), "%s %s", cfg.base, T(STATUS_PRICE));
         crypto_set_error_state(status_text);
         return false;
     }
@@ -1259,22 +1260,22 @@ static void format_klipper_duration_progress(char *out, size_t out_size, double 
 static const char *format_klipper_state(const char *state)
 {
     if (!state || !state[0]) return "--";
-    if (strcasecmp(state, "printing") == 0) return "DRUCKT";
-    if (strcasecmp(state, "paused") == 0 || strcasecmp(state, "pausing") == 0) return "PAUSE";
-    if (strcasecmp(state, "error") == 0) return "FEHLER";
-    if (strcasecmp(state, "complete") == 0) return "FERTIG";
-    if (strcasecmp(state, "cancelled") == 0 || strcasecmp(state, "cancelling") == 0) return "ABBRUCH";
-    if (strcasecmp(state, "standby") == 0 || strcasecmp(state, "ready") == 0) return "BEREIT";
+    if (strcasecmp(state, "printing") == 0) return T(PRINT_STATE_PRINTING);
+    if (strcasecmp(state, "paused") == 0 || strcasecmp(state, "pausing") == 0) return T(PRINT_STATE_PAUSED);
+    if (strcasecmp(state, "error") == 0) return T(PRINT_STATE_ERROR);
+    if (strcasecmp(state, "complete") == 0) return T(PRINT_STATE_COMPLETE);
+    if (strcasecmp(state, "cancelled") == 0 || strcasecmp(state, "cancelling") == 0) return T(PRINT_STATE_CANCELLED);
+    if (strcasecmp(state, "standby") == 0 || strcasecmp(state, "ready") == 0) return T(PRINT_STATE_READY);
     return state;
 }
 
 static const char *format_klippy_connection_state(const char *state)
 {
     if (!state || !state[0]) return "--";
-    if (strcasecmp(state, "ready") == 0) return "BEREIT";
+    if (strcasecmp(state, "ready") == 0) return T(PRINT_STATE_READY);
     if (strcasecmp(state, "startup") == 0) return "START";
-    if (strcasecmp(state, "shutdown") == 0 || strcasecmp(state, "disconnected") == 0) return "AUS";
-    if (strcasecmp(state, "error") == 0) return "FEHLER";
+    if (strcasecmp(state, "shutdown") == 0 || strcasecmp(state, "disconnected") == 0) return T(PRINT_STATE_OFF);
+    if (strcasecmp(state, "error") == 0) return T(PRINT_STATE_ERROR);
     return state;
 }
 
@@ -1287,22 +1288,22 @@ static void klippy_offline_detail(const char *state, const char *message, char *
         return;
     }
     if (state && (strcasecmp(state, "shutdown") == 0 || strcasecmp(state, "disconnected") == 0)) {
-        snprintf(out, out_size, "Drucker aus oder MCU nicht verbunden");
+        snprintf(out, out_size, "%s", T(KLIPPER_PRINTER_OFF_OR_MCU));
     } else if (state && strcasecmp(state, "startup") == 0) {
-        snprintf(out, out_size, "Klipper startet");
+        snprintf(out, out_size, "%s", T(KLIPPER_STARTING));
     } else if (state && strcasecmp(state, "error") == 0) {
-        snprintf(out, out_size, "Klipper Fehler");
+        snprintf(out, out_size, "%s", T(KLIPPER_ERROR));
     } else if (state && strcasecmp(state, "ready") == 0) {
-        snprintf(out, out_size, "Druckdaten nicht verfuegbar");
+        snprintf(out, out_size, "%s", T(KLIPPER_PRINT_DATA_MISSING));
     } else {
-        snprintf(out, out_size, "Klippy nicht bereit");
+        snprintf(out, out_size, "%s", T(KLIPPER_KLIPPY_NOT_READY));
     }
 }
 
 static void format_klipper_file(char *out, size_t out_size, const char *filename)
 {
     if (!filename || !filename[0]) {
-        snprintf(out, out_size, "Kein Job");
+        snprintf(out, out_size, "%s", T(KLIPPER_NO_JOB));
         return;
     }
     const char *slash = strrchr(filename, '/');
@@ -1505,7 +1506,7 @@ static bool fetch_klipper_server_info(char *klippy_state, size_t state_size,
         app_set_str(g_app.klipper_bed, sizeof(g_app.klipper_bed), g_app.klipper_state);
         app_set_str(g_app.klipper_duration, sizeof(g_app.klipper_duration), "MAINSAIL OK");
         app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
-        app_set_str(g_app.klipper_mmu_info, sizeof(g_app.klipper_mmu_info), "Drucker einschalten");
+        app_set_str(g_app.klipper_mmu_info, sizeof(g_app.klipper_mmu_info), T(KLIPPER_POWER_ON_PRINTER));
         g_app.klipper_mmu_gate_count = 0;
         for (int i = 0; i < MMU_GATE_MAX; i++) {
             g_app.klipper_mmu_gate_colors[i] = COLOR_DIM;
@@ -1580,7 +1581,7 @@ static bool fetch_klipper(void)
         g_app.klipper_available = false;
         g_app.klipper_mmu_available = false;
         app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status),
-                    http_status > 0 ? "HTTP FEHLER" : "HTTP BEGIN");
+                    http_status > 0 ? T(STATUS_HTTP_ERROR) : "HTTP BEGIN");
         app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
         app_unlock();
         return false;
@@ -1638,7 +1639,7 @@ static bool fetch_klipper(void)
         g_app.klipper_host_available = true;
         g_app.klipper_available = false;
         g_app.klipper_mmu_available = false;
-        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "JSON FEHLER");
+        app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), T(STATUS_JSON_ERROR));
         app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
         app_unlock();
         return false;
@@ -1772,7 +1773,7 @@ static void fetch_task(void *arg)
             g_app.klipper_mmu_available = false;
             app_set_str(g_app.klipper_connection_state, sizeof(g_app.klipper_connection_state), "--");
             app_set_str(g_app.klipper_connection_message, sizeof(g_app.klipper_connection_message), "");
-            app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), "WLAN WARTET");
+            app_set_str(g_app.klipper_status, sizeof(g_app.klipper_status), T(WIFI_WAITING));
             app_set_str(g_app.klipper_display_message, sizeof(g_app.klipper_display_message), "");
             app_unlock();
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1924,8 +1925,8 @@ void net_start(void)
     if (!have_creds) {
         app_lock();
         g_app.wifi_connected = false;
-        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), "WLAN nicht konfiguriert");
-        app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status), "WLAN fehlt");
+        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), T(WIFI_NOT_CONFIGURED));
+        app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status), T(WIFI_MISSING));
         app_unlock();
         ESP_LOGW(TAG, "Keine WLAN-Credentials; Settings -> WLAN oeffnen");
         return;

@@ -2,6 +2,7 @@
 // Port von 16_CryptoSettings.ino auf ESP-IDF/NVS.
 
 #include "app_state.h"
+#include "i18n.h"
 
 #include "esp_log.h"
 
@@ -111,14 +112,15 @@ static void update_ui(void)
     if (!s_status_label) return;
     if (!draft_complete()) {
         lv_obj_set_style_text_color(s_status_label, lv_color_hex(COLOR_ORANGE), 0);
-        lv_label_set_text(s_status_label, "Coin, Waehrung und Chart auswaehlen");
+        lv_label_set_text(s_status_label, T(CRYPTO_SELECT_ALL));
     } else if (draft_changed()) {
         lv_obj_set_style_text_color(s_status_label, lv_color_hex(COLOR_BTC), 0);
-        lv_label_set_text(s_status_label, "Auswahl wird beim Zurueckgehen gespeichert");
+        lv_label_set_text(s_status_label, T(COMMON_SELECTION_SAVED_ON_BACK));
     } else {
         char text[64];
-        snprintf(text, sizeof(text), "%s / %s  Kerzen %s",
-                 g_crypto.base, g_crypto.quote, crypto_chart_timeframe_label());
+        snprintf(text, sizeof(text), "%s / %s  %s %s",
+                 g_crypto.base, g_crypto.quote, T(CRYPTO_CANDLES),
+                 crypto_chart_timeframe_label());
         lv_obj_set_style_text_color(s_status_label, lv_color_hex(COLOR_MUTED), 0);
         lv_label_set_text(s_status_label, text);
     }
@@ -282,14 +284,14 @@ void ui_crypto_settings_open(void)
                                         BASE_OPTIONS[i], on_base_clicked, &s_base_data[i]);
     }
 
-    make_section_label(s_screen, "Waehrung", 220);
+    make_section_label(s_screen, T(CRYPTO_CURRENCY), 220);
     for (size_t i = 0; i < QUOTE_COUNT; i++) {
         s_quote_data[i] = (uint8_t)i;
         s_quote_buttons[i] = make_option(s_screen, 90 + ((int)i * 124), 260, 112,
                                          QUOTE_OPTIONS[i], on_quote_clicked, &s_quote_data[i]);
     }
 
-    make_section_label(s_screen, "Kerzen", 328);
+    make_section_label(s_screen, T(CRYPTO_CANDLES), 328);
     for (size_t i = 0; i < TIMEFRAME_COUNT; i++) {
         s_timeframe_data[i] = (uint8_t)i;
         s_timeframe_buttons[i] = make_option(s_screen, 150 + ((int)i * 128), 368, 112,

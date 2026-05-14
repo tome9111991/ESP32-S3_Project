@@ -2,6 +2,7 @@
 // Port von 15_ScreenSettings.ino auf ESP-IDF/NVS.
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_assets.h"
 
 #include "esp_log.h"
@@ -81,18 +82,18 @@ static screen_state_t state_for_index(uint8_t index)
 
 static const char *title_for_index(uint8_t index)
 {
-    if (index == 1) return "PREIS";
-    if (index == 2) return "CHART";
-    if (index == 3) return "KLIPPER";
-    return "UHR";
+    if (index == 1) return T(SCREEN_PRICE_SHORT);
+    if (index == 2) return T(SCREEN_CHART_SHORT);
+    if (index == 3) return T(SCREEN_KLIPPER_SHORT);
+    return T(SCREEN_CLOCK_SHORT);
 }
 
 static const char *hint_for_index(uint8_t index)
 {
-    if (index == 1) return "Live-Kurs";
-    if (index == 2) return "Kerzenchart";
-    if (index == 3) return "Druckerstatus";
-    return "Zeit und Wetter";
+    if (index == 1) return T(SCREEN_LIVE_PRICE);
+    if (index == 2) return T(SCREEN_CANDLE_CHART);
+    if (index == 3) return T(SCREEN_PRINTER_STATUS);
+    return T(SCREEN_TIME_WEATHER);
 }
 
 static uint32_t color_for_index(uint8_t index)
@@ -363,7 +364,8 @@ static void open_tile_detail(uint8_t index)
     lv_obj_set_pos(accent, 42, 58);
 
     char title_buf[48];
-    snprintf(title_buf, sizeof(title_buf), "%s Optionen", title_for_index(index));
+    snprintf(title_buf, sizeof(title_buf), "%s %s",
+             title_for_index(index), T(SCREEN_OPTIONS));
     make_label(s_detail_screen, &lv_font_montserrat_40, COLOR_TEXT,
                LV_TEXT_ALIGN_LEFT, 100, 32, 600, 52, title_buf);
 
@@ -389,7 +391,7 @@ static void open_tile_detail(uint8_t index)
     const uint8_t  current_dur  = s_duration[state_for_index(index)];
 
     make_label(s_detail_screen, &lv_font_montserrat_30, COLOR_TEXT,
-               LV_TEXT_ALIGN_LEFT, 100, 160, 360, 36, "Anzeigedauer");
+               LV_TEXT_ALIGN_LEFT, 100, 160, 360, 36, T(SCREEN_DISPLAY_DURATION));
 
     s_detail_duration_value = make_label(s_detail_screen, &lv_font_montserrat_24,
                                          COLOR_CYAN, LV_TEXT_ALIGN_RIGHT,
@@ -422,7 +424,7 @@ static void open_tile_detail(uint8_t index)
 
     make_label(s_detail_screen, &lv_font_montserrat_24, COLOR_MUTED,
                LV_TEXT_ALIGN_CENTER, 60, 340, 680, 32,
-               "Wird beim Zurueckgehen gespeichert");
+               T(COMMON_SAVED_ON_BACK));
 
     lv_screen_load(s_detail_screen);
 }
@@ -451,7 +453,7 @@ static void update_tile(uint8_t index)
                               lv_color_hex(enabled ? accent : COLOR_DIM), 0);
     lv_obj_set_style_text_color(s_state_label[index],
                                 lv_color_hex(enabled ? accent : COLOR_MUTED), 0);
-    lv_label_set_text(s_state_label[index], enabled ? "Aktiv" : "Aus");
+    lv_label_set_text(s_state_label[index], enabled ? T(COMMON_ACTIVE) : T(COMMON_OFF));
 }
 
 static void update_ui(void)
@@ -461,13 +463,13 @@ static void update_ui(void)
     if (!s_status_label) return;
     if (screen_settings_enabled_count() <= 1) {
         lv_obj_set_style_text_color(s_status_label, lv_color_hex(COLOR_ORANGE), 0);
-        lv_label_set_text(s_status_label, "Mindestens eine Seite muss aktiv bleiben");
+        lv_label_set_text(s_status_label, T(SCREEN_ONE_REQUIRED));
     } else if (changed()) {
         lv_obj_set_style_text_color(s_status_label, lv_color_hex(COLOR_CYAN), 0);
-        lv_label_set_text(s_status_label, "Auswahl wird beim Zurueckgehen gespeichert");
+        lv_label_set_text(s_status_label, T(COMMON_SELECTION_SAVED_ON_BACK));
     } else {
         lv_obj_set_style_text_color(s_status_label, lv_color_hex(COLOR_MUTED), 0);
-        lv_label_set_text(s_status_label, "Klipper erscheint nur, wenn der Drucker erreichbar ist");
+        lv_label_set_text(s_status_label, T(SCREEN_KLIPPER_ONLY_ONLINE));
     }
 }
 
@@ -638,7 +640,7 @@ void ui_screen_settings_open(void)
     lv_obj_set_pos(accent, 42, 58);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
-               100, 32, 500, 52, "Screens");
+               100, 32, 500, 52, T(TILE_SCREENS));
     make_back_button(s_screen);
 
     make_tile(s_screen, 0, TILE_X, TILE_Y);

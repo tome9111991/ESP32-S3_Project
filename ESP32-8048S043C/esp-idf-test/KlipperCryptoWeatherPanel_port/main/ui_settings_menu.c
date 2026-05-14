@@ -2,6 +2,7 @@
 // Eintraege: WLAN, Screens, Crypto, Display, Touch, Standort.
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_assets.h"
 
 #include <stdio.h>
@@ -199,16 +200,16 @@ static void open_settings_menu_screen(bool fresh)
 
     make_accent(s_menu_screen, COLOR_SETTINGS);
     make_label(s_menu_screen, &lv_font_montserrat_40, COLOR_TEXT,
-               LV_TEXT_ALIGN_LEFT, 100, 32, 500, 52, "Einstellungen");
+               LV_TEXT_ALIGN_LEFT, 100, 32, 500, 52, T(SETTINGS_TITLE));
     make_back_button(s_menu_screen, on_back_to_dashboard);
 
     // 3x2 Tile-Grid. Spaltenreihenfolge: zeilenweise oben links nach rechts.
-    make_tile(s_menu_screen, 0, 0, &icon_menu_wifi,     "WLAN",     on_item_wifi_clicked);
-    make_tile(s_menu_screen, 1, 0, &icon_menu_screens,  "Screens",  on_item_screens_clicked);
-    make_tile(s_menu_screen, 2, 0, &icon_menu_crypto,   "Crypto",   on_item_crypto_clicked);
-    make_tile(s_menu_screen, 0, 1, &icon_menu_display,  "Display",  on_item_display_clicked);
-    make_tile(s_menu_screen, 1, 1, &icon_menu_touch,    "Touch",    on_item_touch_clicked);
-    make_tile(s_menu_screen, 2, 1, &icon_menu_location, "Standort", on_item_location_clicked);
+    make_tile(s_menu_screen, 0, 0, &icon_menu_wifi,     T(TILE_WIFI),     on_item_wifi_clicked);
+    make_tile(s_menu_screen, 1, 0, &icon_menu_screens,  T(TILE_SCREENS),  on_item_screens_clicked);
+    make_tile(s_menu_screen, 2, 0, &icon_menu_crypto,   T(TILE_CRYPTO),   on_item_crypto_clicked);
+    make_tile(s_menu_screen, 0, 1, &icon_menu_display,  T(TILE_DISPLAY),  on_item_display_clicked);
+    make_tile(s_menu_screen, 1, 1, &icon_menu_touch,    T(TILE_TOUCH),    on_item_touch_clicked);
+    make_tile(s_menu_screen, 2, 1, &icon_menu_location, T(TILE_LOCATION), on_item_location_clicked);
 
     lv_screen_load(s_menu_screen);
     s_menu_open = true;

@@ -9,6 +9,7 @@ endif()
 idf_component_register(
     SRCS
         "main.c"
+        "i18n.c"
         "ui_screens.c"
         "ui_chart.c"
         "ui_popup.c"

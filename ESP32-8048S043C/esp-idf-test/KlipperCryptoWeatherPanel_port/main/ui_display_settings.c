@@ -3,6 +3,7 @@
 // Port aktuell Compile-Time-Konstante).
 
 #include "app_state.h"
+#include "i18n.h"
 
 #include <stdio.h>
 
@@ -152,8 +153,8 @@ static void update_rotate_visuals(void)
         lv_obj_set_style_text_color(s_rotate_hint,
             lv_color_hex(changed ? COLOR_ORANGE : COLOR_MUTED), 0);
         lv_label_set_text(s_rotate_hint,
-            changed ? "Neustart beim Zurueckgehen"
-                    : "Touch-Kalibrierung bleibt");
+            changed ? T(DISPLAY_RESTART_ON_BACK)
+                    : T(DISPLAY_TOUCH_CAL_KEEP));
     }
 }
 
@@ -185,8 +186,8 @@ static void update_night_visuals(void)
         lv_obj_set_style_text_color(s_night_hint,
             lv_color_hex(changed ? COLOR_ORANGE : COLOR_MUTED), 0);
         lv_label_set_text(s_night_hint,
-            s_draft_night_mode ? "Nach Sonnenuntergang dimmen"
-                               : "Tag-Helligkeit rund um die Uhr");
+            s_draft_night_mode ? T(DISPLAY_DIM_AFTER_SUNSET)
+                               : T(DISPLAY_DAY_BRIGHTNESS_ALWAYS));
     }
 }
 
@@ -242,7 +243,7 @@ void ui_display_settings_open(void)
     lv_obj_set_pos(accent, 42, 58);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
-               100, 32, 500, 52, "Display");
+               100, 32, 500, 52, T(TILE_DISPLAY));
 
     // Back-Button (oben rechts)
     lv_obj_t *back = lv_obj_create(s_screen);
@@ -262,7 +263,7 @@ void ui_display_settings_open(void)
 
     // Section-Header + aktueller Wert
     make_label(s_screen, &lv_font_montserrat_30, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
-               100, 140, 360, 36, "Helligkeit (Tag)");
+               100, 140, 360, 36, T(DISPLAY_DAY_BRIGHTNESS));
 
     s_value_label = make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED,
                                LV_TEXT_ALIGN_RIGHT, 460, VALUE_LABEL_Y, 240, 32,
@@ -310,7 +311,7 @@ void ui_display_settings_open(void)
 
     lv_obj_t *night_title = make_label(night_row, &lv_font_montserrat_30, COLOR_TEXT,
                                        LV_TEXT_ALIGN_LEFT, 128, 8, 460, 36,
-                                       "Nacht-Modus");
+                                       T(DISPLAY_NIGHT_MODE));
     lv_obj_add_flag(night_title, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     s_night_hint = make_label(night_row, &lv_font_montserrat_24, COLOR_MUTED,
@@ -343,7 +344,7 @@ void ui_display_settings_open(void)
 
     lv_obj_t *title = make_label(row, &lv_font_montserrat_30, COLOR_TEXT,
                                  LV_TEXT_ALIGN_LEFT, 128, 8, 460, 36,
-                                 "Display 180 Grad drehen");
+                                 T(DISPLAY_ROTATE_180));
     lv_obj_add_flag(title, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     s_rotate_hint = make_label(row, &lv_font_montserrat_24, COLOR_MUTED,

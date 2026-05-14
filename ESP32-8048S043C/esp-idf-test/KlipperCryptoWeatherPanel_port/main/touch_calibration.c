@@ -1,5 +1,6 @@
 // Touch-Kalibrierung fuer GT911: UI, NVS-Persistenz und affine Rohwert-Map.
 #include "app_state.h"
+#include "i18n.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -269,7 +270,7 @@ static void update_progress(void)
 {
     if (!s_progress_label) return;
     char buf[32];
-    snprintf(buf, sizeof(buf), "Punkt %d / %d", s_step + 1, TOUCH_CAL_TARGET_COUNT);
+    snprintf(buf, sizeof(buf), T(TOUCH_POINT_FMT), s_step + 1, TOUCH_CAL_TARGET_COUNT);
     lv_label_set_text(s_progress_label, buf);
 }
 
@@ -291,13 +292,13 @@ static void create_screen(void)
     lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_CENTER,
-               0, 140, LCD_H_RES, 52, "Touch kalibrieren");
+               0, 140, LCD_H_RES, 52, T(TOUCH_TITLE));
 
     s_progress_label = make_label(s_screen, &lv_font_montserrat_30, COLOR_CYAN,
                                   LV_TEXT_ALIGN_CENTER, 0, 200, LCD_H_RES, 40, "");
 
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_CENTER,
-               0, 250, LCD_H_RES, 32, "Punkt antippen. Halten zum Abbrechen.");
+               0, 250, LCD_H_RES, 32, T(TOUCH_HINT));
 
     s_status_label = make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED,
                                 LV_TEXT_ALIGN_CENTER, 0, 290, LCD_H_RES, 32, "");
@@ -458,7 +459,7 @@ static void finish_calibration(void)
     set_target_visible(-1);
 
     if (!fit_calibration(&fitted)) {
-        set_status("Kalibrierung fehlgeschlagen, bitte erneut versuchen", COLOR_LOSS);
+        set_status(T(TOUCH_FAILED), COLOR_LOSS);
         s_auto_close_us = esp_timer_get_time() + 2500LL * 1000LL;
         return;
     }
@@ -469,7 +470,7 @@ static void finish_calibration(void)
              s_cal.y_rx, s_cal.y_ry, s_cal.y_c);
 
     const bool saved = touch_calibration_save();
-    set_status(saved ? "Kalibrierung gespeichert" : "Speichern fehlgeschlagen",
+    set_status(saved ? T(TOUCH_SAVED) : T(COMMON_SAVE_FAILED),
                saved ? COLOR_GREEN : COLOR_LOSS);
     s_auto_close_us = esp_timer_get_time() + 1500LL * 1000LL;
 }
@@ -516,7 +517,7 @@ static void timer_cb(lv_timer_t *timer)
             s_sum_x = 0;
             s_sum_y = 0;
             s_sample_count = 0;
-            set_status("Halten...", COLOR_MUTED);
+            set_status(T(TOUCH_HOLDING), COLOR_MUTED);
         }
         s_sum_x += raw_x;
         s_sum_y += raw_y;
@@ -528,7 +529,7 @@ static void timer_cb(lv_timer_t *timer)
         if (held_ms >= TOUCH_CAL_ABORT_MS) {
             set_target_visible(-1);
             update_abort_bar(0);
-            set_status("Kalibrierung abgebrochen", COLOR_LOSS);
+            set_status(T(TOUCH_ABORTED), COLOR_LOSS);
             s_auto_close_us = now_us + 1200LL * 1000LL;
             s_pressed = false;
         }
@@ -550,7 +551,7 @@ static void timer_cb(lv_timer_t *timer)
                 set_status("", COLOR_MUTED);
             }
         } else {
-            set_status("Zu kurz, bitte erneut tippen", COLOR_LOSS);
+            set_status(T(TOUCH_TOO_SHORT), COLOR_LOSS);
         }
     }
 }

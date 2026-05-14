@@ -4,6 +4,7 @@
 // implizit eine neue Reverse-Geocoding-Aufloesung.
 
 #include "app_state.h"
+#include "i18n.h"
 #include "ui_keyboard.h"
 
 #include "esp_log.h"
@@ -94,9 +95,9 @@ static void on_textarea_event(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     lv_obj_t *ta = lv_event_get_target_obj(e);
     if (ta == s_lat_ta) {
-        ui_keyboard_open(ta, "Breitengrad (-90 bis 90)", false, LAT_MAX_LEN);
+        ui_keyboard_open(ta, T(LOCATION_ENTER_LAT), false, LAT_MAX_LEN);
     } else if (ta == s_lon_ta) {
-        ui_keyboard_open(ta, "Laengengrad (-180 bis 180)", false, LON_MAX_LEN);
+        ui_keyboard_open(ta, T(LOCATION_ENTER_LON), false, LON_MAX_LEN);
     }
 }
 
@@ -133,21 +134,21 @@ static void on_save_clicked(lv_event_t *e)
 
     float lat = 0.0f, lon = 0.0f;
     if (!parse_coord(lv_textarea_get_text(s_lat_ta), &lat, -90.0f, 90.0f)) {
-        set_status("Breitengrad ungueltig (-90 bis 90)", COLOR_LOSS);
+        set_status(T(LOCATION_LAT_INVALID), COLOR_LOSS);
         return;
     }
     if (!parse_coord(lv_textarea_get_text(s_lon_ta), &lon, -180.0f, 180.0f)) {
-        set_status("Laengengrad ungueltig (-180 bis 180)", COLOR_LOSS);
+        set_status(T(LOCATION_LON_INVALID), COLOR_LOSS);
         return;
     }
 
     if (!location_settings_save(lat, lon)) {
-        set_status("Speichern fehlgeschlagen", COLOR_LOSS);
+        set_status(T(COMMON_SAVE_FAILED), COLOR_LOSS);
         return;
     }
 
     ESP_LOGI(TAG, "Location gespeichert: %.6f, %.6f", (double)lat, (double)lon);
-    set_status("Gespeichert", COLOR_GREEN);
+    set_status(T(COMMON_SAVED), COLOR_GREEN);
 }
 
 static lv_obj_t *create_textarea(lv_obj_t *parent, int x, int y, const char *placeholder)
@@ -203,7 +204,7 @@ void ui_location_settings_open(void)
     lv_obj_set_pos(accent, 42, 58);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
-               100, 32, 500, 52, "Standort");
+               100, 32, 500, 52, T(TILE_LOCATION));
 
     // Back-Button oben rechts
     lv_obj_t *back = lv_obj_create(s_screen);
@@ -222,9 +223,9 @@ void ui_location_settings_open(void)
 
     // Felder
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
-               FORM_LEFT, 138, 180, 30, "Breitengrad");
+               FORM_LEFT, 138, 180, 30, T(LOCATION_LATITUDE));
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
-               FORM_LEFT, 218, 180, 30, "Laengengrad");
+               FORM_LEFT, 218, 180, 30, T(LOCATION_LONGITUDE));
 
     s_lat_ta = create_textarea(s_screen, FIELD_X, 128, "z.B. 52.520007");
     s_lon_ta = create_textarea(s_screen, FIELD_X, 208, "z.B. 13.404954");
@@ -234,7 +235,7 @@ void ui_location_settings_open(void)
     // Hilfetext + Status
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
                FORM_LEFT, 290, 720, 32,
-               "Dezimalgrad (z.B. maps.google.com -> Rechtsklick)");
+               T(LOCATION_HELP));
     s_status_lbl = make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED,
                               LV_TEXT_ALIGN_LEFT, FORM_LEFT, 326, 720, 32, "");
 
@@ -246,7 +247,7 @@ void ui_location_settings_open(void)
     lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(save, on_save_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *save_lbl = make_label(save, &lv_font_montserrat_30, COLOR_BG,
-                                    LV_TEXT_ALIGN_CENTER, 0, 14, 360, 50, "Speichern");
+                                    LV_TEXT_ALIGN_CENTER, 0, 14, 360, 50, T(COMMON_SAVE));
     lv_obj_add_flag(save_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     // Vorbelegen mit aktuellem Wert.
