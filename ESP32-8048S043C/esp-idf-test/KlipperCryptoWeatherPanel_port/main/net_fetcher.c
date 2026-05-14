@@ -581,12 +581,27 @@ static int weather_display_code_from_current(int code, const char *current_time,
                                              const cJSON *h_code)
 {
     if (!weather_code_is_thunder(code)) return code;
-    if (weather_current_has_precip(precipitation, rain, showers, snowfall)) return code;
 
-    // Open-Meteo kann Gewitter melden, obwohl aktuell kein Niederschlag anliegt.
-    // Dann ist fuer die Anzeige der Stunden-Code plausibler als ein Alarm-Icon.
+    // DWD-ICON-D2 markiert haeufig jeden instabilen Schauer als Gewitter (95).
+    // Wir akzeptieren das Alarm-Icon nur, wenn auch der Stunden-Code Gewitter
+    // meldet UND die Niederschlagsmenge nennenswert ist (>= 1.0 mm/h, was etwa
+    // einer echten Gewitter-Lage entspricht). Sonst fallen wir auf den Stunden-
+    // Code zurueck oder auf "Schauer"/"bewoelkt" als Notnagel.
     int hourly_code = weather_hourly_code_for_current_hour(current_time, h_time, h_code);
     if (hourly_code >= 0 && !weather_code_is_thunder(hourly_code)) return hourly_code;
+
+    const double thunder_precip_mm = 1.0;
+    double r = isfinite(rain)          ? rain          : 0.0;
+    double s = isfinite(showers)       ? showers       : 0.0;
+    double p = isfinite(precipitation) ? precipitation : 0.0;
+    double sn = isfinite(snowfall)     ? snowfall      : 0.0;
+    if (p >= thunder_precip_mm || r >= thunder_precip_mm || s >= thunder_precip_mm) {
+        return code;
+    }
+
+    // Beide melden Gewitter, aber kaum Niederschlag -> sehr wahrscheinlich
+    // Modell-Overshoot. Schauer-Icon wenn ueberhaupt etwas faellt, sonst bewoelkt.
+    if (weather_current_has_precip(p, r, s, sn)) return 80;
     return 3;
 }
 
