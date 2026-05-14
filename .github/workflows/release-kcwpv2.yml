@@ -176,13 +176,13 @@ jobs:
             exit 1
           fi
 
-          # --latest=false: das Repo enthaelt potenziell mehrere Projekte. Die
-          # Repo-weite "Latest"-Anzeige soll dadurch nicht von einzelnen
-          # Projekt-Releases gekapert werden. Der ESP-Client filtert eh per
-          # tag_name-Prefix auf das eigene Projekt.
+          # Hinweis: --latest=false NICHT verwenden. Github versteckt Releases
+          # mit make_latest=false aus dem /releases-Listing-Endpoint, den der
+          # ESP-OTA-Client abfragt. Defaults stehen lassen (auto = neuester
+          # publish_date wird "Latest"). Bei Multi-Projekt-Repo bekommt das
+          # zuletzt released Projekt einfach das Latest-Badge - kosmetisch ok.
           gh release create "${RELEASE_TAG}" \
             release-bins/*.bin \
             --title "${RELEASE_TAG}" \
             --notes "${RELEASE_NAME} ESP-IDF firmware binaries for ${BOARD_NAME}, German (de) and English (en)." \
-            --latest=false \
             --target "${GITHUB_SHA}"
