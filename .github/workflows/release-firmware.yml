@@ -14,7 +14,8 @@ permissions:
 env:
   PROJECT_DIR: ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port
   PROJECT_NAME: KlipperCryptoWeatherPanel_port
-  FIRMWARE_BASENAME: KlipperCryptoWeatherPanelV2_IDF
+  BOARD_NAME: ESP32-8048S043C
+  FIRMWARE_BASENAME: KCWPv2_8048S043C
   IDF_TARGET: esp32s3
 
 jobs:
@@ -107,6 +108,6 @@ jobs:
             gh release create "${RELEASE_TAG}" \
               release-bins/*.bin \
               --title "${RELEASE_TAG}" \
-              --notes "ESP32-S3 firmware binaries for German (de) and English (en)." \
+              --notes "${BOARD_NAME} ESP-IDF firmware binaries for German (de) and English (en)." \
               --verify-tag
           fi
