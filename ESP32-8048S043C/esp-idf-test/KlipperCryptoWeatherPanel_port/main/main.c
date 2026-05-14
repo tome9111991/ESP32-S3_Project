@@ -25,6 +25,7 @@
 #include "lvgl.h"
 #include "app_state.h"
 #include "i18n.h"
+#include "ota_service.h"
 
 static const char *TAG = "dashboard";
 
@@ -574,6 +575,9 @@ void app_main(void)
     }
 
     net_start();
+    // OTA-Service initialisieren - markiert ggf. pending OTA-Image als valid
+    // (Rollback-Schutz). Check/Install werden vom Firmware-Info-Screen getriggert.
+    ota_service_init();
     s_last_auto_switch_us = esp_timer_get_time();
 
     ESP_LOGI(TAG, "Running.");

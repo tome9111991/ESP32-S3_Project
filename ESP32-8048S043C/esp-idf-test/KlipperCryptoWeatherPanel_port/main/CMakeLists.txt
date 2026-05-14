@@ -25,6 +25,7 @@ idf_component_register(
         "touch_calibration.c"
         "display_brightness.c"
         "net_fetcher.c"
+        "ota_service.c"
         "ui_font_price_digits.cpp"
         "ui_font_time_digits.cpp"
         ${UI_ASSET_SRCS}
@@ -40,6 +41,8 @@ idf_component_register(
         esp_netif
         nvs_flash
         esp_http_client
+        esp_https_ota
+        app_update
         esp-tls
         mbedtls
         espressif__cjson
@@ -52,9 +55,18 @@ idf_component_register(
 # Erlaubt dem Release-Workflow, Version und Board-Namen in der Firmware zu
 # setzen, z. B. `idf.py build -DAPP_FW_VERSION="0.1.0" -DAPP_FW_BOARD="..."`.
 # Ohne Override greifen die Fallbacks in main/version.h.
+if(DEFINED APP_FW_NAME)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_FW_NAME="${APP_FW_NAME}")
+endif()
 if(DEFINED APP_FW_VERSION)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_FW_VERSION="${APP_FW_VERSION}")
 endif()
 if(DEFINED APP_FW_BOARD)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_FW_BOARD="${APP_FW_BOARD}")
+endif()
+if(DEFINED APP_OTA_REPO_OWNER)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_OTA_REPO_OWNER="${APP_OTA_REPO_OWNER}")
+endif()
+if(DEFINED APP_OTA_REPO_NAME)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE APP_OTA_REPO_NAME="${APP_OTA_REPO_NAME}")
 endif()

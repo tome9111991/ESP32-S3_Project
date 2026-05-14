@@ -73,9 +73,20 @@ extern "C" {
     X(POPUP_FACTORY_DELETE_1,         "Alle Einstellungen werden geloescht",    "All settings will be deleted") \
     X(POPUP_FACTORY_DELETE_2,         "und das Geraet startet neu.",            "and the device will restart.") \
     X(POPUP_FIRMWARE,                 "Firmware",                              "Firmware")       \
+    X(POPUP_FW_NAME,                  "Name",                                  "Name")           \
     X(POPUP_FW_VERSION,               "Version",                               "Version")        \
     X(POPUP_FW_BOARD,                 "Board",                                 "Board")          \
     X(POPUP_FW_LANGUAGE,              "Sprache",                               "Language")       \
+    X(OTA_CHECK,                      "Auf Update pruefen",                    "Check for update") \
+    X(OTA_INSTALL,                    "Update installieren",                   "Install update") \
+    X(OTA_IDLE,                       "Letzte Pruefung: --",                   "Last check: --") \
+    X(OTA_CHECKING,                   "Suche nach Update...",                  "Checking for update...") \
+    X(OTA_NO_UPDATE,                  "Firmware ist aktuell",                  "Firmware is up to date") \
+    X(OTA_UPDATE_AVAILABLE,           "Update verfuegbar",                     "Update available") \
+    X(OTA_DOWNLOADING,                "Lade Firmware...",                      "Downloading firmware...") \
+    X(OTA_SUCCESS,                    "Update installiert, starte neu...",     "Update installed, restarting...") \
+    X(OTA_ERROR,                      "Fehler beim Update",                    "Update error") \
+    X(OTA_NOT_CONFIGURED,             "OTA nicht konfiguriert",                "OTA not configured") \
     X(TOUCH_TITLE,                    "Touch kalibrieren",                     "Calibrate touch") \
     X(TOUCH_POINT_FMT,                "Punkt %d / %d",                         "Point %d / %d")  \
     X(TOUCH_HINT,                     "Punkt antippen. Halten zum Abbrechen.",  "Tap the point. Hold to cancel.") \

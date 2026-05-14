@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Type 'yes' to publish a GitHub release tagged from version.h. Anything else just uploads build artifacts."
+        description: "Type 'yes' to publish a GitHub release tagged ${APP_FW_NAME}-${APP_FW_VERSION}. Anything else just uploads build artifacts."
         required: false
         default: "no"
         type: string
@@ -17,13 +17,53 @@ env:
   PROJECT_NAME: KlipperCryptoWeatherPanel_port
   RELEASE_NAME: Klipper Crypto Weather Panel V2
   BOARD_NAME: ESP32-8048S043C
-  FIRMWARE_BASENAME: KCWPv2_8048S043C
   IDF_TARGET: esp32s3
   VERSION_HEADER: ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port/main/version.h
 
 jobs:
+  version:
+    name: Read firmware identifier
+    runs-on: ubuntu-latest
+    outputs:
+      fw_name:    ${{ steps.read.outputs.fw_name }}
+      fw_version: ${{ steps.read.outputs.fw_version }}
+      release_tag: ${{ steps.read.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Parse version.h
+        id: read
+        shell: bash
+        run: |
+          FW_NAME=$(sed -n 's/^#define APP_FW_NAME "\(.*\)".*/\1/p' "${VERSION_HEADER}" | head -n 1)
+          FW_VERSION=$(sed -n 's/^#define APP_FW_VERSION "\(.*\)".*/\1/p' "${VERSION_HEADER}" | head -n 1)
+          if [ -z "${FW_NAME}" ] || [ -z "${FW_VERSION}" ]; then
+            echo "::error::Could not read APP_FW_NAME/APP_FW_VERSION from ${VERSION_HEADER}"
+            exit 1
+          fi
+          # Versionsformat-Sanity: muss lexikographisch sortierbar sein, sonst
+          # vergleicht der OTA-Client (strcmp) falsch herum. YYYYMMDD oder
+          # semver mit fester Stellenzahl ok.
+          case "${FW_VERSION}" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;             # YYYYMMDD
+            [0-9]*.[0-9]*.[0-9]*) ;;                                  # x.y.z
+            *)
+              echo "::warning::APP_FW_VERSION='${FW_VERSION}' may not sort correctly with strcmp."
+              ;;
+          esac
+          RELEASE_TAG="${FW_NAME}-${FW_VERSION}"
+          echo "Detected APP_FW_NAME='${FW_NAME}' APP_FW_VERSION='${FW_VERSION}'"
+          echo "Release tag will be '${RELEASE_TAG}'"
+          {
+            echo "fw_name=${FW_NAME}"
+            echo "fw_version=${FW_VERSION}"
+            echo "release_tag=${RELEASE_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.language }} firmware
+    needs: version
     runs-on: ubuntu-latest
     container: espressif/idf:v6.0.1
     strategy:
@@ -35,6 +75,10 @@ jobs:
       run:
         shell: bash
         working-directory: ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port
+
+    env:
+      FW_NAME:     ${{ needs.version.outputs.fw_name }}
+      FW_VERSION:  ${{ needs.version.outputs.fw_version }}
 
     steps:
       - name: Checkout
@@ -60,22 +104,31 @@ jobs:
           idf.py \
             -B "build-${{ matrix.language }}" \
             -DSDKCONFIG="sdkconfig.ci.${{ matrix.language }}" \
+            -DAPP_OTA_REPO_OWNER="${GITHUB_REPOSITORY_OWNER}" \
+            -DAPP_OTA_REPO_NAME="${GITHUB_REPOSITORY##*/}" \
             build
 
       - name: Collect binaries
         run: |
           . /opt/esp/idf/export.sh
 
+          # Sprach-Token muss gross sein - der OTA-Client filtert auf
+          # APP_FW_LANG (DE/EN), case-sensitive.
+          LANG_UPPER=$(echo "${{ matrix.language }}" | tr '[:lower:]' '[:upper:]')
+          ASSET_BASE="${FW_NAME}-${BOARD_NAME}-${LANG_UPPER}"
+
           mkdir -p "release-${{ matrix.language }}"
 
+          # OTA-Image (nur App, esp_https_ota-kompatibel)
           cp \
             "build-${{ matrix.language }}/${PROJECT_NAME}.bin" \
-            "release-${{ matrix.language }}/${FIRMWARE_BASENAME}-${{ matrix.language }}-ota.bin"
+            "release-${{ matrix.language }}/${ASSET_BASE}.bin"
 
+          # Full-Image (Bootloader + Partitions + App, fuer Erstflash)
           (
             cd "build-${{ matrix.language }}"
             esptool.py --chip "${IDF_TARGET}" merge_bin \
-              -o "../release-${{ matrix.language }}/${FIRMWARE_BASENAME}-${{ matrix.language }}-full.bin" \
+              -o "../release-${{ matrix.language }}/${ASSET_BASE}-full.bin" \
               @flash_args
           )
 
@@ -88,24 +141,18 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     if: github.event.inputs.release == 'yes'
+
+    env:
+      FW_NAME:     ${{ needs.version.outputs.fw_name }}
+      FW_VERSION:  ${{ needs.version.outputs.fw_version }}
+      RELEASE_TAG: ${{ needs.version.outputs.release_tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Read firmware version from version.h
-        id: version
-        run: |
-          FW_VERSION=$(sed -n 's/^#define APP_FW_VERSION "\(.*\)".*/\1/p' "${VERSION_HEADER}" | head -n 1)
-          if [ -z "${FW_VERSION}" ]; then
-            echo "Could not read APP_FW_VERSION from ${VERSION_HEADER}" >&2
-            exit 1
-          fi
-          echo "Detected APP_FW_VERSION='${FW_VERSION}'"
-          echo "fw_version=${FW_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Download firmware artifacts
         uses: actions/download-artifact@v7
@@ -118,10 +165,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          FW_VERSION: ${{ steps.version.outputs.fw_version }}
         run: |
-          RELEASE_TAG="v${FW_VERSION}"
-
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             echo "::error::Release ${RELEASE_TAG} already exists. Bump APP_FW_VERSION in main/version.h before publishing again."
             exit 1
@@ -132,8 +176,13 @@ jobs:
             exit 1
           fi
 
+          # --latest=false: das Repo enthaelt potenziell mehrere Projekte. Die
+          # Repo-weite "Latest"-Anzeige soll dadurch nicht von einzelnen
+          # Projekt-Releases gekapert werden. Der ESP-Client filtert eh per
+          # tag_name-Prefix auf das eigene Projekt.
           gh release create "${RELEASE_TAG}" \
             release-bins/*.bin \
             --title "${RELEASE_TAG}" \
             --notes "${RELEASE_NAME} ESP-IDF firmware binaries for ${BOARD_NAME}, German (de) and English (en)." \
+            --latest=false \
             --target "${GITHUB_SHA}"

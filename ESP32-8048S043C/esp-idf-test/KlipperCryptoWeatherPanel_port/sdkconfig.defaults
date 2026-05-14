@@ -86,6 +86,16 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 
+# --- OTA ----------------------------------------------------------------------
+# Rollback-Support: wenn die neue Firmware nach OTA nicht bootet oder nicht
+# explizit "valid" markiert wird (ota_service.c ruft das nach erfolgreichem
+# Boot), faellt der Bootloader auf die vorherige Partition zurueck.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# esp_https_ota braucht das fuer den Stream-Modus auf HTTPS-Redirects (GitHub
+# Releases redirected auf objects.githubusercontent.com).
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=n
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
+
 # --- SNTP / Zeit-Sync ---------------------------------------------------------
 # Router-NTP via DHCP Option 42 (typisch <10 ms statt ~50-200 ms zu pool.ntp.org).
 # Erlaubt esp_sntp_servermode_dhcp(true) in net_fetcher.c.
