@@ -1,4 +1,4 @@
-name: Crypto Panel 8048S043C Firmware Release
+name: KCWPv2 Firmware Release (ESP32-8048S043C)
 
 on:
   workflow_dispatch:
