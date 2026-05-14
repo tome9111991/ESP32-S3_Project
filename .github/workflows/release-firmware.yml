@@ -3,8 +3,8 @@ name: Release ESP32 Firmware
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: "Existing tag to publish as release. Leave empty to only build artifacts."
+      version:
+        description: "Release version, for example 0.1.0 or v0.1.0. Leave empty to only build artifacts."
         required: false
         type: string
 
@@ -22,7 +22,7 @@ jobs:
   build:
     name: Build ${{ matrix.language }} firmware
     runs-on: ubuntu-latest
-    container: espressif/idf:release-v6.0
+    container: espressif/idf:v6.0.1
     strategy:
       fail-fast: false
       matrix:
@@ -87,7 +87,7 @@ jobs:
     name: Publish GitHub release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.release_tag != ''
+    if: github.event.inputs.version != ''
 
     steps:
       - name: Download firmware artifacts
@@ -100,8 +100,20 @@ jobs:
       - name: Attach binaries to release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
+          if [[ ! "${VERSION}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '${VERSION}'. Use a version like 0.1.0 or v0.1.0."
+            exit 1
+          fi
+
+          if [[ "${VERSION}" == v* ]]; then
+            RELEASE_TAG="${VERSION}"
+          else
+            RELEASE_TAG="v${VERSION}"
+          fi
+
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" release-bins/*.bin --clobber
           else
@@ -109,5 +121,5 @@ jobs:
               release-bins/*.bin \
               --title "${RELEASE_TAG}" \
               --notes "${BOARD_NAME} ESP-IDF firmware binaries for German (de) and English (en)." \
-              --verify-tag
+              --target "${GITHUB_SHA}"
           fi
