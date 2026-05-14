@@ -1,0 +1,112 @@
+name: Release ESP32 Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing tag to publish as release. Leave empty to only build artifacts."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PROJECT_DIR: ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port
+  PROJECT_NAME: KlipperCryptoWeatherPanel_port
+  FIRMWARE_BASENAME: KlipperCryptoWeatherPanelV2_IDF
+  IDF_TARGET: esp32s3
+
+jobs:
+  build:
+    name: Build ${{ matrix.language }} firmware
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v6.0
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [de, en]
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build firmware
+        run: |
+          . /opt/esp/idf/export.sh
+
+          cp sdkconfig.defaults "sdkconfig.ci.${{ matrix.language }}"
+          if [ "${{ matrix.language }}" = "en" ]; then
+            {
+              echo "# CONFIG_APP_LANG_DE is not set"
+              echo "CONFIG_APP_LANG_EN=y"
+            } >> "sdkconfig.ci.${{ matrix.language }}"
+          else
+            {
+              echo "CONFIG_APP_LANG_DE=y"
+              echo "# CONFIG_APP_LANG_EN is not set"
+            } >> "sdkconfig.ci.${{ matrix.language }}"
+          fi
+
+          idf.py \
+            -B "build-${{ matrix.language }}" \
+            -DSDKCONFIG="sdkconfig.ci.${{ matrix.language }}" \
+            build
+
+      - name: Collect binaries
+        run: |
+          . /opt/esp/idf/export.sh
+
+          mkdir -p "release-${{ matrix.language }}"
+
+          cp \
+            "build-${{ matrix.language }}/${PROJECT_NAME}.bin" \
+            "release-${{ matrix.language }}/${FIRMWARE_BASENAME}-${{ matrix.language }}-ota.bin"
+
+          (
+            cd "build-${{ matrix.language }}"
+            esptool.py --chip "${IDF_TARGET}" merge_bin \
+              -o "../release-${{ matrix.language }}/${FIRMWARE_BASENAME}-${{ matrix.language }}-full.bin" \
+              @flash_args
+          )
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.language }}
+          path: ${{ env.PROJECT_DIR }}/release-${{ matrix.language }}/*.bin
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.release_tag != ''
+
+    steps:
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: release-bins
+          merge-multiple: true
+
+      - name: Attach binaries to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" release-bins/*.bin --clobber
+          else
+            gh release create "${RELEASE_TAG}" \
+              release-bins/*.bin \
+              --title "${RELEASE_TAG}" \
+              --notes "ESP32-S3 firmware binaries for German (de) and English (en)." \
+              --verify-tag
+          fi
