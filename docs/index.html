@@ -12,36 +12,14 @@
     <h1>ESP32 Web Flasher</h1>
     <p class="hint">
       Funktioniert nur in <strong>Chrome</strong> oder <strong>Edge</strong> (WebSerial).
-      ESP32 per USB anschließen, Board und Projekt wählen, dann auf <em>Install</em> klicken.
+      ESP32 per USB anschließen, dann den Schritten unten folgen.
     </p>
 
-    <form id="selector">
-      <label>
-        Board
-        <select id="board" required>
-          <option value="" disabled selected>– Board wählen –</option>
-        </select>
-      </label>
+    <p id="status" hidden></p>
 
-      <label>
-        Projekt
-        <select id="project" required disabled>
-          <option value="" disabled selected>– zuerst Board wählen –</option>
-        </select>
-      </label>
-    </form>
+    <ol id="wizard"></ol>
 
-    <div id="install-slot" hidden>
-      <esp-web-install-button id="installer"></esp-web-install-button>
-      <p class="manifest-info">
-        Manifest: <code id="manifest-path"></code>
-      </p>
-    </div>
-
-    <section id="project-info" hidden>
-      <h2 id="project-title"></h2>
-      <p id="project-description"></p>
-    </section>
+    <section id="install-slot" hidden></section>
 
     <footer>
       <p>

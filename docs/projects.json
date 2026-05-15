@@ -8,7 +8,14 @@
           "id": "kcwpv2",
           "name": "Klipper Crypto Weather Panel V2",
           "description": "ESP-IDF Firmware. Zeigt Klipper-/Wetter-/Crypto-Daten auf dem 4.3\" Display.",
-          "manifest": "manifests/esp32-8048s043c-kcwpv2.json"
+          "chipFamily": "ESP32-S3",
+          "source": {
+            "type": "github-release",
+            "owner": "tome9111991",
+            "repo": "ESP32-S3_Project",
+            "tagPrefix": "KCWPv2-",
+            "assetTemplate": "KCWPv2-ESP32-8048S043C-{lang}-full.bin"
+          }
         }
       ]
     },
@@ -19,8 +26,46 @@
         {
           "id": "kcwp",
           "name": "Klipper Crypto Weather Panel",
-          "description": "Arduino-Variante für das Guition Board.",
-          "manifest": "manifests/guition-jc4827w543-kcwp.json"
+          "description": "Arduino-Variante für das Guition Board. Trage deine Werte ein, dann wird daraus eine personalisierte Firmware gebaut.",
+          "chipFamily": "ESP32-S3",
+          "source": {
+            "type": "build-on-demand",
+            "workflow": "build-guition-klippercrypto.yml",
+            "headerName": "config_private.h",
+            "preamble": "#pragma once\n\n// Generiert vom ESP32 Web Flasher\n\n",
+            "groups": [
+              {
+                "label": "WLAN",
+                "fields": [
+                  { "key": "WIFI_SSID", "label": "WLAN-Name (SSID)", "type": "string", "default": "", "required": true },
+                  { "key": "WIFI_PASSWORD", "label": "WLAN-Passwort", "type": "password", "default": "", "required": true }
+                ]
+              },
+              {
+                "label": "Standort & Zeit",
+                "fields": [
+                  { "key": "LOCATION_LATITUDE", "label": "Breitengrad", "type": "float", "default": 52.0, "required": true, "hint": "z.B. 52.520 für Berlin" },
+                  { "key": "LOCATION_LONGITUDE", "label": "Längengrad", "type": "float", "default": 13.0, "required": true, "hint": "z.B. 13.405 für Berlin" },
+                  { "key": "TIMEZONE_POSIX", "label": "POSIX-Zeitzone", "type": "string", "default": "CET-1CEST,M3.5.0,M10.5.0/3", "required": true, "hint": "Deutschland: CET-1CEST,M3.5.0,M10.5.0/3" }
+                ]
+              },
+              {
+                "label": "Crypto",
+                "fields": [
+                  { "key": "CRYPTO_BASE_SYMBOL", "label": "Basis-Symbol", "type": "string", "default": "BTC" },
+                  { "key": "CRYPTO_QUOTE_SYMBOL", "label": "Quote-Symbol", "type": "string", "default": "USD" },
+                  { "key": "CRYPTO_PRICE_PREFIX", "label": "Preis-Prefix", "type": "string", "default": "", "hint": "Leer = automatisch ($ für USD, sonst Quote-Symbol)" },
+                  { "key": "CRYPTO_SERVICE_NAME", "label": "Service-Label", "type": "string", "default": "COINBASE", "hint": "Nur Anzeige. Preis-API ist hardcoded Coinbase." }
+                ]
+              },
+              {
+                "label": "Klipper",
+                "fields": [
+                  { "key": "KLIPPER_BASE_URL", "label": "Klipper Base-URL", "type": "string", "default": "http://mainsail", "required": true, "hint": "z.B. http://mainsail.local oder http://192.168.x.x" }
+                ]
+              }
+            ]
+          }
         }
       ]
     }

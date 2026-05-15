@@ -2,7 +2,8 @@
 
 Statische Seite, die per [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
 ESP32-Firmware direkt aus dem Browser auf das Board flashen kann (Chrome/Edge,
-WebSerial).
+WebSerial). Versionen und Sprachen werden zur Laufzeit aus den GitHub Releases
+gezogen.
 
 ## Aktivieren
 
@@ -16,51 +17,83 @@ WebSerial).
 
 ```
 docs/
-├── index.html              UI (zwei Dropdowns + esp-web-install-button)
+├── index.html              UI (Board/Projekt/Version/Sprache + Buttons)
 ├── style.css
-├── app.js                  Lädt projects.json und setzt das Manifest am Button
-├── projects.json           Liste der Boards + Projekte → zeigt auf Manifeste
-└── manifests/
-    ├── esp32-8048s043c-kcwpv2.json
-    └── guition-jc4827w543-kcwp.json
+├── app.js                  Releases laden, Manifest dynamisch erzeugen
+├── projects.json           Konfig pro Board + Projekt
+└── manifests/              Statische Manifeste fuer Projekte ohne Release
 ```
 
-## Neues Projekt hinzufügen
+## Datenfluss
 
-1. In `docs/projects.json` einen neuen Eintrag unter `boards[].projects` anlegen
-   und auf ein neues Manifest unter `manifests/` zeigen lassen.
-2. Manifest anlegen. Format siehe
-   <https://esphome.github.io/esp-web-tools/#manifest>. Bei einem **merged
-   binary** ist `offset: 0`. Falls separate Parts (bootloader/partitions/app)
-   geflasht werden sollen, müssen die Offsets entsprechend gesetzt werden.
+1. Beim Laden zieht `app.js` die `projects.json` und fuellt die Board-Dropdown.
+2. Nach Board-Auswahl wird die Projekt-Dropdown gefuellt.
+3. Bei `source.type = "github-release"` ruft die Seite
+   `https://api.github.com/repos/<owner>/<repo>/releases` ab,
+   filtert auf Tags mit `tagPrefix` und liest die Asset-Namen gegen
+   `assetTemplate` ein. `{lang}` wird zum Sprach-Code (DE, EN, …).
+4. Nach Versions- und Sprachwahl wird im Browser ein **Manifest als Blob-URL**
+   gebaut und am `<esp-web-install-button>` gesetzt. Web Flash holt die
+   `.bin` dann direkt aus dem Release (CORS bei GitHub-Release-Downloads ok).
+5. Daneben werden Direkt-Download-Buttons fuer alle Sprachen der gewaehlten
+   Version gerendert.
 
-## TODO – Binary-URLs eintragen
+## Neues Projekt mit Release-Source
 
-Die beiden Manifeste enthalten aktuell `TODO`-Platzhalter. Die Binary-URL muss
-auf eine **öffentlich erreichbare** `.bin`-Datei zeigen, von gleicher Origin
-oder mit CORS-Header `Access-Control-Allow-Origin: *`. GitHub Releases
-(`github.com/<user>/<repo>/releases/download/...`) liefern den Header und sind
-die einfachste Variante.
+In `projects.json` einen Projekt-Eintrag anlegen:
 
-Beispiel für KCWPv2 (Release `KCWPv2-YYYYMMDD` existiert bereits):
-
+```json
+{
+  "id": "kcwpv2",
+  "name": "Klipper Crypto Weather Panel V2",
+  "description": "…",
+  "chipFamily": "ESP32-S3",
+  "source": {
+    "type": "github-release",
+    "owner": "tome9111991",
+    "repo": "ESP32-S3_Project",
+    "tagPrefix": "KCWPv2-",
+    "assetTemplate": "KCWPv2-ESP32-8048S043C-{lang}-full.bin"
+  }
+}
 ```
-https://github.com/tome9111991/ESP32-S3_Project/releases/download/KCWPv2-20251115/KCWPv2-ESP32-8048S043C-DE-full.bin
+
+- `tagPrefix` filtert die Releases (alles mit anderem Prefix wird ignoriert),
+  der Rest des Tags wird als Versions-Label angezeigt.
+- `assetTemplate` muss exakt zum Asset-Namen aus dem Build-Workflow passen,
+  mit `{lang}` als Platzhalter. Hat eine Version mehrere Sprach-Assets,
+  erscheint eine Sprach-Dropdown.
+- Nur `-full.bin` (Bootloader+Partitions+App merged) wird verwendet — das ist
+  was ESP Web Tools fuer einen Erstflash ab Offset 0 braucht.
+
+## Neues Projekt mit statischem Manifest
+
+Falls kein GitHub-Release zur Verfuegung steht, kann ein klassisches
+ESP-Web-Tools-Manifest unter `docs/manifests/` abgelegt und in `projects.json`
+verlinkt werden:
+
+```json
+{
+  "id": "kcwp",
+  "name": "…",
+  "chipFamily": "ESP32-S3",
+  "source": { "type": "manifest", "manifest": "manifests/foo.json" }
+}
 ```
 
-Für das Guition-Projekt produziert der CI-Workflow aktuell nur Artifacts (keine
-öffentliche URL). Optionen:
+Manifest-Format: <https://esphome.github.io/esp-web-tools/#manifest>. Bei einem
+gemergten Binary ist `offset: 0`.
 
-- Release-Workflow analog zu `release-kcwpv2.yml` ergänzen.
-- `.merged.bin` einmalig nach `docs/firmware/` committen (einfach, aber bläht
-  die Git-History bei jedem Build auf).
+## TODO
+
+- Guition-`.bin` ist aktuell nur als CI-Artifact verfuegbar. Optionen, sobald
+  das Projekt geflasht werden koennen soll:
+  - Release-Workflow analog zu `release-kcwpv2.yml`.
+  - `.merged.bin` einmalig nach `docs/firmware/` committen.
 
 ## Nächste Schritte (Ideen)
 
-- **Private-Config-Editor:** UI-Maske, in der der User WLAN-/API-Werte einträgt;
-  daraus wird per JS ein `config_private.h` generiert und auf einen
-  CI-Trigger (`workflow_dispatch` mit Inputs) geschickt, der dann auf
-  `dispatch`-Event hin baut. Variante: alles client-seitig kompilieren ist auf
-  ESP32 unrealistisch (Toolchain zu groß für Browser).
-- **Sprachauswahl:** dritte Dropdown vor Install-Button, sobald ein Projekt
-  mehrere Sprach-Builds anbietet (KCWPv2 hat schon DE/EN-Assets im Release).
+- **Private-Config-Editor:** UI-Maske, in der WLAN-/API-Werte eingetragen
+  werden; daraus per `workflow_dispatch`-Trigger einen CI-Build anstossen, der
+  ein personalisiertes Image baut. Vollstaendiges Compile im Browser ist mit
+  der ESP-IDF-Toolchain unrealistisch.
