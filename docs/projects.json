@@ -1,4 +1,5 @@
 {
+  "assetProxyUrl": "https://kcwp-flasher.tommi91.workers.dev",
   "boards": [
     {
       "id": "esp32-8048s043c",

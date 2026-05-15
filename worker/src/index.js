@@ -3,6 +3,9 @@
 // Endpoints:
 //   POST /build   { config_h_b64 }  -> 202 { correlation_id }
 //   GET  /status?id=<corr_id>       -> 200 { status, conclusion?, asset_url? }
+//   GET  /asset?url=<gh_release>    -> 200 octet-stream (CORS-Proxy fuer GitHub
+//                                     Release Assets, da release-assets.github
+//                                     usercontent.com keine CORS-Header setzt)
 //
 // Env (set via wrangler):
 //   GH_TOKEN          Secret. Fine-Grained PAT with actions:write + contents:read
@@ -36,6 +39,9 @@ export default {
       }
       if (url.pathname === "/status" && req.method === "GET") {
         return withCors(await handleStatus(url, env), env, req);
+      }
+      if (url.pathname === "/asset" && req.method === "GET") {
+        return handleAsset(url, env, req);
       }
       if (url.pathname === "/" || url.pathname === "/health") {
         return withCors(jsonResp({ ok: true }), env, req);
@@ -171,6 +177,31 @@ async function handleStatus(url, env) {
     conclusion: run.conclusion, // null | success | failure | cancelled | ...
     run_url: run.html_url,
   });
+}
+
+async function handleAsset(url, env, req) {
+  const target = url.searchParams.get("url");
+  if (!target) {
+    return withCors(errorResp(400, "url required"), env, req);
+  }
+  // Whitelist: nur Release-Assets des konfigurierten Repos. Verhindert, dass
+  // der Worker als Open-Proxy missbraucht wird.
+  const allowedPrefix = `https://github.com/${env.GH_OWNER}/${env.GH_REPO}/releases/download/`;
+  if (!target.startsWith(allowedPrefix)) {
+    return withCors(errorResp(403, "url not allowed"), env, req);
+  }
+
+  const upstream = await fetch(target, { redirect: "follow" });
+  const headers = new Headers();
+  for (const h of ["content-type", "content-length", "etag", "last-modified"]) {
+    const v = upstream.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  // Edge-Cache fuer 10 Minuten — Asset-Inhalte sind immutable.
+  headers.set("Cache-Control", "public, max-age=600");
+  for (const [k, v] of Object.entries(corsHeaders(env, req))) headers.set(k, v);
+
+  return new Response(upstream.body, { status: upstream.status, headers });
 }
 
 // ---------- Helpers ----------

@@ -473,6 +473,16 @@ function downloadConfigHeader(project, values) {
 
 // ---------- Install slot (per source type) ----------
 
+// GitHub Release Asset URLs werden auf release-assets.githubusercontent.com
+// umgeleitet, und der Host setzt keine CORS-Header. esp-web-tools-Fetches
+// scheitern dann mit "Failed to fetch". Wenn ein assetProxyUrl konfiguriert
+// ist, schicken wir die URL durch unseren Cloudflare-Worker, der CORS setzt.
+function proxifyAssetUrl(rawUrl) {
+  const proxy = config?.assetProxyUrl;
+  if (!proxy) return rawUrl;
+  return `${proxy}/asset?url=${encodeURIComponent(rawUrl)}`;
+}
+
 function clearInstallSlot() {
   installSlot.innerHTML = "";
   installSlot.hidden = true;
@@ -496,7 +506,7 @@ function renderInstallRelease(project, version, lang) {
     version: version.version,
     new_install_prompt_erase: true,
     builds: [
-      { chipFamily: project.chipFamily ?? "ESP32-S3", parts: [{ path: asset.url, offset: 0 }] },
+      { chipFamily: project.chipFamily ?? "ESP32-S3", parts: [{ path: proxifyAssetUrl(asset.url), offset: 0 }] },
     ],
   };
   const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
@@ -696,7 +706,7 @@ function renderBuildSuccess(project) {
     version: "on-demand",
     new_install_prompt_erase: true,
     builds: [
-      { chipFamily: project.chipFamily ?? "ESP32-S3", parts: [{ path: build.assetUrl, offset: 0 }] },
+      { chipFamily: project.chipFamily ?? "ESP32-S3", parts: [{ path: proxifyAssetUrl(build.assetUrl), offset: 0 }] },
     ],
   };
   const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
