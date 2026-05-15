@@ -84,6 +84,7 @@ static volatile bool s_sntp_started;
 static volatile bool s_time_synced;
 static volatile bool s_fetch_pause_requested;
 static volatile bool s_http_get_active;
+static volatile bool s_weather_refresh_requested;
 // Reverse-Geocoding nur einmal pro Boot; bei Location-Wechsel zuruecksetzen,
 // damit der City-Name neu aufgeloest wird.
 static volatile bool s_location_name_resolved;
@@ -272,10 +273,32 @@ bool location_settings_save(float latitude, float longitude)
         if (g_app.mutex) app_lock();
         g_app.location_latitude  = latitude;
         g_app.location_longitude = longitude;
-        // Reverse-Geocoding-Name neu anfragen lassen.
+        // Neue Koordinaten sofort sichtbar machen; echte Werte kommen mit dem
+        // erzwungenen Weather-Fetch nach.
+        app_set_str(g_app.current_temp, sizeof(g_app.current_temp), "--");
+        app_set_str(g_app.weather_status, sizeof(g_app.weather_status), T(WEATHER_STATUS_INIT));
         g_app.weather_location[0] = '\0';
+        g_app.weather_code = -1;
+        g_app.weather_apparent_temp = NAN;
+        g_app.weather_wind_speed = NAN;
+        g_app.weather_wind_dir = -1;
+        g_app.weather_humidity = -1;
+        g_app.weather_is_day = -1;
+        for (int i = 0; i < WEATHER_DAILY_COUNT; i++) {
+            g_app.weather_daily[i].code = -1;
+            g_app.weather_daily[i].tmin = NAN;
+            g_app.weather_daily[i].tmax = NAN;
+            g_app.weather_daily[i].precip_prob_max = -1;
+            g_app.weather_daily[i].sunrise_min = -1;
+            g_app.weather_daily[i].sunset_min = -1;
+            g_app.weather_daily[i].weekday = -1;
+        }
+        g_app.weather_daily_count = 0;
+        g_app.weather_forecast_ready = false;
         if (g_app.mutex) app_unlock();
         s_location_name_resolved = false;
+        s_weather_refresh_requested = true;
+        display_brightness_request_sun_refresh();
     }
     return ok;
 }
@@ -662,9 +685,9 @@ static bool fetch_weather(void)
             ESP_LOGI(TAG, "Standort aufgeloest: %s", name);
             s_location_name_resolved = true;
         } else {
-            // Bei Fehler nicht endlos hammern; naechster Versuch beim naechsten
-            // Weather-Refresh oder nach erneutem location_settings_save().
-            s_location_name_resolved = true;
+            // Netzwerk/DNS kann direkt nach WLAN noch wackeln; beim naechsten
+            // Weather-Refresh erneut versuchen.
+            s_location_name_resolved = false;
         }
     }
 
@@ -1820,6 +1843,12 @@ static void fetch_task(void *arg)
             next_price = now;
             next_candles = now + 1500U;
             next_stats = now + 3000U;
+        }
+
+        if (s_weather_refresh_requested) {
+            // Location-Wechsel nicht bis zum 5-Minuten-Intervall liegen lassen.
+            s_weather_refresh_requested = false;
+            next_weather = now;
         }
 
         if (last_api_request != 0 && now - last_api_request < API_REQUEST_GAP_MS) {
