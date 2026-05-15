@@ -8,6 +8,22 @@ Some application sketches are board-specific Arduino/LVGL dashboards, while othe
 
 Code is organized by hardware target. Each board folder contains its own Arduino sketches, display notes, assets, and setup documentation.
 
+## Web Flasher
+
+A browser-based flasher lives on GitHub Pages:
+
+**<https://tome9111991.github.io/ESP32-S3_Project/>**
+
+It runs entirely client-side (no install) and uses WebSerial, so it works in **Chrome or Edge** only. A short wizard guides through Board → Project → Version/Configuration, then the firmware can be installed directly over USB or downloaded as a `.bin`.
+
+| Project | Source of firmware |
+| --- | --- |
+| ESP32-8048S043C — Klipper Crypto Weather Panel V2 | Pulled from GitHub releases. Picks language (DE/EN) and version. |
+| Guition JC4827W543 — Klipper Crypto Weather Panel | Builds a personalised firmware on demand: a config form collects WiFi / location / Klipper URL, a Cloudflare Worker triggers the build workflow and exposes the resulting binary as a short-lived release. Bot protection via Cloudflare Turnstile. |
+
+Pre-configured URLs can be shared, e.g.
+`?board=esp32-8048s043c&project=kcwpv2&version=KCWPv2-20251115&lang=DE`.
+
 ## Repository Layout
 
 | Path | Purpose |
@@ -22,6 +38,8 @@ Code is organized by hardware target. Each board folder contains its own Arduino
 | `Guition_JC4827W543/KlipperCryptoWeatherPanel/` | Dashboard sketch for the Guition JC4827W543. |
 | `Guition_JC4827W543/DisplayPixelRaster/` | LVGL raster/orientation test sketch for the Guition display. |
 | `Guition_JC4827W543/BOARD_CODING_NOTES.md` | Hardware notes, render-path guidance, and implementation notes for the Guition NV3041A/QSPI panel. |
+| `docs/` | Static GitHub Pages site for the [Web Flasher](#web-flasher). |
+| `worker/` | Cloudflare Worker that dispatches on-demand Guition builds and reports their status to the flasher. |
 | `LICENSE.md` | Non-commercial project license. |
 
 ## Arduino Sketches
