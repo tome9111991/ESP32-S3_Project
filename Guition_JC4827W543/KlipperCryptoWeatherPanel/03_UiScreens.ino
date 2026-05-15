@@ -99,7 +99,7 @@ void createBtcDayScreen() {
     Serial.printf("BTC Chart Canvas Buffer: %u Bytes in %s\n", (unsigned)chartBufferBytes, btcDayChartCanvasBufInPsram ? "PSRAM" : "internem RAM");
     btcDayChartCanvas = lv_canvas_create(btcDayScreen);
     lv_canvas_set_buffer(btcDayChartCanvas, btcDayChartCanvasBuf, BTC_CHART_W, BTC_CHART_CANVAS_H, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(btcDayChartCanvas, 34, 88);
+    lv_obj_set_pos(btcDayChartCanvas, BTC_CHART_X, BTC_CHART_Y);
     lv_obj_clear_flag(btcDayChartCanvas, LV_OBJ_FLAG_SCROLLABLE);
     lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
   }

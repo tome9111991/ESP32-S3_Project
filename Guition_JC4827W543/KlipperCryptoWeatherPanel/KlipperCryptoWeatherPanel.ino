@@ -260,6 +260,8 @@ struct BtcCandle {
 
 const int BTC_CANDLE_CAPACITY = 300;
 const int BTC_DAY_CANDLE_COUNT = 90; // 90 Tageskerzen
+const int BTC_CHART_X = 34;
+const int BTC_CHART_Y = 88;
 const int BTC_CHART_W = 412;
 const int BTC_CHART_H = 112;
 const int BTC_CHART_CANVAS_H = 124;

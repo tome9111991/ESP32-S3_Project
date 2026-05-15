@@ -263,8 +263,9 @@ void drawBtcDayChart() {
 
   const int labelW = 90;
   const int labelH = 20;
-  int chartX = lv_obj_get_x(btcDayChartCanvas);
-  int chartY = lv_obj_get_y(btcDayChartCanvas);
+  // Beim ersten Screen-Laden koennen LVGL-Objektkoordinaten noch veraltet sein.
+  int chartX = BTC_CHART_X;
+  int chartY = BTC_CHART_Y;
   int labelX = chartX + (BTC_CHART_W - labelW) / 2;
   int labelY = chartY + yLastClose - (labelH / 2);
   int minY = chartY + 2;

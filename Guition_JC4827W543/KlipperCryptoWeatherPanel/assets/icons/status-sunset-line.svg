@@ -1,13 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
-  <title>Status Sunset Line</title>
-  <g fill="none" stroke="#f4f8ff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M7 31.5h28"/>
-    <path d="M12 26.5a9 9 0 0 1 18 0"/>
-    <path d="M21 8.5v5"/>
-    <path d="M10.5 16.5l3.5 3.5"/>
-    <path d="M31.5 16.5 28 20"/>
-    <path d="M16 36.5h10"/>
-    <path d="M21 15.5v7"/>
-    <path d="m17.5 19 3.5 3.5 3.5-3.5"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 70 70"><title>Status Sunset Line</title><rect width="70" height="70" fill="#080c10" /><g fill="none" stroke="#f4f8ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 48h44" /><path d="M24 48a11 11 0 0 1 22 0" /><path d="M35 14v20" /><path d="M28 27l7 7 7-7" /><path d="M19 33l6 5" /><path d="M51 33l-6 5" /></g></svg>

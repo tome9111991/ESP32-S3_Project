@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="56" height="48" viewBox="0 0 56 48">
-  <title>Weather Clear</title>
-  <g fill="#ffd166">
-    <circle cx="28" cy="24" r="10"/>
-    <rect x="26" y="3" width="4" height="9" rx="2"/>
-    <rect x="26" y="36" width="4" height="9" rx="2"/>
-    <rect x="7" y="22" width="9" height="4" rx="2"/>
-    <rect x="40" y="22" width="9" height="4" rx="2"/>
-    <rect x="13" y="9" width="8" height="4" rx="2" transform="rotate(45 17 11)"/>
-    <rect x="35" y="35" width="8" height="4" rx="2" transform="rotate(45 39 37)"/>
-    <rect x="35" y="9" width="8" height="4" rx="2" transform="rotate(-45 39 11)"/>
-    <rect x="13" y="35" width="8" height="4" rx="2" transform="rotate(-45 17 37)"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="48" viewBox="0 0 93 80"><title>Weather Clear</title><rect width="93" height="80" fill="#080c10" /><g fill="none" stroke="#ffd166" stroke-width="5" stroke-linecap="round"><path d="M46.5 8v10" /><path d="M46.5 62v10" /><path d="M14.5 40h10" /><path d="M68.5 40h10" /><path d="M24 17.5l7.2 7.2" /><path d="M61.8 55.3l7.2 7.2" /><path d="M69 17.5l-7.2 7.2" /><path d="M31.2 55.3L24 62.5" /></g><circle cx="46.5" cy="40" r="17" fill="#ffd166" /></svg>
