@@ -94,3 +94,52 @@ jobs:
           name: guition-klippercrypto-bin
           path: ${{ env.BUILD_DIR }}/*.bin
           if-no-files-found: error
+
+  release:
+    name: Publish temporary build release
+    needs: build
+    if: inputs.correlation_id != ''
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: guition-klippercrypto-bin
+          path: firmware
+
+      - name: Pick merged binary
+        id: pick
+        shell: bash
+        run: |
+          MERGED=$(find firmware -maxdepth 2 -name "*.merged.bin" -print -quit)
+          if [ -z "${MERGED}" ]; then
+            echo "::error::No merged.bin found in firmware artifact"
+            exit 1
+          fi
+          cp "${MERGED}" firmware/firmware.bin
+          ls -lh firmware/
+
+      - name: Create temporary release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+        run: |
+          TAG="build-${CORRELATION_ID}"
+          # Idempotent: falls der Tag bereits existiert (Re-Run), erst loeschen.
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release delete "${TAG}" --cleanup-tag --yes
+          fi
+          gh release create "${TAG}" \
+            --prerelease \
+            --title "${TAG}" \
+            --notes "On-demand build, correlation_id=${CORRELATION_ID}. Wird vom Cleanup-Workflow nach 24h geloescht." \
+            --target "${GITHUB_SHA}" \
+            "firmware/firmware.bin"

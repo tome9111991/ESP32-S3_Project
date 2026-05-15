@@ -1,0 +1,48 @@
+name: Cleanup build-* releases
+
+on:
+  schedule:
+    # Taeglich um 04:17 UTC. Krummer Slot, damit es nicht mit Stunden-Spitzen
+    # konkurriert.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      max_age_hours:
+        description: "Maximales Alter in Stunden (Default 24)."
+        required: false
+        type: string
+        default: "24"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Delete expired build releases
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete old build-* prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MAX_AGE_HOURS: ${{ inputs.max_age_hours || '24' }}
+        shell: bash
+        run: |
+          CUTOFF=$(date -u -d "${MAX_AGE_HOURS} hours ago" +%s)
+          echo "Cutoff: $(date -u -d @${CUTOFF} --iso-8601=seconds)"
+
+          # Nur Prereleases mit Tag-Prefix build-. Andere Releases (z.B. KCWPv2-*)
+          # bleiben unangetastet.
+          gh release list --limit 200 --json tagName,createdAt,isPrerelease \
+            --jq '.[] | select(.isPrerelease) | select(.tagName | startswith("build-")) | "\(.tagName) \(.createdAt)"' \
+          | while IFS=$' ' read -r tag created; do
+              [ -z "${tag}" ] && continue
+              ts=$(date -u -d "${created}" +%s)
+              if [ "${ts}" -lt "${CUTOFF}" ]; then
+                echo "Deleting ${tag} (created ${created})"
+                gh release delete "${tag}" --cleanup-tag --yes
+              else
+                echo "Keeping ${tag} (created ${created})"
+              fi
+            done
