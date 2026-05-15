@@ -32,6 +32,62 @@ main {
 h1 { margin-top: 0; }
 h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
 
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.page-header h1 { margin: 0; }
+
+.lang-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.lang-flag {
+  width: 2rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, transform 0.05s;
+}
+
+.lang-flag svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.lang-flag:hover { opacity: 0.9; }
+.lang-flag:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.lang-flag.is-active {
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.lang-flag:active { transform: scale(0.95); }
+
 .hint {
   color: var(--muted);
   background: var(--card);
@@ -226,7 +282,8 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   gap: 1rem;
 }
 
-.config-form fieldset {
+.config-form fieldset,
+.config-form .config-group {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.5rem 1rem 0.85rem;
@@ -236,13 +293,60 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   gap: 0.65rem;
 }
 
-.config-form legend {
+.config-form .config-group:not([open]) {
+  padding-bottom: 0.5rem;
+  gap: 0;
+}
+
+.config-form legend,
+.config-form .config-group-summary {
   padding: 0 0.4rem;
   color: var(--accent);
   font-weight: 700;
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.config-form .config-group-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 -0.4rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  user-select: none;
+}
+
+.config-form .config-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-form .config-group-summary::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  flex: 0 0 auto;
+}
+
+.config-form .config-group[open] > .config-group-summary::before {
+  transform: rotate(45deg);
+}
+
+.config-form .config-group-summary:hover,
+.config-form .config-group-summary:focus-visible {
+  background: rgba(79, 140, 255, 0.08);
+  outline: none;
+}
+
+.config-form .config-group-title {
+  flex: 1 1 auto;
 }
 
 .field {

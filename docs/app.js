@@ -1,3 +1,5 @@
+import { t, tx, getLocale, onLangChange, mountLangToggle } from "./i18n.js";
+
 const wizardEl = document.getElementById("wizard");
 const installSlot = document.getElementById("install-slot");
 const statusBox = document.getElementById("status");
@@ -20,17 +22,26 @@ let pollAbort = null; // markiert die aktuelle Polling-Schleife
 let captchaToken = null; // Cloudflare Turnstile, gilt nur fuer den naechsten /build-Aufruf
 let captchaWidgetId = null;
 
+// Statusbox-Inhalt fuer Re-Render bei Sprachwechsel.
+let lastStatus = null; // { key, vars, kind } | null
+
 // ---------- Helpers ----------
 
-function setStatus(msg, kind = "info") {
+function setStatus(msg, kind = "info", key = null, vars = null) {
   if (!msg) {
     statusBox.hidden = true;
     statusBox.textContent = "";
+    lastStatus = null;
     return;
   }
   statusBox.hidden = false;
   statusBox.dataset.kind = kind;
   statusBox.textContent = msg;
+  lastStatus = key ? { key, vars, kind } : null;
+}
+
+function setStatusI18n(key, vars, kind = "info") {
+  setStatus(t(key, vars), kind, key, vars);
 }
 
 function getBoard(id = state.board) {
@@ -78,7 +89,9 @@ function readUrlState() {
 }
 
 function writeUrlState() {
-  const p = new URLSearchParams();
+  const p = new URLSearchParams(location.search);
+  // Nur die Wizard-Parameter steuern, ?ui= bleibt unangetastet.
+  ["board", "project", "version", "lang"].forEach((k) => p.delete(k));
   if (state.board) p.set("board", state.board);
   if (state.project) p.set("project", state.project);
   if (state.version) p.set("version", state.version);
@@ -318,10 +331,10 @@ function renderStepShell({ stepNum, stepId, label, valueLabel }) {
     const editBtn = document.createElement("button");
     editBtn.className = "step-edit";
     editBtn.type = "button";
-    editBtn.textContent = "Ändern";
+    editBtn.textContent = t("step.edit");
     editBtn.disabled = isBuildRunning();
     if (editBtn.disabled) {
-      editBtn.title = "Waehrend ein Build laeuft, kann der Wizard nicht geaendert werden.";
+      editBtn.title = t("step.edit.disabled");
     }
     editBtn.addEventListener("click", () => {
       if (isBuildRunning()) return;
@@ -344,7 +357,7 @@ function renderOptionsStep({ stepNum, stepId, label, valueLabel, optionsBuilder,
   if (!opts || opts.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = emptyMsg ?? "Keine Eintraege verfuegbar.";
+    empty.textContent = emptyMsg ?? t("step.empty");
     body.appendChild(empty);
   } else {
     const ul = document.createElement("ul");
@@ -356,14 +369,18 @@ function renderOptionsStep({ stepNum, stepId, label, valueLabel, optionsBuilder,
   return li;
 }
 
+function projectCountLabel(n) {
+  return n === 1 ? t("step.project.count.one") : t("step.project.count.other", { n });
+}
+
 // ---------- Config form step ----------
 
 function renderConfigStep({ stepNum, project }) {
   const stepId = "config";
   const completedSummary = state.config
-    ? `${Object.keys(state.config).length} Werte gesetzt`
+    ? t("step.config.summary", { n: Object.keys(state.config).length })
     : null;
-  const li = renderStepShell({ stepNum, stepId, label: "Konfiguration", valueLabel: completedSummary });
+  const li = renderStepShell({ stepNum, stepId, label: t("step.config"), valueLabel: completedSummary });
   if (li.dataset.state !== "active") return li;
 
   const body = document.createElement("div");
@@ -375,16 +392,24 @@ function renderConfigStep({ stepNum, project }) {
   form.noValidate = true;
 
   const groupHints = new Map();
+  const groupDetails = new Map();
   for (const group of project.source.groups ?? []) {
-    const fs = document.createElement("fieldset");
-    const legend = document.createElement("legend");
-    legend.textContent = group.label;
+    const fs = document.createElement("details");
+    fs.className = "config-group";
+    fs.open = true;
+    const legend = document.createElement("summary");
+    legend.className = "config-group-summary";
+    const legendText = document.createElement("span");
+    legendText.className = "config-group-title";
+    legendText.textContent = tx(group.label);
+    legend.appendChild(legendText);
     fs.appendChild(legend);
+    groupDetails.set(group, fs);
 
     if (group.hint || group.minChecked) {
       const hint = document.createElement("div");
       hint.className = "group-hint";
-      hint.textContent = group.hint ?? `Mindestens ${group.minChecked} muss aktiviert sein.`;
+      hint.textContent = tx(group.hint) || t("form.min", { n: group.minChecked });
       fs.appendChild(hint);
       groupHints.set(group, hint);
     }
@@ -410,13 +435,13 @@ function renderConfigStep({ stepNum, project }) {
 
         const labelSpan = document.createElement("span");
         labelSpan.className = "field-label";
-        labelSpan.textContent = field.label;
+        labelSpan.textContent = tx(field.label);
         wrap.appendChild(labelSpan);
 
         if (field.hint) {
           const hint = document.createElement("span");
           hint.className = "field-hint";
-          hint.textContent = field.hint;
+          hint.textContent = tx(field.hint);
           wrap.appendChild(hint);
         }
         fs.appendChild(wrap);
@@ -425,7 +450,7 @@ function renderConfigStep({ stepNum, project }) {
 
       const labelRow = document.createElement("span");
       labelRow.className = "field-label";
-      labelRow.textContent = field.label;
+      labelRow.textContent = tx(field.label);
       if (field.required) {
         const star = document.createElement("span");
         star.className = "required";
@@ -466,7 +491,7 @@ function renderConfigStep({ stepNum, project }) {
       if (field.hint) {
         const hint = document.createElement("span");
         hint.className = "field-hint";
-        hint.textContent = field.hint;
+        hint.textContent = tx(field.hint);
         wrap.appendChild(hint);
       }
       fs.appendChild(wrap);
@@ -477,9 +502,9 @@ function renderConfigStep({ stepNum, project }) {
   // Preview
   const previewWrap = document.createElement("details");
   previewWrap.className = "preview";
-  previewWrap.open = true;
+  previewWrap.open = false;
   const summary = document.createElement("summary");
-  summary.textContent = `Vorschau: ${project.source.headerName ?? "config_private.h"}`;
+  summary.textContent = t("form.preview", { file: project.source.headerName ?? "config_private.h" });
   const pre = document.createElement("pre");
   pre.className = "preview-code";
   previewWrap.appendChild(summary);
@@ -496,7 +521,7 @@ function renderConfigStep({ stepNum, project }) {
   const submitBtn = document.createElement("button");
   submitBtn.type = "submit";
   submitBtn.className = "btn btn-primary";
-  submitBtn.textContent = "Konfiguration übernehmen";
+  submitBtn.textContent = t("form.apply");
 
   const dlBtn = document.createElement("button");
   dlBtn.type = "button";
@@ -530,12 +555,12 @@ function renderConfigStep({ stepNum, project }) {
         if (!f.required || f.type === "boolean") continue;
         const v = values[f.key];
         if (v === undefined || v === null || String(v).trim() === "") {
-          errors.push(`Pflichtfeld fehlt: ${f.label}`);
+          errors.push(t("form.required.missing", { label: tx(f.label) }));
           if (!firstViolatedGroup) firstViolatedGroup = group;
         }
       }
       if (group.minChecked && countChecked(group) < group.minChecked) {
-        errors.push(`${group.label}: mindestens ${group.minChecked} aktivieren.`);
+        errors.push(t("form.min.violated", { label: tx(group.label), n: group.minChecked }));
         if (!firstViolatedGroup) firstViolatedGroup = group;
       }
     }
@@ -551,11 +576,30 @@ function renderConfigStep({ stepNum, project }) {
   }
 
   function showValidationErrors(result) {
-    submitError.textContent = result.errors[0] ?? "Bitte Eingaben prüfen.";
+    submitError.textContent = result.errors[0] ?? t("form.invalid");
     submitError.hidden = false;
     for (const [group, hintEl] of groupHints) {
       const violated = group.minChecked && countChecked(group) < group.minChecked;
       hintEl.classList.toggle("error", !!violated);
+    }
+    // Eingeklappte Gruppen mit Fehlern wieder oeffnen, damit der Nutzer sie sieht.
+    const violatedGroups = new Set();
+    if (result.firstViolatedGroup) violatedGroups.add(result.firstViolatedGroup);
+    for (const group of project.source.groups ?? []) {
+      for (const f of group.fields) {
+        if (!f.required || f.type === "boolean") continue;
+        const v = values[f.key];
+        if (v === undefined || v === null || String(v).trim() === "") {
+          violatedGroups.add(group);
+        }
+      }
+      if (group.minChecked && countChecked(group) < group.minChecked) {
+        violatedGroups.add(group);
+      }
+    }
+    for (const group of violatedGroups) {
+      const det = groupDetails.get(group);
+      if (det) det.open = true;
     }
     if (result.firstViolatedGroup) {
       const hintEl = groupHints.get(result.firstViolatedGroup);
@@ -602,7 +646,12 @@ function generateConfigHeader(project, values) {
   lines.push((project.source.preamble ?? "#pragma once\n").trimEnd());
   lines.push("");
   for (const group of project.source.groups ?? []) {
-    lines.push(`// ${group.label}`);
+    // Im Header bleiben die Gruppen-Labels auf Deutsch, damit der generierte
+    // C-Code unabhaengig von der UI-Sprache reproduzierbar bleibt.
+    const groupLabel = typeof group.label === "string"
+      ? group.label
+      : (group.label?.de ?? group.label?.en ?? "");
+    lines.push(`// ${groupLabel}`);
     for (const f of group.fields) {
       const raw = values[f.key];
       let val;
@@ -676,12 +725,12 @@ function renderInstallRelease(project, version, lang) {
   const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
   activeManifestUrl = URL.createObjectURL(blob);
 
-  installSlotHeading("Web Flash (Browser → USB)");
+  installSlotHeading(t("install.webflash"));
   const btn = document.createElement("esp-web-install-button");
   btn.manifest = activeManifestUrl;
   installSlot.appendChild(btn);
 
-  installSlotHeading("Direkt-Download (.bin)");
+  installSlotHeading(t("install.direct"));
   const dl = document.createElement("div");
   dl.className = "downloads";
   const a = document.createElement("a");
@@ -697,7 +746,7 @@ function renderInstallRelease(project, version, lang) {
 }
 
 function renderInstallManifest(project) {
-  installSlotHeading("Web Flash (Browser → USB)");
+  installSlotHeading(t("install.webflash"));
   const btn = document.createElement("esp-web-install-button");
   btn.manifest = project.source.manifest;
   activeManifestUrl = project.source.manifest;
@@ -732,11 +781,10 @@ function renderInstallBuildOnDemand(project) {
 }
 
 function renderBuildIdle(project) {
-  installSlotHeading("Firmware bauen");
+  installSlotHeading(t("build.heading"));
   const info = document.createElement("p");
   info.className = "muted";
-  info.textContent =
-    "Dein Build wird in der GitHub-Cloud erstellt und dauert ca. 3–4 Minuten.";
+  info.textContent = t("build.intro");
   installSlot.appendChild(info);
 
   const siteKey = project.source.turnstileSiteKey;
@@ -757,9 +805,9 @@ function renderBuildIdle(project) {
   const buildBtn = document.createElement("button");
   buildBtn.className = "btn btn-primary";
   buildBtn.type = "button";
-  buildBtn.textContent = "🛠 Firmware bauen";
+  buildBtn.textContent = t("build.start");
   buildBtn.disabled = needCaptcha;
-  if (needCaptcha) buildBtn.title = "Bitte zuerst die Bot-Pruefung abschliessen.";
+  if (needCaptcha) buildBtn.title = t("build.captcha.required");
   buildBtn.addEventListener("click", () => startBuild(project));
   actions.appendChild(buildBtn);
 
@@ -785,7 +833,7 @@ async function mountTurnstile(container, sitekey, buildBtn) {
     waited += 80;
   }
   if (!window.turnstile) {
-    container.textContent = "Bot-Pruefung konnte nicht geladen werden.";
+    container.textContent = t("build.captcha.load.error");
     container.classList.add("error");
     buildBtn.disabled = false; // Lass den Klick trotzdem zu — Worker pruefen.
     return;
@@ -801,18 +849,18 @@ async function mountTurnstile(container, sitekey, buildBtn) {
     "error-callback": () => {
       captchaToken = null;
       buildBtn.disabled = true;
-      buildBtn.title = "Bot-Pruefung fehlgeschlagen, bitte erneut versuchen.";
+      buildBtn.title = t("build.captcha.error");
     },
     "expired-callback": () => {
       captchaToken = null;
       buildBtn.disabled = true;
-      buildBtn.title = "Bot-Pruefung abgelaufen, bitte erneut.";
+      buildBtn.title = t("build.captcha.expired");
     },
   });
 }
 
 function renderBuildProgress(project) {
-  installSlotHeading("Firmware wird gebaut …");
+  installSlotHeading(t("build.running"));
   const build = state.build;
 
   const elapsed = Math.floor((Date.now() - build.startedAt) / 1000);
@@ -821,14 +869,14 @@ function renderBuildProgress(project) {
 
   const phaseText =
     build.phase === "canceling"
-      ? "Build wird bei GitHub abgebrochen ..."
+      ? t("build.phase.canceling")
       : build.phase === "dispatching"
-      ? "Build wird gestartet …"
+      ? t("build.phase.dispatching")
       : build.lastStatus === "queued"
-        ? "In Warteschlange …"
+        ? t("build.phase.queued")
         : build.lastStatus === "in_progress"
-          ? "Compile läuft …"
-          : "Warte auf GitHub Actions …";
+          ? t("build.phase.in_progress")
+          : t("build.phase.waiting");
 
   const status = document.createElement("div");
   status.className = "build-progress";
@@ -840,13 +888,13 @@ function renderBuildProgress(project) {
     </div>
   `;
   status.querySelector(".build-phase").textContent = phaseText;
-  status.querySelector(".build-elapsed").textContent = `${mm}:${ss} vergangen`;
+  status.querySelector(".build-elapsed").textContent = t("build.elapsed", { mm, ss });
   installSlot.appendChild(status);
 
   if (build.correlationId) {
     const hint = document.createElement("p");
     hint.className = "muted small";
-    hint.textContent = `Build-ID: ${build.correlationId}`;
+    hint.textContent = t("build.id", { id: build.correlationId });
     installSlot.appendChild(hint);
   }
 
@@ -855,27 +903,27 @@ function renderBuildProgress(project) {
   const cancelBtn = document.createElement("button");
   cancelBtn.className = "btn";
   cancelBtn.type = "button";
-  cancelBtn.textContent = "Abbrechen";
+  cancelBtn.textContent = t("build.cancel");
   cancelBtn.disabled = !build.correlationId || build.phase === "canceling";
   cancelBtn.title = build.correlationId
-    ? "Bricht den GitHub-Actions-Build ab."
-    : "Build wird noch gestartet, Abbrechen ist gleich moeglich.";
+    ? t("build.cancel.title")
+    : t("build.cancel.title.waiting");
   cancelBtn.addEventListener("click", () => cancelBuild(project));
   actions.appendChild(cancelBtn);
   installSlot.appendChild(actions);
 }
 
 function renderBuildCancelled(project) {
-  installSlotHeading("Build abgebrochen");
+  installSlotHeading(t("build.cancelled.heading"));
   const p = document.createElement("p");
   p.className = "muted";
-  p.textContent = "Der GitHub-Actions-Build wurde abgebrochen.";
+  p.textContent = t("build.cancelled.body");
   installSlot.appendChild(p);
 
   if (state.build?.runUrl) {
     const link = document.createElement("p");
     link.className = "small";
-    link.innerHTML = `Details: <a href="${state.build.runUrl}" target="_blank" rel="noopener">GitHub Actions Run</a>`;
+    link.innerHTML = t("build.details", { url: state.build.runUrl });
     installSlot.appendChild(link);
   }
 
@@ -884,7 +932,7 @@ function renderBuildCancelled(project) {
   const editBtn = document.createElement("button");
   editBtn.className = "btn btn-primary";
   editBtn.type = "button";
-  editBtn.textContent = "Konfiguration bearbeiten";
+  editBtn.textContent = t("build.edit.config");
   editBtn.addEventListener("click", () => {
     clearFrom("config");
     render();
@@ -894,7 +942,7 @@ function renderBuildCancelled(project) {
   const retryBtn = document.createElement("button");
   retryBtn.className = "btn";
   retryBtn.type = "button";
-  retryBtn.textContent = "Erneut bauen";
+  retryBtn.textContent = t("build.retry");
   retryBtn.addEventListener("click", () => startBuild(project));
   actions.appendChild(retryBtn);
   installSlot.appendChild(actions);
@@ -902,7 +950,7 @@ function renderBuildCancelled(project) {
 
 function renderBuildSuccess(project) {
   const build = state.build;
-  installSlotHeading("Web Flash (Browser → USB)");
+  installSlotHeading(t("install.webflash"));
 
   // Manifest dynamisch erzeugen, asset_url ab Offset 0.
   const manifest = {
@@ -920,7 +968,7 @@ function renderBuildSuccess(project) {
   btn.manifest = activeManifestUrl;
   installSlot.appendChild(btn);
 
-  installSlotHeading("Direkt-Download");
+  installSlotHeading(t("install.direct.short"));
   const dl = document.createElement("div");
   dl.className = "downloads";
   const a = document.createElement("a");
@@ -941,7 +989,7 @@ function renderBuildSuccess(project) {
 
   const meta = document.createElement("p");
   meta.className = "muted small";
-  meta.innerHTML = `Build erfolgreich. Diese Firmware wird in ~24h automatisch von GitHub gelöscht.`;
+  meta.textContent = t("build.success.note");
   installSlot.appendChild(meta);
 
   const redoActions = document.createElement("div");
@@ -949,7 +997,7 @@ function renderBuildSuccess(project) {
   const newBtn = document.createElement("button");
   newBtn.className = "btn";
   newBtn.type = "button";
-  newBtn.textContent = "Neuen Build starten";
+  newBtn.textContent = t("build.success.new");
   newBtn.addEventListener("click", () => {
     state.build = null;
     clearActiveBuild();
@@ -960,16 +1008,16 @@ function renderBuildSuccess(project) {
 }
 
 function renderBuildError(project) {
-  installSlotHeading("Build fehlgeschlagen");
+  installSlotHeading(t("build.failed.heading"));
   const p = document.createElement("p");
   p.className = "muted";
-  p.textContent = state.build?.message ?? "Unbekannter Fehler.";
+  p.textContent = state.build?.message ?? t("build.error.unknown");
   installSlot.appendChild(p);
 
   if (state.build?.runUrl) {
     const link = document.createElement("p");
     link.className = "small";
-    link.innerHTML = `Details: <a href="${state.build.runUrl}" target="_blank" rel="noopener">GitHub Actions Run</a>`;
+    link.innerHTML = t("build.details", { url: state.build.runUrl });
     installSlot.appendChild(link);
   }
 
@@ -978,7 +1026,7 @@ function renderBuildError(project) {
   const retryBtn = document.createElement("button");
   retryBtn.className = "btn btn-primary";
   retryBtn.type = "button";
-  retryBtn.textContent = "Erneut versuchen";
+  retryBtn.textContent = t("build.retry.alt");
   retryBtn.addEventListener("click", () => startBuild(project));
   actions.appendChild(retryBtn);
   installSlot.appendChild(actions);
@@ -997,7 +1045,7 @@ function encodeBase64Utf8(s) {
 
 async function startBuild(project) {
   if (!project.source.workerUrl) {
-    state.build = { phase: "error", message: "Worker-URL fehlt in projects.json." };
+    state.build = { phase: "error", message: t("build.error.no_worker") };
     render();
     return;
   }
@@ -1021,7 +1069,7 @@ async function startBuild(project) {
       throw new Error(`POST /build: ${res.status} ${errText.slice(0, 200)}`);
     }
     const data = await res.json();
-    if (!data.correlation_id) throw new Error("Worker antwortete ohne correlation_id");
+    if (!data.correlation_id) throw new Error(t("build.error.no_correlation"));
     state.build = {
       phase: "polling",
       correlationId: data.correlation_id,
@@ -1062,10 +1110,10 @@ async function cancelBuild(project) {
     state.build = {
       phase: cancelled ? "cancelled" : "error",
       message: cancelled
-        ? "Build wurde abgebrochen."
+        ? t("build.cancelled.short")
         : data.conclusion
-          ? `Build endete mit '${data.conclusion}'.`
-          : "Build konnte nicht mehr abgebrochen werden.",
+          ? t("build.ended_with", { conclusion: data.conclusion })
+          : t("build.cancel.too_late"),
       correlationId: id,
       runUrl: data.run_url ?? null,
     };
@@ -1076,7 +1124,7 @@ async function cancelBuild(project) {
     state.build = {
       ...state.build,
       phase: "error",
-      message: `Abbrechen fehlgeschlagen: ${err.message}`,
+      message: t("build.cancel.failed", { message: err.message }),
     };
     saveActiveBuild();
     render();
@@ -1107,7 +1155,7 @@ async function pollBuild(project, token) {
         } else {
           state.build = {
             phase: "error",
-            message: `Build endete mit '${data.conclusion ?? "unbekannt"}'.`,
+            message: t("build.ended_with", { conclusion: data.conclusion ?? "unknown" }),
             runUrl: data.run_url ?? null,
           };
         }
@@ -1140,7 +1188,11 @@ async function pollBuild(project, token) {
 function render() {
   writeUrlState();
   wizardEl.innerHTML = "";
-  setStatus("");
+  if (lastStatus) {
+    setStatusI18n(lastStatus.key, lastStatus.vars, lastStatus.kind);
+  } else {
+    setStatus("");
+  }
   clearInstallSlot();
 
   let stepNum = 0;
@@ -1150,12 +1202,12 @@ function render() {
   wizardEl.appendChild(renderOptionsStep({
     stepNum,
     stepId: "board",
-    label: "Board",
+    label: t("step.board"),
     valueLabel: getBoard()?.name,
     optionsBuilder: () =>
       config.boards.map((b) =>
         makeOption(
-          { value: b.id, title: b.name, meta: `${b.projects.length} Projekt(e)` },
+          { value: b.id, title: b.name, meta: projectCountLabel(b.projects.length) },
           (val) => { clearFrom("board"); state.board = val; render(); },
         ),
       ),
@@ -1166,14 +1218,14 @@ function render() {
   wizardEl.appendChild(renderOptionsStep({
     stepNum,
     stepId: "project",
-    label: "Projekt",
+    label: t("step.project"),
     valueLabel: getProject()?.name,
     optionsBuilder: () => {
       const board = getBoard();
       if (!board) return [];
       return board.projects.map((p) =>
         makeOption(
-          { value: p.id, title: p.name, meta: p.description ?? "" },
+          { value: p.id, title: p.name, meta: tx(p.description) },
           (val) => {
             clearFrom("project");
             state.project = val;
@@ -1199,17 +1251,17 @@ function render() {
     wizardEl.appendChild(renderOptionsStep({
       stepNum,
       stepId: "version",
-      label: "Version",
+      label: t("step.version"),
       valueLabel: cur?.version,
-      emptyMsg: "Versionen werden geladen …",
+      emptyMsg: t("step.versions.loading"),
       optionsBuilder: () =>
         versions.map((v, idx) =>
           makeOption(
             {
               value: v.tag,
               title: v.version,
-              meta: v.publishedAt ? new Date(v.publishedAt).toLocaleDateString("de-DE") : "",
-              badge: idx === 0 ? "Latest" : v.prerelease ? "Pre" : "",
+              meta: v.publishedAt ? new Date(v.publishedAt).toLocaleDateString(getLocale()) : "",
+              badge: idx === 0 ? t("badge.latest") : v.prerelease ? t("badge.pre") : "",
             },
             (val) => {
               clearFrom("version");
@@ -1230,7 +1282,7 @@ function render() {
         wizardEl.appendChild(renderOptionsStep({
           stepNum,
           stepId: "lang",
-          label: "Sprache",
+          label: t("step.lang"),
           valueLabel: state.lang,
           optionsBuilder: () =>
             [...ver.langs.keys()].sort().map((lang) =>
@@ -1266,14 +1318,23 @@ function render() {
 
 async function kickoffVersionLoad(project) {
   try {
-    setStatus("Lade Releases …");
+    setStatusI18n("status.loading.releases");
     await loadVersions(project);
     setStatus("");
   } catch (err) {
     console.error(err);
-    setStatus(`Releases konnten nicht geladen werden: ${err.message}`, "error");
+    setStatusI18n("status.error.releases", { message: err.message }, "error");
   } finally {
     render();
+  }
+}
+
+// ---------- Static text bindings ----------
+
+function applyStaticI18n() {
+  document.title = "ESP32 Web Flasher";
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.dataset.i18n);
   }
 }
 
@@ -1293,12 +1354,12 @@ async function applyUrlState() {
   if (project.source.type !== "github-release") return;
 
   try {
-    setStatus("Lade Releases …");
+    setStatusI18n("status.loading.releases");
     await loadVersions(project);
     setStatus("");
   } catch (err) {
     console.error(err);
-    setStatus(`Releases konnten nicht geladen werden: ${err.message}`, "error");
+    setStatusI18n("status.error.releases", { message: err.message }, "error");
     return;
   }
 
@@ -1315,6 +1376,13 @@ async function applyUrlState() {
 }
 
 (async () => {
+  applyStaticI18n();
+  const langSlot = document.getElementById("lang-toggle-slot");
+  if (langSlot) mountLangToggle(langSlot);
+  onLangChange(() => {
+    applyStaticI18n();
+    render();
+  });
   try {
     const res = await fetch("projects.json", { cache: "no-cache" });
     if (!res.ok) throw new Error(`projects.json: ${res.status}`);
@@ -1328,6 +1396,6 @@ async function applyUrlState() {
     }
   } catch (err) {
     console.error(err);
-    setStatus(`Konfiguration konnte nicht geladen werden: ${err.message}`, "error");
+    setStatusI18n("status.error.config", { message: err.message }, "error");
   }
 })();
