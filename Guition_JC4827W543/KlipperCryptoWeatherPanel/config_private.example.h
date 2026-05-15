@@ -17,4 +17,6 @@
 #define CRYPTO_QUOTE_SYMBOL "USD"
 #define CRYPTO_PRICE_PREFIX ""
 #define CRYPTO_SERVICE_NAME "COINBASE"
+// Chart-Kerzen: "15M", "1H", "6H" oder "1D".
+#define CRYPTO_CHART_TIMEFRAME "1D"
 #define KLIPPER_BASE_URL "http://mainsail"

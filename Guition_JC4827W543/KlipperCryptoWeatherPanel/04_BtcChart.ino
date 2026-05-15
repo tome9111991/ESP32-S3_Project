@@ -1,3 +1,23 @@
+struct BtcChartCache {
+  int windowSize;
+  int visibleCount;
+  uint32_t lastTime;
+  float lastOpen;
+  float lastHigh;
+  float lastLow;
+  float lastClose;
+  float rawLow;
+  float rawHigh;
+  int progressWidth;
+  bool valid;
+};
+
+static BtcChartCache btcChartCache = {};
+
+void invalidateBtcChartCache() {
+  btcChartCache.valid = false;
+}
+
 int priceToChartY(float price, float low, float high, int y, int h) {
   if (high <= low) {
     return y + (h / 2);
@@ -59,6 +79,49 @@ void canvasDrawRect(int x, int y, int w, int h, uint32_t color) {
   canvasVLine(x + w - 1, y, h, color);
 }
 
+void canvasDashedHLine(int y, int xFrom, int xTo, int dashOn, int dashOff, uint32_t color) {
+  if (dashOn <= 0) {
+    return;
+  }
+  if (dashOff < 0) {
+    dashOff = 0;
+  }
+
+  int x = xFrom;
+  while (x < xTo) {
+    int segmentEnd = x + dashOn;
+    if (segmentEnd > xTo) {
+      segmentEnd = xTo;
+    }
+    canvasHLine(x, y, segmentEnd - x, color);
+    x = segmentEnd + dashOff;
+  }
+}
+
+int computeBtcChartProgressWidth(const BtcCandle& lastCandle) {
+  time_t nowTime = time(nullptr);
+  uint32_t candleSeconds = cryptoChartGranularitySeconds();
+  if (nowTime <= 100000 || lastCandle.time == 0 || candleSeconds == 0) {
+    return 0;
+  }
+
+  int elapsed = (int)(nowTime - lastCandle.time);
+  if (elapsed < 0) {
+    elapsed = 0;
+  }
+  if (elapsed > (int)candleSeconds) {
+    elapsed = (int)candleSeconds;
+  }
+  return (BTC_CHART_W * elapsed) / (int)candleSeconds;
+}
+
+void drawBtcChartProgressBar(int progressWidth) {
+  canvasFillRect(0, BTC_CHART_PROGRESS_Y, BTC_CHART_W, BTC_CHART_PROGRESS_H, 0x1d2530);
+  if (progressWidth > 0) {
+    canvasFillRect(0, BTC_CHART_PROGRESS_Y, progressWidth, BTC_CHART_PROGRESS_H, COLOR_BTC);
+  }
+}
+
 void drawBtcDayChart() {
   if (btcDayChartCanvas == nullptr || btcCandles == nullptr || chartBtcCandles == nullptr) {
     return;
@@ -78,17 +141,24 @@ void drawBtcDayChart() {
   }
   xSemaphoreGive(dataMutex);
 
-  lv_display_enable_invalidation(lvDisplay, false);
-  lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
-  canvasDrawRect(0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
-
   if (!ready || sourceCount < 2) {
+    lv_display_enable_invalidation(lvDisplay, false);
+    lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
+    canvasDrawRect(0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
+    setHidden(btcDayPriceLastLabel, true);
+    setLabelTextIfChanged(btcDayPriceHighLabel, "--");
+    setLabelTextIfChanged(btcDayPriceLowLabel, "--");
+    btcChartCache.valid = false;
     lv_display_enable_invalidation(lvDisplay, true);
     lv_obj_invalidate(btcDayChartCanvas);
+    lv_obj_invalidate(btcDayPriceHighLabel);
+    lv_obj_invalidate(btcDayPriceLowLabel);
+    lv_obj_invalidate(btcDayPriceLastLabel);
     return;
   }
 
-  int start = sourceCount - BTC_DAY_CANDLE_COUNT;
+  int windowSize = cryptoChartCandleCount();
+  int start = sourceCount - windowSize;
   if (start < 0) {
     start = 0;
   }
@@ -105,12 +175,42 @@ void drawBtcDayChart() {
     }
   }
 
+  float rawLow = low;
+  float rawHigh = high;
   float padding = (high - low) * 0.08f;
   if (padding < 1.0f) {
     padding = 1.0f;
   }
   low -= padding;
   high += padding;
+
+  const BtcCandle& lastCandle = chartBtcCandles[sourceCount - 1];
+  int progressWidth = computeBtcChartProgressWidth(lastCandle);
+  bool dataUnchanged =
+    btcChartCache.valid &&
+    btcChartCache.windowSize == windowSize &&
+    btcChartCache.visibleCount == count &&
+    btcChartCache.lastTime == lastCandle.time &&
+    btcChartCache.lastOpen == lastCandle.open &&
+    btcChartCache.lastHigh == lastCandle.high &&
+    btcChartCache.lastLow == lastCandle.low &&
+    btcChartCache.lastClose == lastCandle.close &&
+    btcChartCache.rawLow == rawLow &&
+    btcChartCache.rawHigh == rawHigh;
+
+  if (dataUnchanged) {
+    if (btcChartCache.progressWidth == progressWidth) {
+      return;
+    }
+    drawBtcChartProgressBar(progressWidth);
+    btcChartCache.progressWidth = progressWidth;
+    lv_obj_invalidate(btcDayChartCanvas);
+    return;
+  }
+
+  lv_display_enable_invalidation(lvDisplay, false);
+  lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
+  canvasDrawRect(0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
 
   for (int i = 1; i < 4; i++) {
     int gy = BTC_CHART_H * i / 4;
@@ -148,22 +248,53 @@ void drawBtcDayChart() {
     }
   }
 
-  canvasFillRect(0, BTC_CHART_PROGRESS_Y, BTC_CHART_W, BTC_CHART_PROGRESS_H, 0x1d2530);
-  time_t nowTime = time(nullptr);
-  uint32_t lastCandleTime = chartBtcCandles[sourceCount - 1].time;
-  int progressWidth = 0;
-  if (nowTime > 100000 && lastCandleTime > 0) {
-    int elapsed = (int)(nowTime - lastCandleTime);
-    if (elapsed < 0) {
-      elapsed = 0;
-    }
-    if (elapsed > (int)BTC_CANDLE_SECONDS) {
-      elapsed = (int)BTC_CANDLE_SECONDS;
-    }
-    progressWidth = (BTC_CHART_W * elapsed) / (int)BTC_CANDLE_SECONDS;
+  int yLastClose = priceToChartY(lastCandle.close, low, high, 3, BTC_CHART_H - 6);
+  canvasDashedHLine(yLastClose, 1, BTC_CHART_W - 1, 6, 4, COLOR_BTC);
+
+  char highText[16];
+  char lowText[16];
+  char lastText[16];
+  formatQuoteCompact(rawHigh, highText, sizeof(highText));
+  formatQuoteCompact(rawLow, lowText, sizeof(lowText));
+  formatQuoteCompact(lastCandle.close, lastText, sizeof(lastText));
+  setLabelTextIfChanged(btcDayPriceHighLabel, highText);
+  setLabelTextIfChanged(btcDayPriceLowLabel, lowText);
+  setLabelTextIfChanged(btcDayPriceLastLabel, lastText);
+
+  const int labelW = 90;
+  const int labelH = 20;
+  int chartX = lv_obj_get_x(btcDayChartCanvas);
+  int chartY = lv_obj_get_y(btcDayChartCanvas);
+  int labelX = chartX + (BTC_CHART_W - labelW) / 2;
+  int labelY = chartY + yLastClose - (labelH / 2);
+  int minY = chartY + 2;
+  int maxY = chartY + BTC_CHART_H - labelH - 2;
+  if (labelY < minY) {
+    labelY = minY;
   }
-  canvasFillRect(0, BTC_CHART_PROGRESS_Y, progressWidth, BTC_CHART_PROGRESS_H, COLOR_BTC);
+  if (labelY > maxY) {
+    labelY = maxY;
+  }
+  lv_obj_set_pos(btcDayPriceLastLabel, labelX, labelY);
+  setHidden(btcDayPriceLastLabel, false);
+
+  drawBtcChartProgressBar(progressWidth);
 
   lv_display_enable_invalidation(lvDisplay, true);
   lv_obj_invalidate(btcDayChartCanvas);
+  lv_obj_invalidate(btcDayPriceHighLabel);
+  lv_obj_invalidate(btcDayPriceLowLabel);
+  lv_obj_invalidate(btcDayPriceLastLabel);
+
+  btcChartCache.windowSize = windowSize;
+  btcChartCache.visibleCount = count;
+  btcChartCache.lastTime = lastCandle.time;
+  btcChartCache.lastOpen = lastCandle.open;
+  btcChartCache.lastHigh = lastCandle.high;
+  btcChartCache.lastLow = lastCandle.low;
+  btcChartCache.lastClose = lastCandle.close;
+  btcChartCache.rawLow = rawLow;
+  btcChartCache.rawHigh = rawHigh;
+  btcChartCache.progressWidth = progressWidth;
+  btcChartCache.valid = true;
 }

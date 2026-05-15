@@ -59,20 +59,25 @@ void createCryptoScreen() {
 
   createDivider(cryptoScreen, 88, 174, 304, COLOR_BTC);
 
+  cryptoChangeLabel = createLabel(cryptoScreen, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(cryptoChangeLabel, 440, 32);
+  lv_obj_align(cryptoChangeLabel, LV_ALIGN_TOP_MID, 0, 184);
+  lv_label_set_text(cryptoChangeLabel, "24H --");
+
   cryptoStatusLabel = createLabel(cryptoScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(cryptoStatusLabel, 440, 28);
-  lv_obj_align(cryptoStatusLabel, LV_ALIGN_TOP_MID, 0, 210);
+  lv_obj_align(cryptoStatusLabel, LV_ALIGN_TOP_MID, 0, 228);
 }
 
 void createBtcDayScreen() {
   btcDayScreen = createScreen();
   createAccent(btcDayScreen, COLOR_BTC);
 
-  lv_obj_t* title = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(title, 180, 24);
-  lv_obj_set_pos(title, 60, 20);
+  btcDayTitleLabel = createLabel(btcDayScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(btcDayTitleLabel, 180, 24);
+  lv_obj_set_pos(btcDayTitleLabel, 60, 20);
   String titleText = cryptoDayTitle();
-  lv_label_set_text(title, titleText.c_str());
+  lv_label_set_text(btcDayTitleLabel, titleText.c_str());
 
   btcDayChangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(btcDayChangeLabel, 180, 32);
@@ -100,16 +105,47 @@ void createBtcDayScreen() {
   }
 
   btcDayRangeLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_size(btcDayRangeLabel, 220, 24);
+  lv_obj_set_size(btcDayRangeLabel, 270, 24);
   lv_obj_set_pos(btcDayRangeLabel, 34, 218);
 
   btcDayCandleLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_BTC, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_set_size(btcDayCandleLabel, 180, 24);
-  lv_obj_set_pos(btcDayCandleLabel, 266, 218);
+  lv_obj_set_size(btcDayCandleLabel, 160, 24);
+  lv_obj_set_pos(btcDayCandleLabel, 286, 218);
 
   btcDayVolumeLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(btcDayVolumeLabel, 440, 24);
   lv_obj_align(btcDayVolumeLabel, LV_ALIGN_TOP_MID, 0, 244);
+
+  btcDayPriceHighLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(btcDayPriceHighLabel, 88, 20);
+  lv_obj_set_pos(btcDayPriceHighLabel, 352, 92);
+  lv_obj_set_style_bg_color(btcDayPriceHighLabel, lv_color_hex(COLOR_BG), 0);
+  lv_obj_set_style_bg_opa(btcDayPriceHighLabel, LV_OPA_70, 0);
+  lv_obj_set_style_pad_hor(btcDayPriceHighLabel, 3, 0);
+  lv_obj_set_style_pad_ver(btcDayPriceHighLabel, 1, 0);
+  lv_obj_set_style_radius(btcDayPriceHighLabel, 3, 0);
+  lv_label_set_text(btcDayPriceHighLabel, "--");
+
+  btcDayPriceLowLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
+  lv_obj_set_size(btcDayPriceLowLabel, 88, 20);
+  lv_obj_set_pos(btcDayPriceLowLabel, 352, 176);
+  lv_obj_set_style_bg_color(btcDayPriceLowLabel, lv_color_hex(COLOR_BG), 0);
+  lv_obj_set_style_bg_opa(btcDayPriceLowLabel, LV_OPA_70, 0);
+  lv_obj_set_style_pad_hor(btcDayPriceLowLabel, 3, 0);
+  lv_obj_set_style_pad_ver(btcDayPriceLowLabel, 1, 0);
+  lv_obj_set_style_radius(btcDayPriceLowLabel, 3, 0);
+  lv_label_set_text(btcDayPriceLowLabel, "--");
+
+  btcDayPriceLastLabel = createLabel(btcDayScreen, &lv_font_montserrat_16, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(btcDayPriceLastLabel, 90, 20);
+  lv_obj_set_pos(btcDayPriceLastLabel, 195, 140);
+  lv_obj_set_style_bg_color(btcDayPriceLastLabel, lv_color_hex(COLOR_BTC), 0);
+  lv_obj_set_style_bg_opa(btcDayPriceLastLabel, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_hor(btcDayPriceLastLabel, 3, 0);
+  lv_obj_set_style_pad_ver(btcDayPriceLastLabel, 1, 0);
+  lv_obj_set_style_radius(btcDayPriceLastLabel, 3, 0);
+  lv_label_set_text(btcDayPriceLastLabel, "--");
+  setHidden(btcDayPriceLastLabel, true);
 }
 
 void createKlipperScreen() {
@@ -304,9 +340,25 @@ void refreshCryptoUi() {
   xSemaphoreTake(dataMutex, portMAX_DELAY);
   String price = currentBtcPrice;
   String status = currentBtcStatus;
+  float livePrice = currentBtcLivePrice;
+  float openPrice = currentBtc24hOpen;
+  bool openReady = currentBtc24hReady;
   xSemaphoreGive(dataMutex);
 
   setLabelTextIfChanged(cryptoPriceLabel, price.c_str());
+
+  String changeText = "24H --";
+  uint32_t changeColor = COLOR_DIM;
+  if (openReady && openPrice > 0.0f && livePrice > 0.0f) {
+    float pct = ((livePrice - openPrice) / openPrice) * 100.0f;
+    bool positive = pct >= 0.0f;
+    // Tageskurs-Badge wie im ESP-IDF-Port: Pfeil, 24H und Prozentwert.
+    changeText = String(positive ? LV_SYMBOL_UP " 24H +" : LV_SYMBOL_DOWN " 24H ") + String(pct, 2) + "%";
+    changeColor = positive ? COLOR_GREEN : COLOR_LOSS;
+  }
+  setLabelTextIfChanged(cryptoChangeLabel, changeText.c_str());
+  lv_obj_set_style_text_color(cryptoChangeLabel, lv_color_hex(changeColor), 0);
+
   setLabelTextIfChanged(cryptoStatusLabel, status.c_str());
   lv_obj_set_style_text_color(
     cryptoStatusLabel,
@@ -325,11 +377,12 @@ String formatBtcCandleCountdown(uint32_t candleTime) {
   if (elapsed < 0) {
     elapsed = 0;
   }
-  if (elapsed >= (int)BTC_CANDLE_SECONDS) {
-    elapsed = (int)BTC_CANDLE_SECONDS - 1;
+  int candleSeconds = (int)cryptoChartGranularitySeconds();
+  if (elapsed >= candleSeconds) {
+    elapsed = candleSeconds - 1;
   }
 
-  int remaining = (int)BTC_CANDLE_SECONDS - elapsed;
+  int remaining = candleSeconds - elapsed;
   int remainingHours = remaining / 3600;
   int remainingMinutes = (remaining % 3600) / 60;
   if (remainingHours > 0) {
@@ -355,6 +408,7 @@ void refreshBtcDayUi() {
     candle = formatBtcCandleCountdown(candleTime);
   }
 
+  String title = cryptoDayTitle();
   String chartPrice = price;
   if (priceDirection > 0) {
     chartPrice = String(LV_SYMBOL_UP " ") + price;
@@ -362,6 +416,7 @@ void refreshBtcDayUi() {
     chartPrice = String(LV_SYMBOL_DOWN " ") + price;
   }
 
+  setLabelTextIfChanged(btcDayTitleLabel, title.c_str());
   setLabelTextIfChanged(btcDayPriceLabel, chartPrice.c_str());
   setLabelTextIfChanged(btcDayChangeLabel, change.c_str());
   setLabelTextIfChanged(btcDayRangeLabel, range.c_str());

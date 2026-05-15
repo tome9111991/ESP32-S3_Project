@@ -58,7 +58,8 @@
                   { "key": "CRYPTO_BASE_SYMBOL", "label": "Basis-Symbol", "type": "string", "default": "BTC" },
                   { "key": "CRYPTO_QUOTE_SYMBOL", "label": "Quote-Symbol", "type": "string", "default": "USD" },
                   { "key": "CRYPTO_PRICE_PREFIX", "label": "Preis-Prefix", "type": "string", "default": "", "hint": "Leer = automatisch ($ für USD, sonst Quote-Symbol)" },
-                  { "key": "CRYPTO_SERVICE_NAME", "label": "Service-Label", "type": "string", "default": "COINBASE", "hint": "Nur Anzeige. Preis-API ist hardcoded Coinbase." }
+                  { "key": "CRYPTO_SERVICE_NAME", "label": "Service-Label", "type": "string", "default": "COINBASE", "hint": "Nur Anzeige. Preis-API ist hardcoded Coinbase." },
+                  { "key": "CRYPTO_CHART_TIMEFRAME", "label": "Chart-Timeframe", "type": "select", "default": "1D", "options": ["15M", "1H", "6H", "1D"], "hint": "Verfügbare Kerzen-Zeitfenster aus dem Sketch." }
                 ]
               },
               {

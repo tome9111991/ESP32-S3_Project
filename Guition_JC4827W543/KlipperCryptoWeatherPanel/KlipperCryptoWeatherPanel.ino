@@ -152,6 +152,9 @@ const char* WEEKDAYS_DE[] = {
 #ifndef CRYPTO_SERVICE_NAME
   #define CRYPTO_SERVICE_NAME "COINBASE"
 #endif
+#ifndef CRYPTO_CHART_TIMEFRAME
+  #define CRYPTO_CHART_TIMEFRAME "1D"
+#endif
 #ifndef KLIPPER_BASE_URL
   #define KLIPPER_BASE_URL "http://mainsail"
 #endif
@@ -159,7 +162,7 @@ const char* WEEKDAYS_DE[] = {
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-// Bright Sky liefert DWD-Daten ohne API-Key.
+// Open-Meteo liefert WMO-Wettercodes ohne API-Key.
 const float locationLatitude = LOCATION_LATITUDE;
 const float locationLongitude = LOCATION_LONGITUDE;
 const char* timezonePosix = TIMEZONE_POSIX;
@@ -168,9 +171,12 @@ const char* cryptoBaseSymbol = CRYPTO_BASE_SYMBOL;
 const char* cryptoQuoteSymbol = CRYPTO_QUOTE_SYMBOL;
 const char* cryptoPricePrefix = CRYPTO_PRICE_PREFIX; // leer = automatisch: USD "$ ", EUR "EUR ", sonst Quote-Code
 const char* cryptoServiceName = CRYPTO_SERVICE_NAME;
+const char* cryptoChartTimeframe = CRYPTO_CHART_TIMEFRAME; // "15M", "1H", "6H" oder "1D"
 const char* klipperBaseUrl = KLIPPER_BASE_URL;
 const unsigned long btcRefreshInterval = 60000; // 60 Sekunden
 const unsigned long btcRetryInterval = 10000; // 10 Sekunden bei Fehlern
+const unsigned long btcStatsRefreshInterval = 300000; // 5 Minuten fuer 24H-Open
+const unsigned long btcStatsRetryInterval = 60000; // 60 Sekunden bei Fehlern
 const unsigned long btcCandleRefreshInterval = 300000; // 5 Minuten
 const unsigned long btcCandleRetryInterval = 60000; // 60 Sekunden bei Fehlern
 const unsigned long weatherRefreshInterval = 300000; // 5 Minuten
@@ -179,7 +185,7 @@ const unsigned long klipperRefreshInterval = 7000; // 7 Sekunden
 const unsigned long klipperRetryInterval = 15000; // 15 Sekunden bei Fehlern
 const unsigned long klipperNameRefreshInterval = 300000; // 5 Minuten
 const unsigned long klipperNameRetryInterval = 60000; // 60 Sekunden bei Fehlern
-const uint32_t BTC_CANDLE_SECONDS = 86400; // Tageskerzen
+const uint32_t BTC_CANDLE_SECONDS = 86400; // Fallback: Tageskerzen
 const int WEATHER_ICON_W = 56;
 const int WEATHER_ICON_H = 48;
 const int DIVIDER_H = 4;
@@ -193,6 +199,8 @@ TaskHandle_t fetchTaskHandle = NULL;
 String currentBtcPrice = "Laden...";
 float currentBtcLivePrice = 0.0f;
 int currentBtcPriceDirection = 0;
+float currentBtc24hOpen = 0.0f;
+bool currentBtc24hReady = false;
 String currentBtcStatus = String(cryptoServiceName) + " " + cryptoQuoteSymbol;
 String btcDayChange = "1D --";
 String btcDayRange = "H --  L --";
@@ -200,7 +208,7 @@ String btcDayVolume = "VOL --";
 String btcCandleStatus = "CANDLE --";
 String currentTemp = "--";
 String weatherStatus = "WETTER: --";
-String weatherLocation = "DWD Station";
+String weatherLocation = "Standort";
 int weatherCode = -1;
 bool klipperAvailable = false;
 bool klipperHostAvailable = false;
@@ -320,13 +328,18 @@ static lv_obj_t* timeSecondFill = nullptr;
 static lv_obj_t* timeStatusTitle = nullptr;
 static lv_obj_t* timeStatusDetail = nullptr;
 static lv_obj_t* cryptoPriceLabel = nullptr;
+static lv_obj_t* cryptoChangeLabel = nullptr;
 static lv_obj_t* cryptoStatusLabel = nullptr;
+static lv_obj_t* btcDayTitleLabel = nullptr;
 static lv_obj_t* btcDayPriceLabel = nullptr;
 static lv_obj_t* btcDayChangeLabel = nullptr;
 static lv_obj_t* btcDayRangeLabel = nullptr;
 static lv_obj_t* btcDayVolumeLabel = nullptr;
 static lv_obj_t* btcDayCandleLabel = nullptr;
 static lv_obj_t* btcDayChartCanvas = nullptr;
+static lv_obj_t* btcDayPriceHighLabel = nullptr;
+static lv_obj_t* btcDayPriceLowLabel = nullptr;
+static lv_obj_t* btcDayPriceLastLabel = nullptr;
 static lv_obj_t* klipperAccent = nullptr;
 static lv_obj_t* klipperDivider = nullptr;
 static lv_obj_t* klipperOfflineRing = nullptr;
@@ -417,6 +430,8 @@ void canvasFillRect(int x, int y, int w, int h, uint32_t color);
 void canvasHLine(int x, int y, int w, uint32_t color);
 void canvasVLine(int x, int y, int h, uint32_t color);
 void canvasDrawRect(int x, int y, int w, int h, uint32_t color);
+void canvasDashedHLine(int y, int xFrom, int xTo, int dashOn, int dashOff, uint32_t color);
+void invalidateBtcChartCache();
 void drawBtcDayChart();
 void updateWifiState();
 void beginWiFi();
@@ -425,16 +440,19 @@ String extractJsonNumber(const String& payload, const String& key);
 String extractJsonString(const String& payload, const String& key);
 String weatherStationNameForSource(JsonArrayConst sources, int sourceId);
 int weatherCodeFromText(String text);
-bool weatherHasRecentPrecipitation(JsonVariantConst weather);
-int weatherPriorityCodeFromCondition(String text);
-int weatherCodeFromBrightSky(JsonVariantConst weather, const String& iconText, const String& conditionText);
 String cryptoProductId();
 String cryptoPairTitle();
 String cryptoDayTitle();
 String cryptoPricePrefixText();
 String cryptoSpotUrl();
+String cryptoStatsUrl();
 String cryptoCandlesBaseUrl();
 String cryptoOkStatus();
+bool cryptoChartTimeframeAllowed(const char* value);
+const char* cryptoChartTimeframeLabel();
+uint32_t cryptoChartGranularitySeconds();
+int cryptoChartCandleCount();
+void formatChartTime(time_t value, bool includeTime, char* buffer, size_t bufferSize);
 void formatQuoteCompact(float value, char* buffer, size_t bufferSize);
 void updateBtcDayStatsLocked();
 bool parseNextNumber(const String& payload, int& index, double& value);
@@ -445,8 +463,10 @@ bool initBtcStorage();
 void storeBtcCandles(const BtcCandle* candles, int count);
 void updateLiveCandleFromPrice(float price);
 bool fetchWeatherValue();
-String buildBrightSkyUrl();
+String buildOpenMeteoUrl();
+String buildReverseGeocodeUrl();
 bool fetchBtcPrice();
+bool fetchBtcStats();
 String readHttpPayloadChunked(HTTPClient& http, size_t reserveBytes);
 String buildKlipperQueryUrl();
 String urlEncodeQueryParam(const String& text);

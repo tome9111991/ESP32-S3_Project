@@ -1,6 +1,6 @@
 # Guition JC4827W543 ESP32-S3 HMI
 
-Arduino/LVGL dashboard for the Guition JC4827W543 ESP32-S3 display. The sketch rotates through local time, weather, live crypto pricing, a 90-day crypto candle chart, and Klipper/Moonraker 3D printer status.
+Arduino/LVGL dashboard for the Guition JC4827W543 ESP32-S3 display. The sketch rotates through local time, weather, live crypto pricing, a configurable crypto candle chart, and Klipper/Moonraker 3D printer status.
 
 The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.ino` in the Arduino IDE, not the numbered `.ino` tabs directly.
 
@@ -12,7 +12,7 @@ The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.i
 
 | Crypto candle chart | Klipper printer status |
 | --- | --- |
-| <img src="images/chart.png" alt="BTC 90-day candle chart screen on the Guition display" width="420"> | <img src="images/klipper.png" alt="Klipper and Moonraker printer status screen on the Guition display" width="420"> |
+| <img src="images/chart.png" alt="BTC candle chart screen on the Guition display" width="420"> | <img src="images/klipper.png" alt="Klipper and Moonraker printer status screen on the Guition display" width="420"> |
 
 ## Features
 
@@ -21,9 +21,9 @@ The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.i
 - Wi-Fi reconnect handling and serial health diagnostics
 - NTP time sync with CET/CEST timezone handling
 - Day/night brightness switching based on calculated sunrise and sunset, with a morning delay before day brightness
-- Current weather from Bright Sky / DWD data, no weather API key required
+- Current weather from Open-Meteo, no weather API key required
 - Live crypto spot price from Coinbase
-- 90-day daily candle chart from Coinbase Exchange candles
+- Configurable candle chart from Coinbase Exchange candles (`15M`, `1H`, `6H`, `1D`)
 - Klipper/Moonraker status screen for Mainsail-based printers
 - Optional MMU gate/status display when Moonraker exposes an `mmu` object
 - Private local configuration kept outside Git with `config_private.h`
@@ -104,6 +104,7 @@ Then edit `config_private.h`:
 #define CRYPTO_QUOTE_SYMBOL "USD"
 #define CRYPTO_PRICE_PREFIX ""
 #define CRYPTO_SERVICE_NAME "COINBASE"
+#define CRYPTO_CHART_TIMEFRAME "1D"
 
 #define KLIPPER_BASE_URL "http://mainsail"
 ```
@@ -118,9 +119,10 @@ The sketch reads data from:
 
 | Service | Purpose | Endpoint |
 | --- | --- | --- |
-| Bright Sky | Current DWD weather | `https://api.brightsky.dev/current_weather` |
+| Open-Meteo | Current weather | `https://api.open-meteo.com/v1/forecast` |
+| BigDataCloud | Reverse geocoding for the weather location name | `https://api.bigdatacloud.net/data/reverse-geocode-client` |
 | Coinbase | Live spot price | `https://api.coinbase.com/v2/prices/{BASE}-{QUOTE}/spot` |
-| Coinbase Exchange | Daily candles | `https://api.exchange.coinbase.com/products/{BASE}-{QUOTE}/candles` |
+| Coinbase Exchange | Configurable candles | `https://api.exchange.coinbase.com/products/{BASE}-{QUOTE}/candles` |
 | Moonraker | Klipper status | `${KLIPPER_BASE_URL}/server/info`, `/printer/objects/query`, `/server/files/metadata` |
 
 Moonraker access is unauthenticated in this sketch. If your Moonraker instance requires authentication, allow the display on your trusted local network or extend the HTTP requests to send a token.

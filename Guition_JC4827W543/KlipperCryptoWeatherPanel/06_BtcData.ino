@@ -7,7 +7,7 @@ String cryptoPairTitle() {
 }
 
 String cryptoDayTitle() {
-  return String(cryptoBaseSymbol) + " 90D";
+  return String(cryptoBaseSymbol) + " " + cryptoChartTimeframeLabel();
 }
 
 String cryptoPricePrefixText() {
@@ -19,11 +19,21 @@ String cryptoPricePrefixText() {
   if (quote.equalsIgnoreCase("USD")) {
     return "$ ";
   }
+  if (quote.equalsIgnoreCase("EUR")) {
+    return "EUR ";
+  }
+  if (quote.equalsIgnoreCase("GBP")) {
+    return "GBP ";
+  }
   return quote + " ";
 }
 
 String cryptoSpotUrl() {
   return String("https://api.coinbase.com/v2/prices/") + cryptoProductId() + "/spot";
+}
+
+String cryptoStatsUrl() {
+  return String("https://api.exchange.coinbase.com/products/") + cryptoProductId() + "/stats";
 }
 
 String cryptoCandlesBaseUrl() {
@@ -32,6 +42,63 @@ String cryptoCandlesBaseUrl() {
 
 String cryptoOkStatus() {
   return String(cryptoServiceName) + " " + cryptoQuoteSymbol;
+}
+
+bool cryptoChartTimeframeAllowed(const char* value) {
+  if (value == nullptr) {
+    return false;
+  }
+
+  String timeframe = value;
+  return timeframe.equalsIgnoreCase("15M") ||
+         timeframe.equalsIgnoreCase("1H") ||
+         timeframe.equalsIgnoreCase("6H") ||
+         timeframe.equalsIgnoreCase("1D");
+}
+
+const char* cryptoChartTimeframeLabel() {
+  String timeframe = "";
+  if (cryptoChartTimeframe != nullptr) {
+    timeframe = cryptoChartTimeframe;
+  }
+  if (timeframe.equalsIgnoreCase("15M")) {
+    return "15M";
+  }
+  if (timeframe.equalsIgnoreCase("1H")) {
+    return "1H";
+  }
+  if (timeframe.equalsIgnoreCase("6H")) {
+    return "6H";
+  }
+  return "1D";
+}
+
+uint32_t cryptoChartGranularitySeconds() {
+  String timeframe = cryptoChartTimeframeLabel();
+  if (timeframe.equalsIgnoreCase("15M")) {
+    return 900;
+  }
+  if (timeframe.equalsIgnoreCase("1H")) {
+    return 3600;
+  }
+  if (timeframe.equalsIgnoreCase("6H")) {
+    return 21600;
+  }
+  return BTC_CANDLE_SECONDS;
+}
+
+int cryptoChartCandleCount() {
+  return BTC_DAY_CANDLE_COUNT;
+}
+
+void formatChartTime(time_t value, bool includeTime, char* buffer, size_t bufferSize) {
+  struct tm timeinfo;
+  if (value <= 0 || !localtime_r(&value, &timeinfo)) {
+    snprintf(buffer, bufferSize, "--");
+    return;
+  }
+
+  strftime(buffer, bufferSize, includeTime ? "%b %d %H:%M" : "%b %d", &timeinfo);
 }
 
 void formatQuoteCompact(float value, char* buffer, size_t bufferSize) {
@@ -45,8 +112,12 @@ void formatQuoteCompact(float value, char* buffer, size_t bufferSize) {
     snprintf(buffer, bufferSize, "%s%.0fK", prefix.c_str(), value / 1000.0f);
   } else if (value >= 10000.0f) {
     snprintf(buffer, bufferSize, "%s%.1fK", prefix.c_str(), value / 1000.0f);
-  } else {
+  } else if (value >= 100.0f) {
     snprintf(buffer, bufferSize, "%s%.0f", prefix.c_str(), value);
+  } else if (value >= 1.0f) {
+    snprintf(buffer, bufferSize, "%s%.2f", prefix.c_str(), value);
+  } else {
+    snprintf(buffer, bufferSize, "%s%.4f", prefix.c_str(), value);
   }
 }
 
@@ -83,8 +154,8 @@ bool initBtcStorage() {
 
 void updateBtcDayStatsLocked() {
   if (btcCandles == nullptr) {
-    btcDayChange = "1D --";
-    btcDayRange = "H --  L --";
+    btcDayChange = String(cryptoChartTimeframeLabel()) + " --";
+    btcDayRange = "--";
     btcDayVolume = "VOL --";
     btcCandleStatus = "CANDLE RAM";
     btcDayDataReady = false;
@@ -92,43 +163,36 @@ void updateBtcDayStatsLocked() {
   }
 
   if (btcCandleCount < 2) {
-    btcDayChange = "1D --";
-    btcDayRange = "H --  L --";
+    btcDayChange = String(cryptoChartTimeframeLabel()) + " --";
+    btcDayRange = "--";
     btcDayVolume = "VOL --";
     btcCandleStatus = "CANDLE --";
     btcDayDataReady = false;
     return;
   }
 
-  int start = btcCandleCount - BTC_DAY_CANDLE_COUNT;
+  int start = btcCandleCount - cryptoChartCandleCount();
   if (start < 0) {
     start = 0;
   }
 
   const BtcCandle& latestCandle = btcCandles[btcCandleCount - 1];
-  float high = btcCandles[start].high;
-  float low = btcCandles[start].low;
   float volume = 0.0f;
 
   for (int i = start; i < btcCandleCount; i++) {
-    if (btcCandles[i].high > high) {
-      high = btcCandles[i].high;
-    }
-    if (btcCandles[i].low < low) {
-      low = btcCandles[i].low;
-    }
     volume += btcCandles[i].volume;
   }
 
   btcDayChangePercent = latestCandle.open > 0.0f ? ((latestCandle.close - latestCandle.open) / latestCandle.open) * 100.0f : 0.0f;
   btcDayChangePositive = btcDayChangePercent >= 0.0f;
-  btcDayChange = String(btcDayChangePositive ? "+" : "") + String(btcDayChangePercent, 2) + "%";
+  btcDayChange = String(cryptoChartTimeframeLabel()) + " " + String(btcDayChangePositive ? "+" : "") + String(btcDayChangePercent, 2) + "%";
 
-  char highText[16];
-  char lowText[16];
-  formatQuoteCompact(high, highText, sizeof(highText));
-  formatQuoteCompact(low, lowText, sizeof(lowText));
-  btcDayRange = "H " + String(highText) + "  L " + String(lowText);
+  uint32_t seconds = cryptoChartGranularitySeconds();
+  char startText[24];
+  char endText[24];
+  formatChartTime((time_t)btcCandles[start].time, seconds < BTC_CANDLE_SECONDS, startText, sizeof(startText));
+  formatChartTime((time_t)latestCandle.time + (time_t)seconds, seconds < BTC_CANDLE_SECONDS, endText, sizeof(endText));
+  btcDayRange = String(startText) + " - " + String(endText);
   btcDayVolume = "VOL " + String(volume, 1) + " " + cryptoBaseSymbol;
 
   btcCandleStatus = formatBtcCandleCountdown(btcCandles[btcCandleCount - 1].time);
@@ -239,6 +303,7 @@ void storeBtcCandles(const BtcCandle* candles, int count) {
   }
   updateBtcDayStatsLocked();
   xSemaphoreGive(dataMutex);
+  invalidateBtcChartCache();
 }
 
 void updateLiveCandleFromPrice(float price) {
@@ -255,7 +320,8 @@ void updateLiveCandleFromPrice(float price) {
     return;
   }
 
-  uint32_t bucketTime = ((uint32_t)nowTime / BTC_CANDLE_SECONDS) * BTC_CANDLE_SECONDS;
+  uint32_t candleSeconds = cryptoChartGranularitySeconds();
+  uint32_t bucketTime = ((uint32_t)nowTime / candleSeconds) * candleSeconds;
   xSemaphoreTake(dataMutex, portMAX_DELAY);
 
   if (btcCandleCount > 0 && btcCandles[btcCandleCount - 1].time == bucketTime) {
@@ -288,4 +354,5 @@ void updateLiveCandleFromPrice(float price) {
 
   updateBtcDayStatsLocked();
   xSemaphoreGive(dataMutex);
+  invalidateBtcChartCache();
 }

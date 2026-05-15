@@ -20,86 +20,158 @@ String readHttpPayloadChunked(HTTPClient& http, size_t reserveBytes) {
   return String(payload);
 }
 
-String buildBrightSkyUrl() {
-  return String("https://api.brightsky.dev/current_weather?lat=") +
+static bool weatherLocationNameResolved = false;
+
+String buildOpenMeteoUrl() {
+  return String("https://api.open-meteo.com/v1/forecast?latitude=") +
     String(locationLatitude, 6) +
-    "&lon=" +
-    String(locationLongitude, 6);
+    "&longitude=" +
+    String(locationLongitude, 6) +
+    // WMO weather_code passt direkt zur vorhandenen Icon-Zuordnung.
+    "&current=temperature_2m,weather_code,precipitation,rain,showers,snowfall" +
+    "&hourly=weather_code&forecast_days=1&timezone=auto&models=best_match";
 }
 
-bool weatherHasRecentSunshine(JsonVariantConst weather) {
-  float sunshine30 = weather["sunshine_30"] | 0.0f;
-  float sunshine60 = weather["sunshine_60"] | 0.0f;
-
-  // Bright Sky can still report "cloudy" while DWD sunshine counters show sun.
-  return sunshine30 >= 5.0f || sunshine60 >= 10.0f;
+String buildReverseGeocodeUrl() {
+  return String("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=") +
+    String(locationLatitude, 6) +
+    "&longitude=" +
+    String(locationLongitude, 6) +
+    "&localityLanguage=de";
 }
 
-bool weatherHasRecentPrecipitation(JsonVariantConst weather) {
-  float precipitation10 = weather["precipitation_10"] | 0.0f;
-  float precipitation30 = weather["precipitation_30"] | 0.0f;
-  float precipitation60 = weather["precipitation_60"] | 0.0f;
-
-  return precipitation10 > 0.0f || precipitation30 >= 0.1f || precipitation60 >= 0.1f;
+bool weatherCodeIsThunder(int code) {
+  return code >= 95 && code <= 99;
 }
 
-int weatherPriorityCodeFromCondition(String text) {
-  text.toLowerCase();
+bool weatherCurrentHasPrecipitation(float precipitation, float rain, float showers, float snowfall) {
+  const float mmEpsilon = 0.01f;
+  const float cmEpsilon = 0.001f;
+  return (isfinite(precipitation) && precipitation > mmEpsilon) ||
+         (isfinite(rain) && rain > mmEpsilon) ||
+         (isfinite(showers) && showers > mmEpsilon) ||
+         (isfinite(snowfall) && snowfall > cmEpsilon);
+}
 
-  if (text.indexOf("thunder") >= 0 || text.indexOf("storm") >= 0 || text.indexOf("gewitter") >= 0) {
-    return 95;
+int weatherHourlyCodeForCurrentHour(const String& currentTime, JsonVariantConst hourlyTimesValue, JsonVariantConst hourlyCodesValue) {
+  if (currentTime.length() < 13 || !hourlyTimesValue.is<JsonArrayConst>() || !hourlyCodesValue.is<JsonArrayConst>()) {
+    return -1;
   }
-  if (text.indexOf("snow") >= 0 || text.indexOf("sleet") >= 0 || text.indexOf("hail") >= 0 || text.indexOf("schnee") >= 0) {
-    return 71;
+
+  JsonArrayConst hourlyTimes = hourlyTimesValue.as<JsonArrayConst>();
+  JsonArrayConst hourlyCodes = hourlyCodesValue.as<JsonArrayConst>();
+  size_t count = hourlyTimes.size();
+  if (hourlyCodes.size() < count) {
+    count = hourlyCodes.size();
   }
-  if (text.indexOf("rain") >= 0 || text.indexOf("drizzle") >= 0 || text.indexOf("regen") >= 0) {
-    return 61;
-  }
-  if (text.indexOf("fog") >= 0 || text.indexOf("mist") >= 0 || text.indexOf("nebel") >= 0) {
-    return 45;
+
+  const String currentHour = currentTime.substring(0, 13);
+  for (size_t i = 0; i < count; i++) {
+    String hourText = jsonStringValue(hourlyTimes[i]);
+    if (hourText.length() < 13 || !hourText.startsWith(currentHour)) {
+      continue;
+    }
+
+    int code = jsonIntValue(hourlyCodes[i], -1);
+    return (code >= 0 && code < 100) ? code : -1;
   }
 
   return -1;
 }
 
-int weatherCodeFromBrightSky(JsonVariantConst weather, const String& iconText, const String& conditionText) {
-  int parsedWeatherCode = weatherPriorityCodeFromCondition(conditionText);
-  if (parsedWeatherCode >= 0) {
-    return parsedWeatherCode;
+int weatherDisplayCodeFromCurrent(int code, const String& currentTime, float precipitation,
+                                  float rain, float showers, float snowfall,
+                                  JsonVariantConst hourlyTimes, JsonVariantConst hourlyCodes) {
+  if (!weatherCodeIsThunder(code)) {
+    return code;
   }
 
-  parsedWeatherCode = weatherPriorityCodeFromCondition(iconText);
-  if (parsedWeatherCode >= 0) {
-    return parsedWeatherCode;
+  // Wie im ESP-IDF-Port: Gewitter nur anzeigen, wenn Stunden-Code oder Menge passt.
+  int hourlyCode = weatherHourlyCodeForCurrentHour(currentTime, hourlyTimes, hourlyCodes);
+  if (hourlyCode >= 0 && !weatherCodeIsThunder(hourlyCode)) {
+    return hourlyCode;
   }
 
-  if (weatherHasRecentPrecipitation(weather)) {
-    return 61;
+  const float thunderPrecipMm = 1.0f;
+  float p = isfinite(precipitation) ? precipitation : 0.0f;
+  float r = isfinite(rain) ? rain : 0.0f;
+  float s = isfinite(showers) ? showers : 0.0f;
+  float sn = isfinite(snowfall) ? snowfall : 0.0f;
+  if (p >= thunderPrecipMm || r >= thunderPrecipMm || s >= thunderPrecipMm) {
+    return code;
   }
 
-  parsedWeatherCode = weatherCodeFromText(iconText);
-  if (parsedWeatherCode < 0) {
-    parsedWeatherCode = weatherCodeFromText(conditionText);
+  return weatherCurrentHasPrecipitation(p, r, s, sn) ? 80 : 3;
+}
+
+bool resolveWeatherLocationName() {
+  WiFiClientSecure locationClient;
+  locationClient.setInsecure();
+
+  HTTPClient http;
+  String url = buildReverseGeocodeUrl();
+  if (!http.begin(locationClient, url)) {
+    Serial.println("Geo HTTP begin fehlgeschlagen");
+    return false;
+  }
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setReuse(false);
+  http.setTimeout(8000);
+
+  int httpCode = http.GET();
+  Serial.printf("Geo HTTP: %d\n", httpCode);
+  yieldFetchTask();
+  if (httpCode != HTTP_CODE_OK) {
+    http.end();
+    return false;
   }
 
-  if (parsedWeatherCode == 3 && weatherHasRecentSunshine(weather)) {
-    parsedWeatherCode = 2;
+  String payload = readHttpPayloadChunked(http, 2048);
+  http.end();
+  yieldFetchTask();
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, payload);
+  if (error) {
+    Serial.print("Geo JSON Parse Fehler: ");
+    Serial.println(error.c_str());
+    return false;
   }
 
-  return parsedWeatherCode;
+  String name = jsonStringValue(doc["city"]);
+  if (name.length() == 0) {
+    name = jsonStringValue(doc["locality"]);
+  }
+  if (name.length() == 0) {
+    name = jsonStringValue(doc["principalSubdivision"]);
+  }
+  name.trim();
+  if (name.length() == 0) {
+    return false;
+  }
+
+  xSemaphoreTake(dataMutex, portMAX_DELAY);
+  weatherLocation = name;
+  xSemaphoreGive(dataMutex);
+  Serial.println(String("Standort aufgeloest: ") + name);
+  return true;
 }
 
 bool fetchWeatherValue() {
+  if (!weatherLocationNameResolved) {
+    weatherLocationNameResolved = resolveWeatherLocationName();
+  }
+
   WiFiClientSecure weatherClient;
   weatherClient.setInsecure();
 
   HTTPClient http;
-  String weatherUrl = buildBrightSkyUrl();
+  String weatherUrl = buildOpenMeteoUrl();
   if (!http.begin(weatherClient, weatherUrl)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    weatherStatus = "DWD: HTTP BEGIN";
+    weatherStatus = "OM: HTTP BEGIN";
     xSemaphoreGive(dataMutex);
-    Serial.println("DWD HTTP begin fehlgeschlagen");
+    Serial.println("Open-Meteo HTTP begin fehlgeschlagen");
     return false;
   }
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -107,32 +179,32 @@ bool fetchWeatherValue() {
   http.setTimeout(8000);
 
   int httpCodeWeather = http.GET();
-  Serial.printf("DWD HTTP: %d\n", httpCodeWeather);
+  Serial.printf("Open-Meteo HTTP: %d\n", httpCodeWeather);
   yieldFetchTask();
 
   xSemaphoreTake(dataMutex, portMAX_DELAY);
-  weatherStatus = String("DWD HTTP: ") + String(httpCodeWeather);
+  weatherStatus = String("OM HTTP: ") + String(httpCodeWeather);
   xSemaphoreGive(dataMutex);
 
   if (httpCodeWeather == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 2048);
+    String payload = readHttpPayloadChunked(http, 8192);
     yieldFetchTask();
 
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
     if (error) {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
-      weatherStatus = "DWD: JSON";
+      weatherStatus = "OM: JSON";
       xSemaphoreGive(dataMutex);
-      Serial.print("DWD JSON Parse Fehler: ");
+      Serial.print("Open-Meteo JSON Parse Fehler: ");
       Serial.println(error.c_str());
       Serial.println(payload.substring(0, 240));
       http.end();
       return false;
     }
 
-    JsonVariantConst weather = doc["weather"];
-    JsonVariantConst tempValue = weather["temperature"];
+    JsonVariantConst current = doc["current"];
+    JsonVariantConst tempValue = current["temperature_2m"];
     String temp;
     if (tempValue.is<double>() || tempValue.is<long>() || tempValue.is<unsigned long>()) {
       temp = String(tempValue.as<float>(), 1);
@@ -141,43 +213,44 @@ bool fetchWeatherValue() {
     }
     temp.trim();
 
-    String iconText = jsonStringValue(weather["icon"]);
-    String conditionText = jsonStringValue(weather["condition"]);
-
-    int stationSourceId = jsonIntValue(weather["fallback_source_ids"]["temperature"], -1);
-    if (stationSourceId < 0) {
-      stationSourceId = jsonIntValue(weather["source_id"], -1);
-    }
-    String stationName = weatherStationNameForSource(doc["sources"].as<JsonArrayConst>(), stationSourceId);
-    if (stationName.length() == 0) {
-      stationName = weatherStationNameForSource(doc["sources"].as<JsonArrayConst>(), jsonIntValue(weather["source_id"], -1));
-    }
-
     if (temp.length() > 0) {
-      int parsedWeatherCode = weatherCodeFromBrightSky(weather, iconText, conditionText);
+      int parsedWeatherCode = jsonIntValue(current["weather_code"], -1);
+      float precipitation = current["precipitation"] | NAN;
+      float rain = current["rain"] | NAN;
+      float showers = current["showers"] | NAN;
+      float snowfall = current["snowfall"] | NAN;
+      String currentTime = jsonStringValue(current["time"]);
+      JsonVariantConst hourly = doc["hourly"];
+      parsedWeatherCode = weatherDisplayCodeFromCurrent(
+        parsedWeatherCode,
+        currentTime,
+        precipitation,
+        rain,
+        showers,
+        snowfall,
+        hourly["time"],
+        hourly["weather_code"]
+      );
 
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       currentTemp = temp;
       if (parsedWeatherCode >= 0) {
         weatherCode = parsedWeatherCode;
       }
-      if (stationName.length() > 0) {
-        weatherLocation = stationName;
-      }
-      weatherStatus = "WETTER: DWD";
+      weatherStatus = "WETTER: OM";
       xSemaphoreGive(dataMutex);
-      Serial.println(String("DWD Temperatur: ") + temp + " C, station=" + stationName + ", icon=" + iconText + ", condition=" + conditionText + ", precipitation10=" + String((float)(weather["precipitation_10"] | 0.0f), 2) + ", precipitation30=" + String((float)(weather["precipitation_30"] | 0.0f), 2) + ", precipitation60=" + String((float)(weather["precipitation_60"] | 0.0f), 2) + ", sunshine30=" + String((float)(weather["sunshine_30"] | 0.0f), 1) + ", sunshine60=" + String((float)(weather["sunshine_60"] | 0.0f), 1) + ", code=" + String(parsedWeatherCode));
+      Serial.println(String("Open-Meteo Temperatur: ") + temp + " C, code=" + String(parsedWeatherCode) + ", precipitation=" + String(precipitation, 2) + ", rain=" + String(rain, 2) + ", showers=" + String(showers, 2) + ", snowfall=" + String(snowfall, 2));
       http.end();
       return true;
     }
 
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    weatherStatus = "DWD: KEIN TEMP";
+    weatherStatus = "OM: KEIN TEMP";
     xSemaphoreGive(dataMutex);
-    Serial.println("DWD Temperatur nicht in Antwort gefunden:");
+    Serial.println("Open-Meteo Temperatur nicht in Antwort gefunden:");
     Serial.println(payload.substring(0, 240));
   } else {
-    Serial.print("DWD Fehler: ");
+    Serial.print("Open-Meteo Fehler: ");
     Serial.println(http.errorToString(httpCodeWeather));
   }
 
@@ -264,6 +337,57 @@ bool fetchBtcPrice() {
     xSemaphoreGive(dataMutex);
     Serial.printf("%s Fehler: ", cryptoBaseSymbol);
     Serial.println(http.errorToString(httpCodeBtc));
+  }
+
+  http.end();
+  return false;
+}
+
+bool fetchBtcStats() {
+  WiFiClientSecure statsClient;
+  statsClient.setInsecure();
+
+  HTTPClient http;
+  if (!http.begin(statsClient, cryptoStatsUrl())) {
+    return false;
+  }
+
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setReuse(false);
+  http.setTimeout(8000);
+  http.addHeader("User-Agent", "ESP32-S3-HMI");
+  int httpCodeStats = http.GET();
+  Serial.printf("%s Stats HTTP: %d\n", cryptoBaseSymbol, httpCodeStats);
+  yieldFetchTask();
+
+  if (httpCodeStats == HTTP_CODE_OK) {
+    String payload = readHttpPayloadChunked(http, 1024);
+    yieldFetchTask();
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+    if (!error) {
+      String openText = jsonNumberText(doc["open"]);
+      openText.trim();
+      float openPrice = openText.toFloat();
+      if (openPrice > 0.0f) {
+        xSemaphoreTake(dataMutex, portMAX_DELAY);
+        currentBtc24hOpen = openPrice;
+        currentBtc24hReady = true;
+        xSemaphoreGive(dataMutex);
+        http.end();
+        return true;
+      }
+    } else {
+      Serial.print("BTC Stats JSON Parse Fehler: ");
+      Serial.println(error.c_str());
+    }
+
+    Serial.println("BTC Stats Open nicht in Antwort gefunden:");
+    Serial.println(payload.substring(0, 240));
+  } else {
+    Serial.print("BTC Stats Fehler: ");
+    Serial.println(http.errorToString(httpCodeStats));
   }
 
   http.end();
@@ -1110,14 +1234,17 @@ String formatUtcIsoTime(time_t value) {
 
 String buildBtcCandlesUrl() {
   time_t nowTime = time(nullptr);
-  const time_t rangeSeconds = (time_t)(BTC_DAY_CANDLE_COUNT + 5) * (time_t)BTC_CANDLE_SECONDS;
-  time_t startTime = nowTime - rangeSeconds;
+  uint32_t granularity = cryptoChartGranularitySeconds();
+  time_t endTime = nowTime + (time_t)granularity;
+  time_t startTime = endTime - ((time_t)(cryptoChartCandleCount() + 5) * (time_t)granularity);
 
   return cryptoCandlesBaseUrl() +
-    "?granularity=86400&start=" +
+    "?granularity=" +
+    String(granularity) +
+    "&start=" +
     formatUtcIsoTime(startTime) +
     "&end=" +
-    formatUtcIsoTime(nowTime);
+    formatUtcIsoTime(endTime);
 }
 
 bool fetchBtcCandles() {
@@ -1200,6 +1327,7 @@ bool fetchBtcCandles() {
 // --- TASK: API ABFRAGEN ---
 void fetchDataTask(void *pvParameters) {
   unsigned long nextBtcFetch = 0;
+  unsigned long nextBtcStatsFetch = 3000;
   unsigned long nextBtcCandleFetch = 20000;
   unsigned long nextWeatherFetch = 10000;
   unsigned long nextKlipperFetch = 5000;
@@ -1221,6 +1349,18 @@ void fetchDataTask(void *pvParameters) {
           xSemaphoreGive(networkMutex);
         }
         nextBtcFetch = millis() + (btcOk ? btcRefreshInterval : btcRetryInterval);
+        vTaskDelay(pdMS_TO_TICKS(500));
+      }
+
+      if ((long)(now - nextBtcStatsFetch) >= 0) {
+        if (networkMutex != NULL) {
+          xSemaphoreTake(networkMutex, portMAX_DELAY);
+        }
+        bool statsOk = fetchBtcStats();
+        if (networkMutex != NULL) {
+          xSemaphoreGive(networkMutex);
+        }
+        nextBtcStatsFetch = millis() + (statsOk ? btcStatsRefreshInterval : btcStatsRetryInterval);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
 
