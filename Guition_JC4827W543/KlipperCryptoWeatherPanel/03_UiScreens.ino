@@ -185,22 +185,22 @@ void createKlipperScreen() {
 
   klipperOfflineRing = lv_obj_create(klipperScreen);
   lv_obj_remove_style_all(klipperOfflineRing);
-  lv_obj_set_size(klipperOfflineRing, 88, 88);
-  lv_obj_set_pos(klipperOfflineRing, 62, 72);
+  lv_obj_set_size(klipperOfflineRing, 96, 96);
+  lv_obj_set_pos(klipperOfflineRing, 48, 54);
   lv_obj_set_style_bg_opa(klipperOfflineRing, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(klipperOfflineRing, 6, 0);
   lv_obj_set_style_border_color(klipperOfflineRing, lv_color_hex(COLOR_DIM), 0);
-  lv_obj_set_style_radius(klipperOfflineRing, 44, 0);
+  lv_obj_set_style_radius(klipperOfflineRing, 48, 0);
   lv_obj_clear_flag(klipperOfflineRing, LV_OBJ_FLAG_SCROLLABLE);
   setHidden(klipperOfflineRing, true);
 
-  klipperOfflineStem = lv_obj_create(klipperScreen);
-  styleFilledRect(klipperOfflineStem, COLOR_DIM, 3);
-  lv_obj_set_size(klipperOfflineStem, 12, 42);
-  lv_obj_set_pos(klipperOfflineStem, 100, 58);
-  setHidden(klipperOfflineStem, true);
+  klipperOfflineGlyph = createLabel(klipperScreen, &lv_font_montserrat_40, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
+  lv_obj_set_size(klipperOfflineGlyph, 96, 60);
+  lv_obj_set_pos(klipperOfflineGlyph, 48, 72);
+  lv_label_set_text(klipperOfflineGlyph, LV_SYMBOL_WARNING);
+  setHidden(klipperOfflineGlyph, true);
 
-  klipperOfflineLine = createDivider(klipperScreen, 178, 142, 230, COLOR_DIM);
+  klipperOfflineLine = createDivider(klipperScreen, 40, 160, 400, COLOR_DIM);
   setHidden(klipperOfflineLine, true);
 
   klipperFileLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_CENTER);
@@ -446,24 +446,34 @@ void setKlipperOfflineLayout(uint32_t stateColor) {
   lv_obj_set_style_bg_color(klipperAccent, lv_color_hex(stateColor), 0);
   setHidden(klipperProgressArc, true);
   setHidden(klipperDivider, true);
+  setHidden(klipperStateLabel, true);
   setHidden(klipperOfflineRing, false);
-  setHidden(klipperOfflineStem, false);
+  setHidden(klipperOfflineGlyph, false);
   setHidden(klipperOfflineLine, false);
   lv_obj_set_style_border_color(klipperOfflineRing, lv_color_hex(stateColor), 0);
-  lv_obj_set_style_bg_color(klipperOfflineStem, lv_color_hex(stateColor), 0);
+  lv_obj_set_style_text_color(klipperOfflineGlyph, lv_color_hex(stateColor), 0);
   lv_obj_set_style_bg_color(klipperOfflineLine, lv_color_hex(stateColor), 0);
 
-  lv_obj_set_size(klipperProgressLabel, 260, 62);
-  lv_obj_set_pos(klipperProgressLabel, 172, 70);
-  lv_obj_set_size(klipperFileLabel, 390, 56);
-  lv_obj_set_pos(klipperFileLabel, 45, 154);
+  lv_obj_set_size(klipperOfflineRing, 78, 78);
+  lv_obj_set_pos(klipperOfflineRing, 201, 44);
+  lv_obj_set_style_radius(klipperOfflineRing, 39, 0);
+  lv_obj_set_size(klipperOfflineGlyph, 78, 52);
+  lv_obj_set_pos(klipperOfflineGlyph, 201, 57);
+  lv_obj_set_size(klipperOfflineLine, 400, 2);
+  lv_obj_set_pos(klipperOfflineLine, 40, 186);
+
+  lv_obj_set_size(klipperProgressLabel, 480, 56);
+  lv_obj_set_pos(klipperProgressLabel, 0, 128);
+  lv_obj_set_style_text_align(klipperProgressLabel, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_size(klipperFileLabel, 420, 40);
+  lv_obj_set_pos(klipperFileLabel, 30, 196);
   lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_WRAP);
-  lv_obj_set_size(klipperDurationLabel, 190, 28);
-  lv_obj_set_pos(klipperDurationLabel, 60, 214);
-  lv_obj_set_size(klipperStatusLabel, 210, 28);
-  lv_obj_set_pos(klipperStatusLabel, 210, 214);
-  lv_obj_set_size(klipperMmuLabel, 420, 22);
-  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 244);
+  lv_obj_set_size(klipperDurationLabel, 200, 22);
+  lv_obj_set_pos(klipperDurationLabel, 40, 234);
+  lv_obj_set_size(klipperStatusLabel, 200, 22);
+  lv_obj_set_pos(klipperStatusLabel, 240, 234);
+  lv_obj_set_size(klipperMmuLabel, 420, 20);
+  lv_obj_align(klipperMmuLabel, LV_ALIGN_TOP_MID, 0, 254);
 
   setHidden(klipperNozzleTitleLabel, true);
   setHidden(klipperNozzleLabel, true);
@@ -480,12 +490,14 @@ void setKlipperOnlineLayout() {
   lv_obj_set_size(klipperProgressArc, 102, 102);
   lv_obj_align(klipperProgressArc, LV_ALIGN_TOP_MID, 0, 36);
   setHidden(klipperDivider, true);
+  setHidden(klipperStateLabel, false);
   setHidden(klipperOfflineRing, true);
-  setHidden(klipperOfflineStem, true);
+  setHidden(klipperOfflineGlyph, true);
   setHidden(klipperOfflineLine, true);
 
   lv_obj_set_size(klipperProgressLabel, 180, 54);
   lv_obj_align(klipperProgressLabel, LV_ALIGN_TOP_MID, 0, 61);
+  lv_obj_set_style_text_align(klipperProgressLabel, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_size(klipperFileLabel, 420, 28);
   lv_obj_align(klipperFileLabel, LV_ALIGN_TOP_MID, 0, 146);
   lv_label_set_long_mode(klipperFileLabel, LV_LABEL_LONG_DOT);
