@@ -17,6 +17,8 @@ const state = {
 };
 
 let pollAbort = null; // markiert die aktuelle Polling-Schleife
+let captchaToken = null; // Cloudflare Turnstile, gilt nur fuer den naechsten /build-Aufruf
+let captchaWidgetId = null;
 
 // ---------- Helpers ----------
 
@@ -559,6 +561,18 @@ function renderBuildIdle(project) {
     "Dein Build wird in der GitHub-Cloud erstellt und dauert ca. 3–4 Minuten.";
   installSlot.appendChild(info);
 
+  const siteKey = project.source.turnstileSiteKey;
+  const needCaptcha = !!siteKey;
+  captchaToken = null;
+  captchaWidgetId = null;
+
+  let captchaContainer = null;
+  if (needCaptcha) {
+    captchaContainer = document.createElement("div");
+    captchaContainer.className = "turnstile-widget";
+    installSlot.appendChild(captchaContainer);
+  }
+
   const actions = document.createElement("div");
   actions.className = "downloads";
 
@@ -566,6 +580,8 @@ function renderBuildIdle(project) {
   buildBtn.className = "btn btn-primary";
   buildBtn.type = "button";
   buildBtn.textContent = "🛠 Firmware bauen";
+  buildBtn.disabled = needCaptcha;
+  if (needCaptcha) buildBtn.title = "Bitte zuerst die Bot-Pruefung abschliessen.";
   buildBtn.addEventListener("click", () => startBuild(project));
   actions.appendChild(buildBtn);
 
@@ -577,6 +593,44 @@ function renderBuildIdle(project) {
   actions.appendChild(dlBtn);
 
   installSlot.appendChild(actions);
+
+  if (needCaptcha) {
+    mountTurnstile(captchaContainer, siteKey, buildBtn);
+  }
+}
+
+async function mountTurnstile(container, sitekey, buildBtn) {
+  // Script ist async geladen, kann beim ersten Render fehlen.
+  let waited = 0;
+  while (!window.turnstile && waited < 5000) {
+    await new Promise((r) => setTimeout(r, 80));
+    waited += 80;
+  }
+  if (!window.turnstile) {
+    container.textContent = "Bot-Pruefung konnte nicht geladen werden.";
+    container.classList.add("error");
+    buildBtn.disabled = false; // Lass den Klick trotzdem zu — Worker pruefen.
+    return;
+  }
+  captchaWidgetId = window.turnstile.render(container, {
+    sitekey,
+    theme: "dark",
+    callback: (token) => {
+      captchaToken = token;
+      buildBtn.disabled = false;
+      buildBtn.title = "";
+    },
+    "error-callback": () => {
+      captchaToken = null;
+      buildBtn.disabled = true;
+      buildBtn.title = "Bot-Pruefung fehlgeschlagen, bitte erneut versuchen.";
+    },
+    "expired-callback": () => {
+      captchaToken = null;
+      buildBtn.disabled = true;
+      buildBtn.title = "Bot-Pruefung abgelaufen, bitte erneut.";
+    },
+  });
 }
 
 function renderBuildProgress(project) {
@@ -739,10 +793,12 @@ async function startBuild(project) {
   try {
     const headerText = generateConfigHeader(project, state.config);
     const configB64 = encodeBase64Utf8(headerText);
+    const payload = { config_h_b64: configB64 };
+    if (captchaToken) payload.turnstile_token = captchaToken;
     const res = await fetch(`${project.source.workerUrl}/build`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ config_h_b64: configB64 }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const errText = await res.text();

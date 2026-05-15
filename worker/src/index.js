@@ -5,13 +5,15 @@
 //   GET  /status?id=<corr_id>       -> 200 { status, conclusion?, asset_url? }
 //
 // Env (set via wrangler):
-//   GH_TOKEN         Secret. Fine-Grained PAT with actions:write + contents:read
-//                    auf dem Ziel-Repo.
-//   GH_OWNER         z.B. tome9111991
-//   GH_REPO          z.B. ESP32-S3_Project
-//   WORKFLOW_FILE    Dateiname, z.B. build-guition-klippercrypto.yml
-//   ALLOWED_ORIGIN   Erlaubter Origin (z.B. https://tome9111991.github.io)
-//                    oder "*" fuer dev/lokal.
+//   GH_TOKEN          Secret. Fine-Grained PAT with actions:write + contents:read
+//                     auf dem Ziel-Repo.
+//   GH_OWNER          z.B. tome9111991
+//   GH_REPO           z.B. ESP32-S3_Project
+//   WORKFLOW_FILE     Dateiname, z.B. build-guition-klippercrypto.yml
+//   ALLOWED_ORIGIN    Erlaubter Origin (z.B. https://tome9111991.github.io)
+//                     oder "*" fuer dev/lokal.
+//   TURNSTILE_SECRET  Optional. Cloudflare-Turnstile-Secret. Wenn gesetzt,
+//                     verlangt /build einen gueltigen turnstile_token im body.
 
 const RELEASE_TAG_PREFIX = "build-";
 const FIRMWARE_ASSET_NAME = "firmware.bin";
@@ -65,6 +67,37 @@ async function handleBuild(req, env) {
   }
   if (!/^[A-Za-z0-9+/=\s]+$/.test(configB64)) {
     return errorResp(400, "config_h_b64 must be base64");
+  }
+
+  // Turnstile-Verify (nur wenn ein Secret konfiguriert ist, sonst skippen
+  // damit lokales wrangler-dev ohne Captcha laeuft).
+  if (env.TURNSTILE_SECRET) {
+    const token = body?.turnstile_token;
+    if (typeof token !== "string" || token.length === 0) {
+      return errorResp(403, "turnstile_token required");
+    }
+    const ip = req.headers.get("CF-Connecting-IP") ?? "";
+    const verifyRes = await fetch(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          secret: env.TURNSTILE_SECRET,
+          response: token,
+          remoteip: ip,
+        }),
+      },
+    );
+    let verify;
+    try {
+      verify = await verifyRes.json();
+    } catch {
+      return errorResp(502, "turnstile verify malformed");
+    }
+    if (!verify.success) {
+      return errorResp(403, `turnstile: ${(verify["error-codes"] ?? []).join(",") || "failed"}`);
+    }
   }
 
   const correlationId = crypto.randomUUID();

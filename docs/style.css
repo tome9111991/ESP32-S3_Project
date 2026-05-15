@@ -387,6 +387,17 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   font-weight: 600;
 }
 
+.turnstile-widget {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.turnstile-widget.error {
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
 /* --------- Install + Downloads --------- */
 
 #install-slot {
