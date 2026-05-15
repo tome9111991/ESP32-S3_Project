@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ESP32 Web Flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <h1>ESP32 Web Flasher</h1>
+    <p class="hint">
+      Funktioniert nur in <strong>Chrome</strong> oder <strong>Edge</strong> (WebSerial).
+      ESP32 per USB anschließen, Board und Projekt wählen, dann auf <em>Install</em> klicken.
+    </p>
+
+    <form id="selector">
+      <label>
+        Board
+        <select id="board" required>
+          <option value="" disabled selected>– Board wählen –</option>
+        </select>
+      </label>
+
+      <label>
+        Projekt
+        <select id="project" required disabled>
+          <option value="" disabled selected>– zuerst Board wählen –</option>
+        </select>
+      </label>
+    </form>
+
+    <div id="install-slot" hidden>
+      <esp-web-install-button id="installer"></esp-web-install-button>
+      <p class="manifest-info">
+        Manifest: <code id="manifest-path"></code>
+      </p>
+    </div>
+
+    <section id="project-info" hidden>
+      <h2 id="project-title"></h2>
+      <p id="project-description"></p>
+    </section>
+
+    <footer>
+      <p>
+        Quellcode &amp; Firmware-Builds:
+        <a href="https://github.com/tome9111991/ESP32-S3_Project">github.com/tome9111991/ESP32-S3_Project</a>
+      </p>
+    </footer>
+  </main>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

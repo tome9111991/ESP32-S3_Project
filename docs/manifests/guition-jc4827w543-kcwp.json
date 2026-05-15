@@ -1,0 +1,17 @@
+{
+  "name": "Klipper Crypto Weather Panel (Guition)",
+  "version": "TODO",
+  "home_assistant_domain": "",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "TODO-REPLACE-WITH-BINARY-URL/KlipperCryptoWeatherPanel.ino.merged.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}

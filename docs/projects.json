@@ -1,0 +1,28 @@
+{
+  "boards": [
+    {
+      "id": "esp32-8048s043c",
+      "name": "ESP32-8048S043C (4.3\" 800x480)",
+      "projects": [
+        {
+          "id": "kcwpv2",
+          "name": "Klipper Crypto Weather Panel V2",
+          "description": "ESP-IDF Firmware. Zeigt Klipper-/Wetter-/Crypto-Daten auf dem 4.3\" Display.",
+          "manifest": "manifests/esp32-8048s043c-kcwpv2.json"
+        }
+      ]
+    },
+    {
+      "id": "guition-jc4827w543",
+      "name": "Guition JC4827W543 (4.3\" 480x272)",
+      "projects": [
+        {
+          "id": "kcwp",
+          "name": "Klipper Crypto Weather Panel",
+          "description": "Arduino-Variante für das Guition Board.",
+          "manifest": "manifests/guition-jc4827w543-kcwp.json"
+        }
+      ]
+    }
+  ]
+}

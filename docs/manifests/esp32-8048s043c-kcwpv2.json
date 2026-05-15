@@ -1,0 +1,17 @@
+{
+  "name": "Klipper Crypto Weather Panel V2",
+  "version": "TODO",
+  "home_assistant_domain": "",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "TODO-REPLACE-WITH-RELEASE-ASSET-URL/KCWPv2-ESP32-8048S043C-DE-full.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}
