@@ -57,7 +57,12 @@ function clearFrom(stepId) {
   if (start <= order.indexOf("config")) {
     state.build = null;
     pollAbort = {};
+    clearActiveBuild();
   }
+}
+
+function isBuildRunning() {
+  return ["dispatching", "polling", "canceling"].includes(state.build?.phase);
 }
 
 // ---------- URL state ----------
@@ -88,6 +93,7 @@ function writeUrlState() {
 // ---------- Form working-cache (localStorage) ----------
 
 const FORM_CACHE_VERSION = "v1";
+const ACTIVE_BUILD_CACHE_KEY = "kcwp-active-build-v1";
 
 function formCacheKey(boardId, projectId) {
   return `kcwp-form-${FORM_CACHE_VERSION}:${boardId}/${projectId}`;
@@ -108,6 +114,73 @@ function saveFormCache(boardId, projectId, values) {
   } catch {
     // Quota o.ae. — egal, ist nur Komfort.
   }
+}
+
+function saveActiveBuild() {
+  if (!state.board || !state.project || !state.config || !state.build) {
+    clearActiveBuild();
+    return;
+  }
+  try {
+    sessionStorage.setItem(ACTIVE_BUILD_CACHE_KEY, JSON.stringify({
+      board: state.board,
+      project: state.project,
+      config: state.config,
+      build: state.build,
+    }));
+  } catch {
+    // Nur Reload-Komfort; Build selbst laeuft serverseitig weiter.
+  }
+}
+
+function clearActiveBuild() {
+  try {
+    sessionStorage.removeItem(ACTIVE_BUILD_CACHE_KEY);
+  } catch {
+    // Ignorieren.
+  }
+}
+
+function restoreActiveBuild() {
+  let cached;
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_BUILD_CACHE_KEY);
+    cached = raw ? JSON.parse(raw) : null;
+  } catch {
+    clearActiveBuild();
+    return null;
+  }
+
+  if (!cached?.board || !cached?.project || !cached?.config || !cached?.build) return null;
+  if (!cached.build.correlationId) {
+    clearActiveBuild();
+    return null;
+  }
+  if (
+    (state.board && state.board !== cached.board) ||
+    (state.project && state.project !== cached.project)
+  ) {
+    return null;
+  }
+  if (!getProject(cached.board, cached.project)) {
+    clearActiveBuild();
+    return null;
+  }
+
+  const project = getProject(cached.board, cached.project);
+  if (project?.source.type !== "build-on-demand") {
+    clearActiveBuild();
+    return null;
+  }
+
+  state.board = cached.board;
+  state.project = cached.project;
+  state.config = cached.config;
+  state.build = {
+    ...cached.build,
+    phase: cached.build.phase === "canceling" ? "polling" : cached.build.phase,
+  };
+  return project;
 }
 
 function initialFormValues(project) {
@@ -246,7 +319,12 @@ function renderStepShell({ stepNum, stepId, label, valueLabel }) {
     editBtn.className = "step-edit";
     editBtn.type = "button";
     editBtn.textContent = "Ändern";
+    editBtn.disabled = isBuildRunning();
+    if (editBtn.disabled) {
+      editBtn.title = "Waehrend ein Build laeuft, kann der Wizard nicht geaendert werden.";
+    }
     editBtn.addEventListener("click", () => {
+      if (isBuildRunning()) return;
       clearFrom(stepId);
       render();
     });
@@ -549,8 +627,12 @@ function renderInstallBuildOnDemand(project) {
     renderBuildIdle(project);
     return;
   }
-  if (build.phase === "dispatching" || build.phase === "polling") {
+  if (build.phase === "dispatching" || build.phase === "polling" || build.phase === "canceling") {
     renderBuildProgress(project);
+    return;
+  }
+  if (build.phase === "cancelled") {
+    renderBuildCancelled(project);
     return;
   }
   if (build.phase === "success") {
@@ -652,7 +734,9 @@ function renderBuildProgress(project) {
   const ss = String(elapsed % 60).padStart(2, "0");
 
   const phaseText =
-    build.phase === "dispatching"
+    build.phase === "canceling"
+      ? "Build wird bei GitHub abgebrochen ..."
+      : build.phase === "dispatching"
       ? "Build wird gestartet …"
       : build.lastStatus === "queued"
         ? "In Warteschlange …"
@@ -686,13 +770,47 @@ function renderBuildProgress(project) {
   cancelBtn.className = "btn";
   cancelBtn.type = "button";
   cancelBtn.textContent = "Abbrechen";
-  cancelBtn.title = "Bricht nur die Anzeige ab — Build laeuft auf GitHub bis er fertig ist.";
-  cancelBtn.addEventListener("click", () => {
-    pollAbort = {};
-    state.build = null;
+  cancelBtn.disabled = !build.correlationId || build.phase === "canceling";
+  cancelBtn.title = build.correlationId
+    ? "Bricht den GitHub-Actions-Build ab."
+    : "Build wird noch gestartet, Abbrechen ist gleich moeglich.";
+  cancelBtn.addEventListener("click", () => cancelBuild(project));
+  actions.appendChild(cancelBtn);
+  installSlot.appendChild(actions);
+}
+
+function renderBuildCancelled(project) {
+  installSlotHeading("Build abgebrochen");
+  const p = document.createElement("p");
+  p.className = "muted";
+  p.textContent = "Der GitHub-Actions-Build wurde abgebrochen.";
+  installSlot.appendChild(p);
+
+  if (state.build?.runUrl) {
+    const link = document.createElement("p");
+    link.className = "small";
+    link.innerHTML = `Details: <a href="${state.build.runUrl}" target="_blank" rel="noopener">GitHub Actions Run</a>`;
+    installSlot.appendChild(link);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "downloads";
+  const editBtn = document.createElement("button");
+  editBtn.className = "btn btn-primary";
+  editBtn.type = "button";
+  editBtn.textContent = "Konfiguration bearbeiten";
+  editBtn.addEventListener("click", () => {
+    clearFrom("config");
     render();
   });
-  actions.appendChild(cancelBtn);
+  actions.appendChild(editBtn);
+
+  const retryBtn = document.createElement("button");
+  retryBtn.className = "btn";
+  retryBtn.type = "button";
+  retryBtn.textContent = "Erneut bauen";
+  retryBtn.addEventListener("click", () => startBuild(project));
+  actions.appendChild(retryBtn);
   installSlot.appendChild(actions);
 }
 
@@ -748,6 +866,7 @@ function renderBuildSuccess(project) {
   newBtn.textContent = "Neuen Build starten";
   newBtn.addEventListener("click", () => {
     state.build = null;
+    clearActiveBuild();
     render();
   });
   redoActions.appendChild(newBtn);
@@ -798,6 +917,7 @@ async function startBuild(project) {
   }
 
   state.build = { phase: "dispatching", startedAt: Date.now() };
+  saveActiveBuild();
   render();
 
   try {
@@ -822,12 +942,57 @@ async function startBuild(project) {
       startedAt: Date.now(),
       lastStatus: "pending",
     };
+    saveActiveBuild();
     render();
     const token = (pollAbort = {});
     pollBuild(project, token);
   } catch (err) {
     console.error(err);
     state.build = { phase: "error", message: err.message };
+    saveActiveBuild();
+    render();
+  }
+}
+
+async function cancelBuild(project) {
+  const id = state.build?.correlationId;
+  if (!id || !project.source.workerUrl || state.build?.phase === "canceling") return;
+
+  state.build = { ...state.build, phase: "canceling" };
+  saveActiveBuild();
+  render();
+
+  try {
+    const res = await fetch(`${project.source.workerUrl}/cancel?id=${encodeURIComponent(id)}`, {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error ?? `POST /cancel: ${res.status}`);
+    }
+
+    pollAbort = {};
+    const cancelled = data.cancelled === true;
+    state.build = {
+      phase: cancelled ? "cancelled" : "error",
+      message: cancelled
+        ? "Build wurde abgebrochen."
+        : data.conclusion
+          ? `Build endete mit '${data.conclusion}'.`
+          : "Build konnte nicht mehr abgebrochen werden.",
+      correlationId: id,
+      runUrl: data.run_url ?? null,
+    };
+    saveActiveBuild();
+    render();
+  } catch (err) {
+    console.error(err);
+    state.build = {
+      ...state.build,
+      phase: "error",
+      message: `Abbrechen fehlgeschlagen: ${err.message}`,
+    };
+    saveActiveBuild();
     render();
   }
 }
@@ -860,12 +1025,14 @@ async function pollBuild(project, token) {
             runUrl: data.run_url ?? null,
           };
         }
+        saveActiveBuild();
         render();
         return;
       }
 
       // Noch nicht fertig — Status aktualisieren.
       state.build = { ...state.build, lastStatus: data.status };
+      saveActiveBuild();
       if (Date.now() - lastRenderAt > 1500) {
         render();
         lastRenderAt = Date.now();
@@ -1067,7 +1234,12 @@ async function applyUrlState() {
     if (!res.ok) throw new Error(`projects.json: ${res.status}`);
     config = await res.json();
     await applyUrlState();
+    const restoredProject = restoreActiveBuild();
     render();
+    if (restoredProject && isBuildRunning() && state.build?.correlationId) {
+      const token = (pollAbort = {});
+      pollBuild(restoredProject, token);
+    }
   } catch (err) {
     console.error(err);
     setStatus(`Konfiguration konnte nicht geladen werden: ${err.message}`, "error");

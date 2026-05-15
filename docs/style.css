@@ -147,6 +147,16 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   color: var(--accent);
 }
 
+.step-edit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.step-edit:disabled:hover {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
 .step-body {
   border-top: 1px solid var(--border);
   padding: 0.5rem 0.5rem 0.75rem;
@@ -257,6 +267,15 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   border-radius: 6px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
+  color: var(--fg);
+}
+
+.field select {
+  color-scheme: dark;
+}
+
+.field select option {
+  background: var(--card);
   color: var(--fg);
 }
 

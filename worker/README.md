@@ -9,6 +9,7 @@ anstoesst und den Build-Status an die GitHub-Pages-Seite zurueckliefert.
 |---------|-----------|--------------------------|---------|
 | POST    | `/build`  | `{ "config_h_b64": "..." }` | `202 { correlation_id }` |
 | GET     | `/status` | `?id=<correlation_id>`   | `200 { status, conclusion?, asset_url?, run_url?, release_url? }` |
+| POST    | `/cancel` | `?id=<correlation_id>`   | `200 { status, cancelled, run_url? }` |
 | GET     | `/health` | -                        | `200 { ok: true }` |
 
 `status` ist einer von:
@@ -63,6 +64,9 @@ curl -X POST http://localhost:8787/build \
 
 # Status pollen (am Anfang pending, dann queued/in_progress, am Ende completed):
 curl "http://localhost:8787/status?id=<correlation_id>"
+
+# Laufenden GitHub-Actions-Run abbrechen:
+curl -X POST "http://localhost:8787/cancel?id=<correlation_id>"
 ```
 
 ## Deployen

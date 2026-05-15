@@ -3,6 +3,7 @@
 // Endpoints:
 //   POST /build   { config_h_b64 }  -> 202 { correlation_id }
 //   GET  /status?id=<corr_id>       -> 200 { status, conclusion?, asset_url? }
+//   POST /cancel?id=<corr_id>       -> 200 { status, cancelled?, run_url? }
 //   GET  /asset?url=<gh_release>    -> 200 octet-stream (CORS-Proxy fuer GitHub
 //                                     Release Assets, da release-assets.github
 //                                     usercontent.com keine CORS-Header setzt)
@@ -39,6 +40,9 @@ export default {
       }
       if (url.pathname === "/status" && req.method === "GET") {
         return withCors(await handleStatus(url, env), env, req);
+      }
+      if (url.pathname === "/cancel" && req.method === "POST") {
+        return withCors(await handleCancel(url, env), env, req);
       }
       if (url.pathname === "/asset" && req.method === "GET") {
         return handleAsset(url, env, req);
@@ -131,9 +135,7 @@ async function handleBuild(req, env) {
 
 async function handleStatus(url, env) {
   const id = url.searchParams.get("id");
-  // crypto.randomUUID liefert 36 Zeichen (8-4-4-4-12). Akzeptiere konservativ
-  // hex+dashes, 32-36 lang, um auch alternative Korrelations-IDs zuzulassen.
-  if (!id || !/^[a-f0-9-]{32,36}$/i.test(id)) {
+  if (!validCorrelationId(id)) {
     return errorResp(400, "invalid id");
   }
 
@@ -157,24 +159,69 @@ async function handleStatus(url, env) {
   }
 
   // 2) Sonst: nach dem Run mit display_title == build-<id> suchen.
-  const runsRes = await fetch(
-    `https://api.github.com/repos/${env.GH_OWNER}/${env.GH_REPO}/actions/workflows/${env.WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=30`,
-    { headers: ghHeaders(env) },
-  );
-  if (!runsRes.ok) {
-    return errorResp(502, `github runs ${runsRes.status}`);
+  let run;
+  try {
+    run = await findWorkflowRun(env, id);
+  } catch (err) {
+    return errorResp(502, err.message);
   }
-  const runs = await runsRes.json();
-  const expectedName = `${RELEASE_TAG_PREFIX}${id}`;
-  const run = (runs.workflow_runs ?? []).find(
-    (r) => r.display_title === expectedName || r.name === expectedName,
-  );
   if (!run) {
     return jsonResp({ status: "pending" });
   }
   return jsonResp({
     status: run.status, // queued | in_progress | completed
     conclusion: run.conclusion, // null | success | failure | cancelled | ...
+    run_url: run.html_url,
+  });
+}
+
+async function handleCancel(url, env) {
+  const id = url.searchParams.get("id");
+  if (!validCorrelationId(id)) {
+    return errorResp(400, "invalid id");
+  }
+
+  // Direkt nach workflow_dispatch kann GitHub den Run noch nicht listen.
+  // Kurzes Retry-Fenster, damit der Abbrechen-Button trotzdem verlaesslich ist.
+  let run = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      run = await findWorkflowRun(env, id);
+    } catch (err) {
+      return errorResp(502, err.message);
+    }
+    if (run) break;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  if (!run) {
+    return errorResp(404, "github run not found yet");
+  }
+
+  if (run.status === "completed") {
+    return jsonResp({
+      status: run.status,
+      conclusion: run.conclusion,
+      cancelled: run.conclusion === "cancelled",
+      run_url: run.html_url,
+    });
+  }
+
+  const cancelRes = await fetch(
+    `https://api.github.com/repos/${env.GH_OWNER}/${env.GH_REPO}/actions/runs/${run.id}/cancel`,
+    {
+      method: "POST",
+      headers: ghHeaders(env),
+    },
+  );
+  if (!cancelRes.ok && cancelRes.status !== 409) {
+    const errText = await cancelRes.text();
+    return errorResp(502, `github cancel ${cancelRes.status}: ${truncate(errText, 200)}`);
+  }
+
+  return jsonResp({
+    status: cancelRes.status === 409 ? "completed" : "cancelling",
+    cancelled: cancelRes.ok,
     run_url: run.html_url,
   });
 }
@@ -214,6 +261,27 @@ function ghHeaders(env) {
     "Content-Type": "application/json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
+}
+
+function validCorrelationId(id) {
+  // crypto.randomUUID liefert 36 Zeichen (8-4-4-4-12). Akzeptiere konservativ
+  // hex+dashes, 32-36 lang, um auch alternative Korrelations-IDs zuzulassen.
+  return !!id && /^[a-f0-9-]{32,36}$/i.test(id);
+}
+
+async function findWorkflowRun(env, correlationId) {
+  const runsRes = await fetch(
+    `https://api.github.com/repos/${env.GH_OWNER}/${env.GH_REPO}/actions/workflows/${env.WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=30`,
+    { headers: ghHeaders(env) },
+  );
+  if (!runsRes.ok) {
+    throw new Error(`github runs ${runsRes.status}`);
+  }
+  const runs = await runsRes.json();
+  const expectedName = `${RELEASE_TAG_PREFIX}${correlationId}`;
+  return (runs.workflow_runs ?? []).find(
+    (r) => r.display_title === expectedName || r.name === expectedName,
+  ) ?? null;
 }
 
 function jsonResp(obj, status = 200) {
