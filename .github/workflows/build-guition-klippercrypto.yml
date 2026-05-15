@@ -7,7 +7,6 @@ permissions:
   contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SKETCH_DIR: Guition_JC4827W543/KlipperCryptoWeatherPanel
   BUILD_DIR: firmware-guition-klippercrypto
   # ESP32S3 Dev Module, passend zu den Arduino-IDE-Einstellungen im Projekt-README.
@@ -23,9 +22,12 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install Arduino CLI
-        uses: arduino/setup-arduino-cli@v2
-        with:
-          version: "1.4.1"
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR="$HOME/.local/bin" sh -s 1.4.1
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/arduino-cli" version
 
       - name: Install ESP32 core
         shell: bash
