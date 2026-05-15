@@ -20,3 +20,15 @@
 // Chart-Kerzen: "15M", "1H", "6H" oder "1D".
 #define CRYPTO_CHART_TIMEFRAME "1D"
 #define KLIPPER_BASE_URL "http://mainsail"
+
+// Display-Rotation. 2 = Standardausrichtung (wie bisher), 0 = um 180 Grad gedreht.
+// Erlaubte Werte: 0, 1, 2, 3 (LovyanGFX setRotation).
+#define DISPLAY_ROTATION 2
+
+// Welche Screens sollen angezeigt werden? 1 = an, 0 = aus.
+// Mindestens ein Screen muss aktiviert sein. Deaktivierte Screens werden
+// gar nicht erzeugt und ihre API-Abfragen entfallen (entlastet das Board).
+#define SCREEN_TIME_ENABLED 1
+#define SCREEN_CRYPTO_PRICE_ENABLED 1
+#define SCREEN_CRYPTO_CHART_ENABLED 1
+#define SCREEN_KLIPPER_ENABLED 1

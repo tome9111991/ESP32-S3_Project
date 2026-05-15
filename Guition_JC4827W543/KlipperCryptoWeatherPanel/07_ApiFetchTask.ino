@@ -1340,6 +1340,7 @@ void fetchDataTask(void *pvParameters) {
     if (wifiConnected) {
       unsigned long now = millis();
 
+#if BTC_PRICE_FETCH_NEEDED
       if ((long)(now - nextBtcFetch) >= 0) {
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
@@ -1351,7 +1352,11 @@ void fetchDataTask(void *pvParameters) {
         nextBtcFetch = millis() + (btcOk ? btcRefreshInterval : btcRetryInterval);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
+#else
+      (void)nextBtcFetch;
+#endif
 
+#if SCREEN_CRYPTO_PRICE_ENABLED
       if ((long)(now - nextBtcStatsFetch) >= 0) {
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
@@ -1363,7 +1368,11 @@ void fetchDataTask(void *pvParameters) {
         nextBtcStatsFetch = millis() + (statsOk ? btcStatsRefreshInterval : btcStatsRetryInterval);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
+#else
+      (void)nextBtcStatsFetch;
+#endif
 
+#if SCREEN_CRYPTO_CHART_ENABLED
       if ((long)(now - nextBtcCandleFetch) >= 0) {
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
@@ -1375,7 +1384,11 @@ void fetchDataTask(void *pvParameters) {
         nextBtcCandleFetch = millis() + (candleOk ? btcCandleRefreshInterval : btcCandleRetryInterval);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
+#else
+      (void)nextBtcCandleFetch;
+#endif
 
+#if SCREEN_TIME_ENABLED
       if ((long)(now - nextWeatherFetch) >= 0) {
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
@@ -1387,7 +1400,11 @@ void fetchDataTask(void *pvParameters) {
         nextWeatherFetch = millis() + (weatherOk ? weatherRefreshInterval : weatherRetryInterval);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
+#else
+      (void)nextWeatherFetch;
+#endif
 
+#if SCREEN_KLIPPER_ENABLED
       if ((long)(now - nextKlipperNameFetch) >= 0) {
         if (networkMutex != NULL) {
           xSemaphoreTake(networkMutex, portMAX_DELAY);
@@ -1411,6 +1428,10 @@ void fetchDataTask(void *pvParameters) {
         nextKlipperFetch = millis() + (klipperOk ? klipperRefreshInterval : klipperRetryInterval);
         vTaskDelay(pdMS_TO_TICKS(500));
       }
+#else
+      (void)nextKlipperNameFetch;
+      (void)nextKlipperFetch;
+#endif
 
       vTaskDelay(pdMS_TO_TICKS(1000));
     } else {

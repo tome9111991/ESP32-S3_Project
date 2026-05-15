@@ -67,6 +67,23 @@
                 "fields": [
                   { "key": "KLIPPER_BASE_URL", "label": "Klipper Base-URL", "type": "string", "default": "http://mainsail", "required": true, "hint": "z.B. http://mainsail.local oder http://192.168.x.x" }
                 ]
+              },
+              {
+                "label": "Anzeige",
+                "fields": [
+                  { "key": "DISPLAY_ROTATION", "label": "Display um 180° drehen", "type": "boolean", "default": false, "trueValue": 0, "falseValue": 2, "hint": "Aus = Standardausrichtung. An = Bild um 180° gedreht." }
+                ]
+              },
+              {
+                "label": "Screens",
+                "hint": "Welche Screens sollen gebaut werden? Mindestens einer muss aktiv sein. Deaktivierte Screens werden gar nicht erst erzeugt und ihre API-Abfragen entfallen (entlastet das Board).",
+                "minChecked": 1,
+                "fields": [
+                  { "key": "SCREEN_TIME_ENABLED", "label": "Uhr & Wetter", "type": "boolean", "default": true },
+                  { "key": "SCREEN_CRYPTO_PRICE_ENABLED", "label": "Crypto Preis (24H-Change)", "type": "boolean", "default": true },
+                  { "key": "SCREEN_CRYPTO_CHART_ENABLED", "label": "Crypto Chart (Candles)", "type": "boolean", "default": true },
+                  { "key": "SCREEN_KLIPPER_ENABLED", "label": "Klipper", "type": "boolean", "default": true }
+                ]
               }
             ]
           }

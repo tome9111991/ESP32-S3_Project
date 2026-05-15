@@ -374,15 +374,54 @@ function renderConfigStep({ stepNum, project }) {
   form.className = "form";
   form.noValidate = true;
 
+  const groupHints = new Map();
   for (const group of project.source.groups ?? []) {
     const fs = document.createElement("fieldset");
     const legend = document.createElement("legend");
     legend.textContent = group.label;
     fs.appendChild(legend);
 
+    if (group.hint || group.minChecked) {
+      const hint = document.createElement("div");
+      hint.className = "group-hint";
+      hint.textContent = group.hint ?? `Mindestens ${group.minChecked} muss aktiviert sein.`;
+      fs.appendChild(hint);
+      groupHints.set(group, hint);
+    }
+
     for (const field of group.fields) {
       const wrap = document.createElement("label");
       wrap.className = "field";
+
+      if (field.type === "boolean") {
+        wrap.classList.add("field-bool");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = values[field.key] === true;
+        input.dataset.key = field.key;
+        input.dataset.type = field.type;
+        input.addEventListener("change", () => {
+          values[field.key] = input.checked;
+          saveFormCache(state.board, project.id, values);
+          updatePreview();
+          clearValidationErrors();
+        });
+        wrap.appendChild(input);
+
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "field-label";
+        labelSpan.textContent = field.label;
+        wrap.appendChild(labelSpan);
+
+        if (field.hint) {
+          const hint = document.createElement("span");
+          hint.className = "field-hint";
+          hint.textContent = field.hint;
+          wrap.appendChild(hint);
+        }
+        fs.appendChild(wrap);
+        continue;
+      }
 
       const labelRow = document.createElement("span");
       labelRow.className = "field-label";
@@ -420,7 +459,7 @@ function renderConfigStep({ stepNum, project }) {
         values[field.key] = input.value;
         saveFormCache(state.board, project.id, values);
         updatePreview();
-        updateSubmitState();
+        clearValidationErrors();
       });
       wrap.appendChild(input);
 
@@ -467,27 +506,71 @@ function renderConfigStep({ stepNum, project }) {
     downloadConfigHeader(project, values);
   });
 
+  const submitError = document.createElement("span");
+  submitError.className = "form-error";
+  submitError.hidden = true;
+
   actions.appendChild(submitBtn);
   actions.appendChild(dlBtn);
+  actions.appendChild(submitError);
 
-  function validate() {
-    for (const group of project.source.groups ?? []) {
-      for (const f of group.fields) {
-        if (!f.required) continue;
-        const v = values[f.key];
-        if (v === undefined || v === null || String(v).trim() === "") return false;
-      }
+  function countChecked(group) {
+    let n = 0;
+    for (const f of group.fields) {
+      if (f.type === "boolean" && values[f.key] === true) n++;
     }
-    return true;
+    return n;
   }
 
-  function updateSubmitState() {
-    submitBtn.disabled = !validate();
+  function validateWithErrors() {
+    const errors = [];
+    let firstViolatedGroup = null;
+    for (const group of project.source.groups ?? []) {
+      for (const f of group.fields) {
+        if (!f.required || f.type === "boolean") continue;
+        const v = values[f.key];
+        if (v === undefined || v === null || String(v).trim() === "") {
+          errors.push(`Pflichtfeld fehlt: ${f.label}`);
+          if (!firstViolatedGroup) firstViolatedGroup = group;
+        }
+      }
+      if (group.minChecked && countChecked(group) < group.minChecked) {
+        errors.push(`${group.label}: mindestens ${group.minChecked} aktivieren.`);
+        if (!firstViolatedGroup) firstViolatedGroup = group;
+      }
+    }
+    return { ok: errors.length === 0, errors, firstViolatedGroup };
+  }
+
+  function clearValidationErrors() {
+    submitError.hidden = true;
+    submitError.textContent = "";
+    for (const hintEl of groupHints.values()) {
+      hintEl.classList.remove("error");
+    }
+  }
+
+  function showValidationErrors(result) {
+    submitError.textContent = result.errors[0] ?? "Bitte Eingaben prüfen.";
+    submitError.hidden = false;
+    for (const [group, hintEl] of groupHints) {
+      const violated = group.minChecked && countChecked(group) < group.minChecked;
+      hintEl.classList.toggle("error", !!violated);
+    }
+    if (result.firstViolatedGroup) {
+      const hintEl = groupHints.get(result.firstViolatedGroup);
+      (hintEl ?? submitError).scrollIntoView({ block: "center", behavior: "smooth" });
+    }
   }
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!validate()) return;
+    const result = validateWithErrors();
+    if (!result.ok) {
+      showValidationErrors(result);
+      return;
+    }
+    clearValidationErrors();
     state.config = { ...values };
     render();
   });
@@ -498,7 +581,6 @@ function renderConfigStep({ stepNum, project }) {
   li.appendChild(body);
 
   updatePreview();
-  updateSubmitState();
   return li;
 }
 
@@ -526,6 +608,10 @@ function generateConfigHeader(project, values) {
       let val;
       if (f.type === "float") {
         val = formatFloat(raw);
+      } else if (f.type === "boolean") {
+        const tVal = f.trueValue ?? 1;
+        const fVal = f.falseValue ?? 0;
+        val = String(raw === true ? tVal : fVal);
       } else {
         val = `"${escapeCString(raw ?? "")}"`;
       }

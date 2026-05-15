@@ -267,10 +267,18 @@ void createBootScreen() {
 
 void createUi() {
   createBootScreen();
+#if SCREEN_TIME_ENABLED
   createTimeScreen();
+#endif
+#if SCREEN_CRYPTO_PRICE_ENABLED
   createCryptoScreen();
+#endif
+#if SCREEN_CRYPTO_CHART_ENABLED
   createBtcDayScreen();
+#endif
+#if SCREEN_KLIPPER_ENABLED
   createKlipperScreen();
+#endif
   lv_screen_load(bootScreen);
 }
 
@@ -626,18 +634,27 @@ void refreshKlipperUi() {
 
 void refreshUi() {
   switch (currentScreen) {
+#if SCREEN_CRYPTO_PRICE_ENABLED
     case SCREEN_CRYPTO:
       refreshCryptoUi();
       break;
+#endif
+#if SCREEN_CRYPTO_CHART_ENABLED
     case SCREEN_BTC_DAY:
       refreshBtcDayUi();
       break;
+#endif
+#if SCREEN_KLIPPER_ENABLED
     case SCREEN_KLIPPER:
       refreshKlipperUi();
       break;
+#endif
+#if SCREEN_TIME_ENABLED
     case SCREEN_TIME:
-    default:
       refreshTimeUi();
+      break;
+#endif
+    default:
       break;
   }
 }
@@ -653,35 +670,81 @@ bool isKlipperScreenAvailable() {
   return available;
 }
 
+static bool screenStateCompiled(ScreenState state) {
+  switch (state) {
+    case SCREEN_TIME:    return SCREEN_TIME_ENABLED;
+    case SCREEN_CRYPTO:  return SCREEN_CRYPTO_PRICE_ENABLED;
+    case SCREEN_BTC_DAY: return SCREEN_CRYPTO_CHART_ENABLED;
+    case SCREEN_KLIPPER: return SCREEN_KLIPPER_ENABLED;
+  }
+  return false;
+}
+
+static bool screenStateAvailable(ScreenState state) {
+  if (!screenStateCompiled(state)) {
+    return false;
+  }
+  if (state == SCREEN_KLIPPER) {
+    return isKlipperScreenAvailable();
+  }
+  return true;
+}
+
+ScreenState firstEnabledScreen() {
+  const ScreenState order[] = { SCREEN_TIME, SCREEN_CRYPTO, SCREEN_BTC_DAY, SCREEN_KLIPPER };
+  for (int i = 0; i < 4; i++) {
+    if (screenStateCompiled(order[i])) {
+      return order[i];
+    }
+  }
+  return SCREEN_TIME; // Compile-Guard verhindert diesen Fall
+}
+
 lv_obj_t* screenForState(ScreenState state) {
+#if SCREEN_CRYPTO_PRICE_ENABLED
   if (state == SCREEN_CRYPTO) {
     return cryptoScreen;
   }
+#endif
+#if SCREEN_CRYPTO_CHART_ENABLED
   if (state == SCREEN_BTC_DAY) {
     return btcDayScreen;
   }
+#endif
+#if SCREEN_KLIPPER_ENABLED
   if (state == SCREEN_KLIPPER) {
     return klipperScreen;
   }
-  return timeScreen;
+#endif
+#if SCREEN_TIME_ENABLED
+  if (state == SCREEN_TIME) {
+    return timeScreen;
+  }
+#endif
+  return bootScreen;
 }
 
 ScreenState nextScreenState(ScreenState state) {
-  if (state == SCREEN_TIME) {
-    return SCREEN_CRYPTO;
+  const ScreenState order[] = { SCREEN_TIME, SCREEN_CRYPTO, SCREEN_BTC_DAY, SCREEN_KLIPPER };
+  int startIdx = 0;
+  for (int i = 0; i < 4; i++) {
+    if (order[i] == state) {
+      startIdx = i;
+      break;
+    }
   }
-  if (state == SCREEN_CRYPTO) {
-    return SCREEN_BTC_DAY;
+  for (int step = 1; step <= 4; step++) {
+    ScreenState candidate = order[(startIdx + step) % 4];
+    if (screenStateAvailable(candidate)) {
+      return candidate;
+    }
   }
-  if (state == SCREEN_BTC_DAY) {
-    return isKlipperScreenAvailable() ? SCREEN_KLIPPER : SCREEN_TIME;
-  }
-  return SCREEN_TIME;
+  return state; // Kein anderer Screen verfuegbar -> bleiben
 }
 
 void switchScreen(ScreenState nextScreen) {
-  if (nextScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
-    nextScreen = SCREEN_TIME;
+  if (!screenStateAvailable(nextScreen)) {
+    nextScreen = firstEnabledScreen();
   }
 
   lv_obj_t* targetScreen = screenForState(nextScreen);
@@ -698,7 +761,9 @@ void switchScreen(ScreenState nextScreen) {
     0,
     false
   );
+#if SCREEN_CRYPTO_CHART_ENABLED
   if (currentScreen == SCREEN_BTC_DAY) {
     lastBtcChartDraw = 0;
   }
+#endif
 }

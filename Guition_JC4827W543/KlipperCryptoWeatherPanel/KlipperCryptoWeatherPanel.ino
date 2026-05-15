@@ -158,6 +158,31 @@ const char* WEEKDAYS_DE[] = {
 #ifndef KLIPPER_BASE_URL
   #define KLIPPER_BASE_URL "http://mainsail"
 #endif
+#ifndef DISPLAY_ROTATION
+  #define DISPLAY_ROTATION 2
+#endif
+#if (DISPLAY_ROTATION < 0) || (DISPLAY_ROTATION > 3)
+  #error "DISPLAY_ROTATION muss 0, 1, 2 oder 3 sein."
+#endif
+#ifndef SCREEN_TIME_ENABLED
+  #define SCREEN_TIME_ENABLED 1
+#endif
+#ifndef SCREEN_CRYPTO_PRICE_ENABLED
+  #define SCREEN_CRYPTO_PRICE_ENABLED 1
+#endif
+#ifndef SCREEN_CRYPTO_CHART_ENABLED
+  #define SCREEN_CRYPTO_CHART_ENABLED 1
+#endif
+#ifndef SCREEN_KLIPPER_ENABLED
+  #define SCREEN_KLIPPER_ENABLED 1
+#endif
+
+#if !(SCREEN_TIME_ENABLED || SCREEN_CRYPTO_PRICE_ENABLED || SCREEN_CRYPTO_CHART_ENABLED || SCREEN_KLIPPER_ENABLED)
+  #error "Mindestens ein Screen muss aktiviert sein (SCREEN_*_ENABLED in config_private.h)."
+#endif
+
+// BTC-Spotpreis wird von CRYPTO (Live-Preis + 24h-Change) und BTC_DAY (Live-Kerze) geteilt.
+#define BTC_PRICE_FETCH_NEEDED (SCREEN_CRYPTO_PRICE_ENABLED || SCREEN_CRYPTO_CHART_ENABLED)
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -423,6 +448,7 @@ int progressPercentFromText(const String& progress);
 void refreshKlipperUi();
 void refreshUi();
 bool isKlipperScreenAvailable();
+ScreenState firstEnabledScreen();
 lv_obj_t* screenForState(ScreenState state);
 ScreenState nextScreenState(ScreenState state);
 void switchScreen(ScreenState nextScreen);
@@ -525,12 +551,14 @@ void setup() {
     }
   }
 
+#if SCREEN_CRYPTO_CHART_ENABLED
   if (!initBtcStorage()) {
     Serial.println("BTC Speicher Init fehlgeschlagen!");
     while (true) {
       delay(1000);
     }
   }
+#endif
 
   if (!display.init()) {
     Serial.println("GFX Init fehlgeschlagen!");
@@ -538,14 +566,14 @@ void setup() {
   display.initDMA();
   display.setColorDepth(16);
   display.invertDisplay(true);
-  display.setRotation(2); // Anzeige um 180 Grad drehen
+  display.setRotation(DISPLAY_ROTATION); // 2 = Standard, 0 = um 180 Grad gedreht
   setDisplayBrightness(dayBrightness);
 
   initLvglDisplay();
   createUi();
   lv_timer_handler();
 
-  switchScreen(SCREEN_TIME);
+  switchScreen(firstEnabledScreen());
   lastScreenSwitch = millis();
 
   beginWiFi();
