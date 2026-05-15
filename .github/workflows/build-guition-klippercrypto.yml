@@ -1,7 +1,19 @@
 name: Build Guition KlipperCryptoWeatherPanel
+run-name: ${{ inputs.correlation_id != '' && format('build-{0}', inputs.correlation_id) || 'Build Guition KlipperCryptoWeatherPanel' }}
 
 on:
   workflow_dispatch:
+    inputs:
+      config_h_b64:
+        description: "Base64-kodierter Inhalt von config_private.h. Leer = CONFIG_PRIVATE_H-Secret oder Example-Fallback."
+        required: false
+        type: string
+        default: ""
+      correlation_id:
+        description: "Optionale ID, ueber die externe Systeme den Run wiederfinden (run-name wird auf build-<id> gesetzt)."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -49,12 +61,20 @@ jobs:
         shell: bash
         env:
           CONFIG_PRIVATE_H: ${{ secrets.CONFIG_PRIVATE_H }}
+          INPUT_CONFIG_H_B64: ${{ inputs.config_h_b64 }}
         run: |
-          if [ -n "${CONFIG_PRIVATE_H}" ]; then
-            # Der Secret-Inhalt wird nur in die Datei geschrieben und nicht ausgegeben.
+          # Vorrang: Dispatch-Input (base64) > Repo-Secret > Example-Fallback.
+          # Das ::add-mask:: verhindert, dass dekodierte Werte in Logs auftauchen,
+          # falls die Build-Tools sie ausgeben.
+          if [ -n "${INPUT_CONFIG_H_B64}" ]; then
+            echo "::add-mask::${INPUT_CONFIG_H_B64}"
+            echo "${INPUT_CONFIG_H_B64}" | base64 -d > "${SKETCH_DIR}/config_private.h"
+            echo "::notice::Using config_private.h from workflow_dispatch input."
+          elif [ -n "${CONFIG_PRIVATE_H}" ]; then
             printf '%s\n' "${CONFIG_PRIVATE_H}" > "${SKETCH_DIR}/config_private.h"
+            echo "::notice::Using config_private.h from CONFIG_PRIVATE_H secret."
           else
-            echo "::notice::CONFIG_PRIVATE_H secret is missing. Building with config_private.example.h dummy values."
+            echo "::notice::No config provided. Building with config_private.example.h dummy values."
             cp "${SKETCH_DIR}/config_private.example.h" "${SKETCH_DIR}/config_private.h"
           fi
 
