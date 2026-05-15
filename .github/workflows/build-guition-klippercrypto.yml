@@ -7,6 +7,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SKETCH_DIR: Guition_JC4827W543/KlipperCryptoWeatherPanel
   BUILD_DIR: firmware-guition-klippercrypto
   # ESP32S3 Dev Module, passend zu den Arduino-IDE-Einstellungen im Projekt-README.
@@ -51,7 +52,7 @@ jobs:
             # Der Secret-Inhalt wird nur in die Datei geschrieben und nicht ausgegeben.
             printf '%s\n' "${CONFIG_PRIVATE_H}" > "${SKETCH_DIR}/config_private.h"
           else
-            echo "::warning::CONFIG_PRIVATE_H secret is missing. Building with config_private.example.h dummy values."
+            echo "::notice::CONFIG_PRIVATE_H secret is missing. Building with config_private.example.h dummy values."
             cp "${SKETCH_DIR}/config_private.example.h" "${SKETCH_DIR}/config_private.h"
           fi
 
