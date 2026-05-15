@@ -13,7 +13,10 @@ const state = {
   version: null,
   lang: null,
   config: null, // null = nicht uebernommen; sonst Werte-Objekt
+  build: null,  // null | { phase, correlationId, startedAt, lastStatus, assetUrl, runUrl, message }
 };
+
+let pollAbort = null; // markiert die aktuelle Polling-Schleife
 
 // ---------- Helpers ----------
 
@@ -48,6 +51,11 @@ function clearFrom(stepId) {
   const order = ["board", "project", "version", "lang", "config"];
   const start = order.indexOf(stepId);
   for (let i = start; i < order.length; i++) state[order[i]] = null;
+  // Build-State gehoert logisch zu config. Wird mit verworfen.
+  if (start <= order.indexOf("config")) {
+    state.build = null;
+    pollAbort = {};
+  }
 }
 
 // ---------- URL state ----------
@@ -522,12 +530,33 @@ function renderInstallManifest(project) {
 }
 
 function renderInstallBuildOnDemand(project) {
+  installSlot.hidden = false;
+  const build = state.build;
+
+  if (!build) {
+    renderBuildIdle(project);
+    return;
+  }
+  if (build.phase === "dispatching" || build.phase === "polling") {
+    renderBuildProgress(project);
+    return;
+  }
+  if (build.phase === "success") {
+    renderBuildSuccess(project);
+    return;
+  }
+  if (build.phase === "error") {
+    renderBuildError(project);
+    return;
+  }
+}
+
+function renderBuildIdle(project) {
   installSlotHeading("Firmware bauen");
   const info = document.createElement("p");
   info.className = "muted";
   info.textContent =
-    "Build-Trigger kommt im nächsten Schritt (Cloudflare Worker). " +
-    "Für jetzt kannst du dir die Config herunterladen und manuell verwenden.";
+    "Dein Build wird in der GitHub-Cloud erstellt und dauert ca. 3–4 Minuten.";
   installSlot.appendChild(info);
 
   const actions = document.createElement("div");
@@ -535,23 +564,256 @@ function renderInstallBuildOnDemand(project) {
 
   const buildBtn = document.createElement("button");
   buildBtn.className = "btn btn-primary";
-  buildBtn.disabled = true;
   buildBtn.type = "button";
-  buildBtn.title = "Worker-Integration noch nicht implementiert";
-  buildBtn.textContent = "🛠 Firmware bauen (bald)";
+  buildBtn.textContent = "🛠 Firmware bauen";
+  buildBtn.addEventListener("click", () => startBuild(project));
   actions.appendChild(buildBtn);
 
   const dlBtn = document.createElement("button");
   dlBtn.className = "btn";
   dlBtn.type = "button";
   dlBtn.textContent = `⬇ ${project.source.headerName ?? "config_private.h"}`;
-  dlBtn.addEventListener("click", () => {
-    downloadConfigHeader(project, state.config);
-  });
+  dlBtn.addEventListener("click", () => downloadConfigHeader(project, state.config));
   actions.appendChild(dlBtn);
 
   installSlot.appendChild(actions);
-  installSlot.hidden = false;
+}
+
+function renderBuildProgress(project) {
+  installSlotHeading("Firmware wird gebaut …");
+  const build = state.build;
+
+  const elapsed = Math.floor((Date.now() - build.startedAt) / 1000);
+  const mm = Math.floor(elapsed / 60);
+  const ss = String(elapsed % 60).padStart(2, "0");
+
+  const phaseText =
+    build.phase === "dispatching"
+      ? "Build wird gestartet …"
+      : build.lastStatus === "queued"
+        ? "In Warteschlange …"
+        : build.lastStatus === "in_progress"
+          ? "Compile läuft …"
+          : "Warte auf GitHub Actions …";
+
+  const status = document.createElement("div");
+  status.className = "build-progress";
+  status.innerHTML = `
+    <div class="build-spinner"></div>
+    <div class="build-text">
+      <div class="build-phase"></div>
+      <div class="build-elapsed muted"></div>
+    </div>
+  `;
+  status.querySelector(".build-phase").textContent = phaseText;
+  status.querySelector(".build-elapsed").textContent = `${mm}:${ss} vergangen`;
+  installSlot.appendChild(status);
+
+  if (build.correlationId) {
+    const hint = document.createElement("p");
+    hint.className = "muted small";
+    hint.textContent = `Build-ID: ${build.correlationId}`;
+    installSlot.appendChild(hint);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "downloads";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "btn";
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Abbrechen";
+  cancelBtn.title = "Bricht nur die Anzeige ab — Build laeuft auf GitHub bis er fertig ist.";
+  cancelBtn.addEventListener("click", () => {
+    pollAbort = {};
+    state.build = null;
+    render();
+  });
+  actions.appendChild(cancelBtn);
+  installSlot.appendChild(actions);
+}
+
+function renderBuildSuccess(project) {
+  const build = state.build;
+  installSlotHeading("Web Flash (Browser → USB)");
+
+  // Manifest dynamisch erzeugen, asset_url ab Offset 0.
+  const manifest = {
+    name: project.name,
+    version: "on-demand",
+    new_install_prompt_erase: true,
+    builds: [
+      { chipFamily: project.chipFamily ?? "ESP32-S3", parts: [{ path: build.assetUrl, offset: 0 }] },
+    ],
+  };
+  const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+  activeManifestUrl = URL.createObjectURL(blob);
+
+  const btn = document.createElement("esp-web-install-button");
+  btn.manifest = activeManifestUrl;
+  installSlot.appendChild(btn);
+
+  installSlotHeading("Direkt-Download");
+  const dl = document.createElement("div");
+  dl.className = "downloads";
+  const a = document.createElement("a");
+  a.href = build.assetUrl;
+  a.className = "download-btn";
+  a.download = "firmware.bin";
+  a.textContent = `⬇ firmware.bin`;
+  dl.appendChild(a);
+
+  const cfgBtn = document.createElement("button");
+  cfgBtn.className = "btn";
+  cfgBtn.type = "button";
+  cfgBtn.textContent = `⬇ ${project.source.headerName ?? "config_private.h"}`;
+  cfgBtn.addEventListener("click", () => downloadConfigHeader(project, state.config));
+  dl.appendChild(cfgBtn);
+
+  installSlot.appendChild(dl);
+
+  const meta = document.createElement("p");
+  meta.className = "muted small";
+  meta.innerHTML = `Build erfolgreich. Diese Firmware wird in ~24h automatisch von GitHub gelöscht.`;
+  installSlot.appendChild(meta);
+
+  const redoActions = document.createElement("div");
+  redoActions.className = "downloads";
+  const newBtn = document.createElement("button");
+  newBtn.className = "btn";
+  newBtn.type = "button";
+  newBtn.textContent = "Neuen Build starten";
+  newBtn.addEventListener("click", () => {
+    state.build = null;
+    render();
+  });
+  redoActions.appendChild(newBtn);
+  installSlot.appendChild(redoActions);
+}
+
+function renderBuildError(project) {
+  installSlotHeading("Build fehlgeschlagen");
+  const p = document.createElement("p");
+  p.className = "muted";
+  p.textContent = state.build?.message ?? "Unbekannter Fehler.";
+  installSlot.appendChild(p);
+
+  if (state.build?.runUrl) {
+    const link = document.createElement("p");
+    link.className = "small";
+    link.innerHTML = `Details: <a href="${state.build.runUrl}" target="_blank" rel="noopener">GitHub Actions Run</a>`;
+    installSlot.appendChild(link);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "downloads";
+  const retryBtn = document.createElement("button");
+  retryBtn.className = "btn btn-primary";
+  retryBtn.type = "button";
+  retryBtn.textContent = "Erneut versuchen";
+  retryBtn.addEventListener("click", () => startBuild(project));
+  actions.appendChild(retryBtn);
+  installSlot.appendChild(actions);
+}
+
+// ---------- Build flow ----------
+
+function encodeBase64Utf8(s) {
+  // Browser btoa kann nur Latin-1. Fuer UTF-8 (Umlaute in SSID o.ae.) erst
+  // nach UTF-8 enkodieren, dann base64-encodieren.
+  const bytes = new TextEncoder().encode(s);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+async function startBuild(project) {
+  if (!project.source.workerUrl) {
+    state.build = { phase: "error", message: "Worker-URL fehlt in projects.json." };
+    render();
+    return;
+  }
+
+  state.build = { phase: "dispatching", startedAt: Date.now() };
+  render();
+
+  try {
+    const headerText = generateConfigHeader(project, state.config);
+    const configB64 = encodeBase64Utf8(headerText);
+    const res = await fetch(`${project.source.workerUrl}/build`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config_h_b64: configB64 }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`POST /build: ${res.status} ${errText.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    if (!data.correlation_id) throw new Error("Worker antwortete ohne correlation_id");
+    state.build = {
+      phase: "polling",
+      correlationId: data.correlation_id,
+      startedAt: Date.now(),
+      lastStatus: "pending",
+    };
+    render();
+    const token = (pollAbort = {});
+    pollBuild(project, token);
+  } catch (err) {
+    console.error(err);
+    state.build = { phase: "error", message: err.message };
+    render();
+  }
+}
+
+async function pollBuild(project, token) {
+  const id = state.build?.correlationId;
+  if (!id) return;
+  // Erstes Re-Render kurz nach Start, damit der Timer-String aktualisiert wird.
+  let lastRenderAt = Date.now();
+
+  while (pollAbort === token && state.build?.correlationId === id) {
+    try {
+      const res = await fetch(`${project.source.workerUrl}/status?id=${encodeURIComponent(id)}`);
+      const data = await res.json();
+      if (pollAbort !== token) return;
+
+      if (data.status === "completed") {
+        if (data.conclusion === "success" && data.asset_url) {
+          state.build = {
+            phase: "success",
+            correlationId: id,
+            assetUrl: data.asset_url,
+            runUrl: data.run_url ?? null,
+            releaseUrl: data.release_url ?? null,
+          };
+        } else {
+          state.build = {
+            phase: "error",
+            message: `Build endete mit '${data.conclusion ?? "unbekannt"}'.`,
+            runUrl: data.run_url ?? null,
+          };
+        }
+        render();
+        return;
+      }
+
+      // Noch nicht fertig — Status aktualisieren.
+      state.build = { ...state.build, lastStatus: data.status };
+      if (Date.now() - lastRenderAt > 1500) {
+        render();
+        lastRenderAt = Date.now();
+      }
+    } catch (err) {
+      console.warn("status poll error", err);
+      // Bei transienten Fehlern weitermachen.
+    }
+
+    // Polling-Intervall: anfangs eng, dann groesser, GitHub-API ist 5000/h.
+    const elapsedSec = (Date.now() - state.build.startedAt) / 1000;
+    const delay = elapsedSec < 60 ? 5000 : 10000;
+    await new Promise((r) => setTimeout(r, delay));
+  }
 }
 
 // ---------- Render ----------

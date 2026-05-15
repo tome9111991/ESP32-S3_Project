@@ -30,6 +30,7 @@
           "chipFamily": "ESP32-S3",
           "source": {
             "type": "build-on-demand",
+            "workerUrl": "https://kcwp-flasher.tommi91.workers.dev",
             "workflow": "build-guition-klippercrypto.yml",
             "headerName": "config_private.h",
             "preamble": "#pragma once\n\n// Generiert vom ESP32 Web Flasher\n\n",

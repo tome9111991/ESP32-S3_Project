@@ -347,6 +347,46 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   font-size: 0.88rem;
 }
 
+.small {
+  font-size: 0.78rem;
+}
+
+/* --------- Build progress --------- */
+
+.build-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.build-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.build-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.build-phase {
+  font-weight: 600;
+}
+
 /* --------- Install + Downloads --------- */
 
 #install-slot {
