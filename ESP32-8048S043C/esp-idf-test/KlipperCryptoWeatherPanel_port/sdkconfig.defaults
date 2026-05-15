@@ -64,10 +64,12 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
 CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
 
 # --- RGB-LCD ISR Konfiguration ------------------------------------------------
-# IRAM_SAFE bewusst AUS: esp_lvgl_port's VSYNC-Callback liegt nicht in IRAM und
-# erwartet ISR_IRAM_SAFE=n. Wenn spaeter Flash/NVS-Writes (WiFi-Config etc.)
-# Artefakte erzeugen, gibts mehrere Wege das zu loesen (z.B. LVGL pausieren
-# waehrend NVS-Commit), ohne den Treiber strenger zu machen als esp_lvgl_port.
+# IRAM_SAFE bewusst AUS: nicht nur weil esp_lvgl_port's VSYNC-Callback nicht in
+# IRAM liegt, sondern weil fb_in_psram=true die ganze Architektur fuer
+# IRAM_SAFE inkompatibel macht. Cache-Disable (SPI-Flash-Read) gated auch das
+# PSRAM mit; lcd_rgb_panel_fill_bounce_buffer crasht dann beim Lesen aus dem
+# PSRAM-Framebuffer (memcpy in ROM, EXCVADDR=0). Ein FB im internen SRAM ist
+# fuer 800x480x16bpp nicht moeglich.
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 
 # --- LVGL ---------------------------------------------------------------------

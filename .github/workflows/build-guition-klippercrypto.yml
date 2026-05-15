@@ -1,0 +1,73 @@
+name: Build Guition KlipperCryptoWeatherPanel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SKETCH_DIR: Guition_JC4827W543/KlipperCryptoWeatherPanel
+  BUILD_DIR: firmware-guition-klippercrypto
+  # ESP32S3 Dev Module, passend zu den Arduino-IDE-Einstellungen im Projekt-README.
+  FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashSize=4M,FlashMode=qio,PartitionScheme=huge_app,PSRAM=opi
+
+jobs:
+  build:
+    name: Build Arduino firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+        with:
+          version: "1.4.1"
+
+      - name: Install ESP32 core
+        shell: bash
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.8
+
+      - name: Install pinned libraries
+        shell: bash
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "lvgl@9.5.0"
+          arduino-cli lib install "LovyanGFX@1.2.21"
+          arduino-cli lib install "ArduinoJson@7.4.3"
+
+      - name: Prepare private config
+        shell: bash
+        env:
+          CONFIG_PRIVATE_H: ${{ secrets.CONFIG_PRIVATE_H }}
+        run: |
+          if [ -n "${CONFIG_PRIVATE_H}" ]; then
+            # Der Secret-Inhalt wird nur in die Datei geschrieben und nicht ausgegeben.
+            printf '%s\n' "${CONFIG_PRIVATE_H}" > "${SKETCH_DIR}/config_private.h"
+          else
+            echo "::warning::CONFIG_PRIVATE_H secret is missing. Building with config_private.example.h dummy values."
+            cp "${SKETCH_DIR}/config_private.example.h" "${SKETCH_DIR}/config_private.h"
+          fi
+
+      - name: Compile firmware
+        shell: bash
+        run: |
+          mkdir -p "${BUILD_DIR}"
+          arduino-cli compile \
+            --fqbn "${FQBN}" \
+            --export-binaries \
+            --output-dir "${BUILD_DIR}" \
+            "${SKETCH_DIR}"
+
+      - name: Upload firmware binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: guition-klippercrypto-bin
+          path: ${{ env.BUILD_DIR }}/*.bin
+          if-no-files-found: error
