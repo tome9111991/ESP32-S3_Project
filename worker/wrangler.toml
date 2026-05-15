@@ -1,0 +1,13 @@
+name = "kcwp-flasher"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+workers_dev = true
+
+# Oeffentliche, nicht-sensitive Werte. GH_TOKEN ist ein Secret -> separat
+# setzen mit:  npx wrangler secret put GH_TOKEN
+[vars]
+GH_OWNER = "tome9111991"
+GH_REPO = "ESP32-S3_Project"
+WORKFLOW_FILE = "build-guition-klippercrypto.yml"
+# Mehrere Origins per Komma erlaubt. "*" nur fuer dev.
+ALLOWED_ORIGIN = "https://tome9111991.github.io,http://localhost:8765"
