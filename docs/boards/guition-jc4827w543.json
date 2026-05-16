@@ -3,6 +3,23 @@
   "name": "Guition JC4827W543 (4.3\" 480x272)",
   "projects": [
     {
+      "id": "powerdashboard",
+      "name": "PowerDashboard",
+      "description": {
+        "de": "ESP-IDF Firmware für Shelly-Plug-Leistungsdaten auf dem Guition Display.",
+        "en": "ESP-IDF firmware for Shelly Plug power data on the Guition display."
+      },
+      "chipFamily": "ESP32-S3",
+      "source": {
+        "type": "github-release",
+        "owner": "tome9111991",
+        "repo": "ESP32-S3_Project",
+        "tagPrefix": "PowerDashboard-",
+        "assetTemplate": "PowerDashboard-Guition-JC4827W543.bin",
+        "defaultLang": "FW"
+      }
+    },
+    {
       "id": "kcwp",
       "name": "Klipper Crypto Weather Panel",
       "description": {

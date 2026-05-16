@@ -96,7 +96,9 @@ idf.py set-target esp32s3
 idf.py build flash monitor
 ```
 
-Beim ersten Build lädt der Component-Manager LVGL automatisch.
+Beim ersten Build lädt der Component-Manager LVGL und die weiteren
+ESP-IDF-Komponenten automatisch. Das Display läuft über den lokalen
+`esp_lcd`-Treiber `esp_lcd_nv3041a` aus `../components/`.
 
 ## Hinweise
 
@@ -116,7 +118,7 @@ Beim ersten Build lädt der Component-Manager LVGL automatisch.
 | MCU | ESP32-S3-WROOM-1 N4R8 |
 | Flash | 4 MB QIO @ 80 MHz |
 | PSRAM | 8 MB Octal @ 80 MHz |
-| Display | 4.3" 480×272 NV3041A via LovyanGFX/QSPI |
+| Display | 4.3" 480×272 NV3041A via esp_lcd/QSPI |
 | Touch | nicht verwendet |
 
 ## Partition Table

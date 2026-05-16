@@ -1,0 +1,158 @@
+name: PowerDashboard Firmware Release (Guition JC4827W543)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Type 'yes' to publish a GitHub release tagged ${APP_FW_NAME}-${APP_FW_VERSION}. Anything else just uploads build artifacts."
+        required: false
+        default: "no"
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PROJECT_DIR: Guition_JC4827W543/ESP-IDF/PowerDashboard
+  RELEASE_NAME: Guition JC4827W543 PowerDashboard
+  BOARD_NAME: Guition-JC4827W543
+  IDF_TARGET: esp32s3
+  VERSION_HEADER: Guition_JC4827W543/ESP-IDF/PowerDashboard/main/version.h
+
+jobs:
+  version:
+    name: Read firmware identifier
+    runs-on: ubuntu-latest
+    outputs:
+      fw_name: ${{ steps.read.outputs.fw_name }}
+      fw_version: ${{ steps.read.outputs.fw_version }}
+      release_tag: ${{ steps.read.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Parse version.h
+        id: read
+        shell: bash
+        run: |
+          FW_NAME=$(sed -n 's/^#define APP_FW_NAME "\(.*\)".*/\1/p' "${VERSION_HEADER}" | head -n 1)
+          FW_VERSION=$(sed -n 's/^#define APP_FW_VERSION "\(.*\)".*/\1/p' "${VERSION_HEADER}" | head -n 1)
+          if [ -z "${FW_NAME}" ] || [ -z "${FW_VERSION}" ]; then
+            echo "::error::Could not read APP_FW_NAME/APP_FW_VERSION from ${VERSION_HEADER}"
+            exit 1
+          fi
+
+          case "${FW_VERSION}" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "::warning::APP_FW_VERSION='${FW_VERSION}' may not sort correctly."
+              ;;
+          esac
+
+          RELEASE_TAG="${FW_NAME}-${FW_VERSION}"
+          echo "Detected APP_FW_NAME='${FW_NAME}' APP_FW_VERSION='${FW_VERSION}'"
+          echo "Release tag will be '${RELEASE_TAG}'"
+          {
+            echo "fw_name=${FW_NAME}"
+            echo "fw_version=${FW_VERSION}"
+            echo "release_tag=${RELEASE_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build firmware
+    needs: version
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.1
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: Guition_JC4827W543/ESP-IDF/PowerDashboard
+
+    env:
+      FW_NAME: ${{ needs.version.outputs.fw_name }}
+      FW_VERSION: ${{ needs.version.outputs.fw_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build firmware
+        run: |
+          . /opt/esp/idf/export.sh
+
+          idf.py \
+            -B build-ci \
+            -DAPP_FW_NAME="${FW_NAME}" \
+            -DAPP_FW_VERSION="${FW_VERSION}" \
+            -DAPP_FW_BOARD="${BOARD_NAME}" \
+            build
+
+      - name: Collect firmware binary
+        run: |
+          . /opt/esp/idf/export.sh
+
+          ASSET_BASE="${FW_NAME}-${BOARD_NAME}"
+          RELEASE_DIR="release"
+          mkdir -p "${RELEASE_DIR}"
+
+          # Single full image for first flash / webflasher use:
+          # bootloader + partition table + app at their ESP-IDF flash offsets.
+          (
+            cd build-ci
+            esptool.py --chip "${IDF_TARGET}" merge_bin \
+              -o "../${RELEASE_DIR}/${ASSET_BASE}.bin" \
+              @flash_args
+          )
+
+          ls -lh "${RELEASE_DIR}"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: powerdashboard-firmware
+          path: ${{ env.PROJECT_DIR }}/release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.release == 'yes'
+
+    env:
+      FW_NAME: ${{ needs.version.outputs.fw_name }}
+      FW_VERSION: ${{ needs.version.outputs.fw_version }}
+      RELEASE_TAG: ${{ needs.version.outputs.release_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: powerdashboard-firmware
+          path: release-bins
+
+      - name: Attach firmware binary to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Release ${RELEASE_TAG} already exists. Bump APP_FW_VERSION in main/version.h before publishing again."
+            exit 1
+          fi
+
+          if git -C "$GITHUB_WORKSPACE" rev-parse "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Git tag ${RELEASE_TAG} already exists. Bump APP_FW_VERSION in main/version.h before publishing again."
+            exit 1
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            release-bins/* \
+            --title "${RELEASE_TAG}" \
+            --notes "${RELEASE_NAME} ESP-IDF firmware for ${BOARD_NAME}. Single merged full image for first flash / webflasher use." \
+            --target "${GITHUB_SHA}"

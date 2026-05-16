@@ -7,7 +7,10 @@ idf_component_register(SRCS "main.cpp"
                             ${UI_ASSET_SRCS}
                        INCLUDE_DIRS "." "ui_assets"
                        EMBED_TXTFILES "web_ui.html"
-                       REQUIRES LovyanGFX
+                       REQUIRES esp_lcd
+                                esp_lcd_nv3041a
+                                esp_driver_spi
+                                esp_driver_ledc
                                 esp_timer
                                 esp_wifi
                                 esp_netif

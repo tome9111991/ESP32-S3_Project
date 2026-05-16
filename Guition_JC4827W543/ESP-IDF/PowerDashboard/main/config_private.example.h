@@ -20,7 +20,7 @@
 #define TIMEZONE_POSIX "CET-1CEST,M3.5.0,M10.5.0/3"
 #define SNTP_SERVER "pool.ntp.org"
 
-// Display-Rotation. Erlaubt: 0, 1, 2, 3 (LovyanGFX setRotation).
+// Display-Rotation. Erlaubt: 0, 1, 2, 3.
 #define DISPLAY_ROTATION 2
 // Hintergrundbeleuchtung 10..255.
 #define DISPLAY_BRIGHTNESS 160

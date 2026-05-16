@@ -22,8 +22,12 @@ async function fetchReleases(owner, repo) {
 
 function parseReleases(releases, project) {
   const { tagPrefix, assetTemplate } = project.source;
+  const hasLangPlaceholder = assetTemplate.includes("{lang}");
   const escaped = assetTemplate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const assetRe = new RegExp("^" + escaped.replace("\\{lang\\}", "([A-Za-z0-9]+)") + "$");
+  const assetRe = new RegExp(
+    "^" + escaped.replace("\\{lang\\}", "([A-Za-z0-9]+)") + "$",
+  );
+  const fallbackLang = project.source.defaultLang ?? "FW";
 
   const out = [];
   for (const rel of releases) {
@@ -33,7 +37,8 @@ function parseReleases(releases, project) {
     for (const asset of rel.assets ?? []) {
       const m = assetRe.exec(asset.name);
       if (!m) continue;
-      langs.set(m[1].toUpperCase(), {
+      const lang = hasLangPlaceholder ? m[1].toUpperCase() : fallbackLang;
+      langs.set(lang, {
         name: asset.name,
         url: asset.browser_download_url,
         size: asset.size,

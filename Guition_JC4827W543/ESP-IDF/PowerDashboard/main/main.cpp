@@ -26,16 +26,12 @@
 #include "cJSON.h"
 #include "lvgl.h"
 
-#define M5GFX_USING_REAL_LVGL
-#define M5GFX_LVGL_FONT_COMPAT_H
-#define M5GFX_LVGL_COLOR_H
-#define M5GFX_LVGL_AREA_H
-#define M5GFX_LVGL_FONT_H
-#define M5GFX_LVGL_DRAW_BUF_H
-#define M5GFX_LVGL_FONT_FMT_TXT_H
-
-#include <LovyanGFX.hpp>
-#include <lgfx/v1/panel/Panel_NV3041A.hpp>
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+#include "driver/spi_master.h"
+#include "esp_lcd_nv3041a.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_ops.h"
 
 #include "provisioning.h"
 #include "qr_screen.h"
@@ -77,117 +73,187 @@ static void load_runtime_config(void)
 static constexpr int LCD_H_RES = 480;
 static constexpr int LCD_V_RES = 272;
 
-class LGFX : public lgfx::LGFX_Device {
-    lgfx::Panel_NV3041A _panel;
-    lgfx::Bus_SPI _bus;
-    lgfx::Light_PWM _light;
+static constexpr gpio_num_t PIN_LCD_SCLK = GPIO_NUM_47;
+static constexpr gpio_num_t PIN_LCD_D0   = GPIO_NUM_21;
+static constexpr gpio_num_t PIN_LCD_D1   = GPIO_NUM_48;
+static constexpr gpio_num_t PIN_LCD_D2   = GPIO_NUM_40;
+static constexpr gpio_num_t PIN_LCD_D3   = GPIO_NUM_39;
+static constexpr gpio_num_t PIN_LCD_CS   = GPIO_NUM_45;
+static constexpr gpio_num_t PIN_LCD_RST  = GPIO_NUM_4;
+static constexpr gpio_num_t PIN_LCD_BL   = GPIO_NUM_1;
+static constexpr spi_host_device_t LCD_SPI_HOST = SPI3_HOST;
 
-public:
-    LGFX()
-    {
-        {
-            auto cfg = _bus.config();
-            cfg.spi_host = SPI3_HOST;
-            cfg.spi_mode = 1;
-            cfg.freq_write = 32000000UL;
-            cfg.freq_read = 16000000UL;
-            cfg.spi_3wire = true;
-            cfg.use_lock = true;
-            cfg.dma_channel = SPI_DMA_CH_AUTO;
-            cfg.pin_sclk = 47;
-            cfg.pin_io0 = 21;
-            cfg.pin_io1 = 48;
-            cfg.pin_io2 = 40;
-            cfg.pin_io3 = 39;
-            _bus.config(cfg);
-            _panel.setBus(&_bus);
-        }
-        {
-            auto cfg = _panel.config();
-            cfg.pin_cs = 45;
-            cfg.pin_rst = 4;
-            cfg.pin_busy = -1;
-            cfg.panel_width = LCD_H_RES;
-            cfg.panel_height = LCD_V_RES;
-            cfg.memory_width = LCD_H_RES;
-            cfg.memory_height = LCD_V_RES;
-            cfg.offset_x = 0;
-            cfg.offset_y = 0;
-            cfg.offset_rotation = 0;
-            cfg.dummy_read_pixel = 8;
-            cfg.dummy_read_bits = 1;
-            cfg.readable = true;
-            cfg.invert = true;
-            cfg.rgb_order = true;
-            cfg.dlen_16bit = false;
-            cfg.bus_shared = true;
-            _panel.config(cfg);
-        }
-        {
-            auto cfg = _light.config();
-            cfg.pin_bl = 1;
-            cfg.invert = false;
-            _light.config(cfg);
-            _panel.setLight(&_light);
-        }
-        setPanel(&_panel);
-    }
-};
-
-static LGFX display;
-static lv_color_t *draw_buf = nullptr;
+static esp_lcd_panel_io_handle_t lcd_io_handle    = nullptr;
+static esp_lcd_panel_handle_t    lcd_panel_handle = nullptr;
+static lv_display_t              *lv_disp         = nullptr;
+static lv_color_t                *draw_buf        = nullptr;
 
 static uint32_t lv_tick_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
 
-static void lv_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+static volatile bool g_flush_pending = false;
+
+static bool IRAM_ATTR lcd_trans_done_cb(esp_lcd_panel_io_handle_t io,
+                                        esp_lcd_panel_io_event_data_t *edata,
+                                        void *user_ctx)
 {
-    int32_t x1 = area->x1;
-    int32_t y1 = area->y1;
-    int32_t x2 = area->x2;
-    int32_t y2 = area->y2;
-    if (x2 < 0 || y2 < 0 || x1 >= display.width() || y1 >= display.height()) {
-        lv_display_flush_ready(disp);
-        return;
+    (void)io;
+    (void)edata;
+    (void)user_ctx;
+    g_flush_pending = false;
+    if (lv_disp != nullptr) {
+        lv_display_flush_ready(lv_disp);
     }
-    const int32_t src_width = lv_area_get_width(area);
-    if (x1 < 0) x1 = 0;
-    if (y1 < 0) y1 = 0;
-    if (x2 >= display.width()) x2 = display.width() - 1;
-    if (y2 >= display.height()) y2 = display.height() - 1;
-    const uint32_t w = x2 - x1 + 1;
-    const uint32_t h = y2 - y1 + 1;
-    const lgfx::swap565_t *pixels = reinterpret_cast<const lgfx::swap565_t *>(px_map)
-        + ((y1 - area->y1) * src_width) + (x1 - area->x1);
-    const bool contiguous = (src_width == (int32_t)w);
-    const bool started_write = (display.getStartCount() == 0);
-    display.waitDMA();
-    if (started_write) display.startWrite();
-    if (contiguous) {
-        display.pushImage(x1, y1, w, h, pixels);
-    } else {
-        for (uint32_t row = 0; row < h; row++) {
-            display.pushImage(x1, y1 + row, w, 1, pixels + (row * src_width));
-        }
-    }
-    if (started_write) display.endWrite();
-    display.waitDMA();
-    lv_display_flush_ready(disp);
+    return false;
 }
 
-static void init_lgfx(void)
+static void lv_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    if (!display.init()) {
-        ESP_LOGE(TAG, "LovyanGFX init fehlgeschlagen");
-        abort();
+    (void)disp;
+    // esp_lcd_panel_draw_bitmap erwartet ein halb-offenes Intervall (x2/y2
+    // exklusiv). lv_display_flush_ready() laeuft aus lcd_trans_done_cb() im
+    // DMA-Done-Interrupt, sobald die QSPI-Transaktion durch ist.
+    g_flush_pending = true;
+    esp_lcd_panel_draw_bitmap(lcd_panel_handle,
+                              area->x1, area->y1,
+                              area->x2 + 1, area->y2 + 1,
+                              px_map);
+}
+
+static void backlight_init(uint8_t duty)
+{
+    ledc_timer_config_t tcfg = {};
+    tcfg.speed_mode      = LEDC_LOW_SPEED_MODE;
+    tcfg.duty_resolution = LEDC_TIMER_8_BIT;
+    tcfg.timer_num       = LEDC_TIMER_0;
+    tcfg.freq_hz         = 5000;
+    tcfg.clk_cfg         = LEDC_AUTO_CLK;
+    ESP_ERROR_CHECK(ledc_timer_config(&tcfg));
+
+    ledc_channel_config_t ccfg = {};
+    ccfg.gpio_num   = PIN_LCD_BL;
+    ccfg.speed_mode = LEDC_LOW_SPEED_MODE;
+    ccfg.channel    = LEDC_CHANNEL_0;
+    ccfg.timer_sel  = LEDC_TIMER_0;
+    ccfg.duty       = duty;
+    ccfg.hpoint     = 0;
+    ESP_ERROR_CHECK(ledc_channel_config(&ccfg));
+}
+
+static void backlight_set_duty(uint32_t duty)
+{
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+// Panel-RAM enthaelt nach Power-on Zufallspixel. Bevor das Backlight hochgeht,
+// einmalig schwarzes Vollbild raushauen, damit kein "Ameisenkrieg" sichtbar ist.
+static void clear_panel_to_black(void)
+{
+    const size_t fb_bytes = (size_t)LCD_H_RES * LCD_V_RES * sizeof(uint16_t);
+    uint8_t *black = (uint8_t *)heap_caps_calloc(1, fb_bytes,
+                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (black == nullptr) {
+        ESP_LOGW(TAG, "Kein PSRAM fuer Black-Frame - skip Clear");
+        return;
     }
-    display.initDMA();
-    display.setColorDepth(16);
-    display.invertDisplay(true);
-    display.setRotation(g_rotation);
-    display.setBrightness(g_brightness);
+    g_flush_pending = true;
+    esp_lcd_panel_draw_bitmap(lcd_panel_handle, 0, 0, LCD_H_RES, LCD_V_RES, black);
+    // Auf DMA warten, bevor der Buffer freigegeben wird.
+    TickType_t start = xTaskGetTickCount();
+    while (g_flush_pending) {
+        if (xTaskGetTickCount() - start > pdMS_TO_TICKS(500)) {
+            ESP_LOGW(TAG, "Black-Frame DMA-Timeout");
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    heap_caps_free(black);
+}
+
+static void apply_panel_rotation(uint8_t rot)
+{
+    // Bestehender NVS-Default ist rot=2 - so sah es unter LovyanGFX aufrecht
+    // aus. LovyanGFX setRotation(2) + Panel-Init-MADCTL=0xC0 lieferten in
+    // Summe ein nicht-gespiegeltes Bild, also bilden wir das hier ab:
+    //   rot=2 -> mirror(false,false)   (Default, aufrechtes Bild)
+    //   rot=0 -> mirror(true,true)     (180-Grad-Flip)
+    //   rot=1/3 -> swap_xy, Aufloesung bleibt aber 480x272 - rein zur
+    //              Vollstaendigkeit.
+    switch (rot & 0x03) {
+    case 0:
+        esp_lcd_panel_swap_xy(lcd_panel_handle, false);
+        esp_lcd_panel_mirror(lcd_panel_handle, true, true);
+        break;
+    case 1:
+        esp_lcd_panel_swap_xy(lcd_panel_handle, true);
+        esp_lcd_panel_mirror(lcd_panel_handle, false, true);
+        break;
+    case 2:
+        esp_lcd_panel_swap_xy(lcd_panel_handle, false);
+        esp_lcd_panel_mirror(lcd_panel_handle, false, false);
+        break;
+    case 3:
+        esp_lcd_panel_swap_xy(lcd_panel_handle, true);
+        esp_lcd_panel_mirror(lcd_panel_handle, true, false);
+        break;
+    }
+}
+
+static void init_lcd(void)
+{
+    ESP_LOGI(TAG, "Backlight init (gpio %d) - duty 0 bis Panel sauber ist", PIN_LCD_BL);
+    backlight_init(0);
+
+    ESP_LOGI(TAG, "QSPI bus init host=%d sclk=%d d0..d3=%d/%d/%d/%d",
+             LCD_SPI_HOST, PIN_LCD_SCLK,
+             PIN_LCD_D0, PIN_LCD_D1, PIN_LCD_D2, PIN_LCD_D3);
+    spi_bus_config_t buscfg = {};
+    buscfg.sclk_io_num     = PIN_LCD_SCLK;
+    buscfg.mosi_io_num     = GPIO_NUM_NC;
+    buscfg.miso_io_num     = GPIO_NUM_NC;
+    buscfg.quadwp_io_num   = GPIO_NUM_NC;
+    buscfg.quadhd_io_num   = GPIO_NUM_NC;
+    buscfg.data0_io_num    = PIN_LCD_D0;
+    buscfg.data1_io_num    = PIN_LCD_D1;
+    buscfg.data2_io_num    = PIN_LCD_D2;
+    buscfg.data3_io_num    = PIN_LCD_D3;
+    buscfg.data4_io_num    = GPIO_NUM_NC;
+    buscfg.data5_io_num    = GPIO_NUM_NC;
+    buscfg.data6_io_num    = GPIO_NUM_NC;
+    buscfg.data7_io_num    = GPIO_NUM_NC;
+    buscfg.max_transfer_sz = LCD_H_RES * LCD_V_RES * (int)sizeof(uint16_t);
+    buscfg.flags           = SPICOMMON_BUSFLAG_QUAD;
+    ESP_ERROR_CHECK(spi_bus_initialize(LCD_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
+
+    ESP_LOGI(TAG, "Install QSPI panel IO (cs %d)", PIN_LCD_CS);
+    esp_lcd_panel_io_spi_config_t io_cfg =
+        NV3041A_PANEL_IO_QSPI_CONFIG(PIN_LCD_CS, lcd_trans_done_cb, nullptr);
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(
+        (esp_lcd_spi_bus_handle_t)LCD_SPI_HOST, &io_cfg, &lcd_io_handle));
+
+    ESP_LOGI(TAG, "Install NV3041A panel driver (rst %d)", PIN_LCD_RST);
+    nv3041a_vendor_config_t vendor_cfg = {};
+    vendor_cfg.flags.use_qspi_interface = 1;
+
+    esp_lcd_panel_dev_config_t panel_cfg = {};
+    panel_cfg.reset_gpio_num = PIN_LCD_RST;
+    panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_RGB;
+    panel_cfg.bits_per_pixel = 16;
+    panel_cfg.vendor_config  = &vendor_cfg;
+    ESP_ERROR_CHECK(esp_lcd_new_panel_nv3041a(lcd_io_handle, &panel_cfg, &lcd_panel_handle));
+
+    ESP_LOGI(TAG, "Reset+init panel");
+    ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel_handle));
+    ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel_handle));
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(lcd_panel_handle, true));
+    apply_panel_rotation(g_rotation);
+    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(lcd_panel_handle, true));
+    clear_panel_to_black();
+    backlight_set_duty(g_brightness);
+    ESP_LOGI(TAG, "Panel up, backlight=%u", (unsigned)g_brightness);
 }
 
 static void init_lvgl(void)
@@ -201,10 +267,10 @@ static void init_lvgl(void)
         ESP_LOGE(TAG, "LVGL Fullscreen-Buffer in PSRAM fehlgeschlagen");
         abort();
     }
-    lv_display_t *disp = lv_display_create(LCD_H_RES, LCD_V_RES);
-    lv_display_set_flush_cb(disp, lv_flush);
-    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
-    lv_display_set_buffers(disp, draw_buf, nullptr, buffer_bytes,
+    lv_disp = lv_display_create(LCD_H_RES, LCD_V_RES);
+    lv_display_set_flush_cb(lv_disp, lv_flush);
+    lv_display_set_color_format(lv_disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
+    lv_display_set_buffers(lv_disp, draw_buf, nullptr, buffer_bytes,
                            LV_DISPLAY_RENDER_MODE_FULL);
 }
 
@@ -519,8 +585,16 @@ static lv_obj_t *lbl_session_eur;
 static lv_obj_t *lbl_tariff;
 static lv_obj_t *lbl_total_kwh;
 
+static void label_set_text_if_changed(lv_obj_t *label, const char *text)
+{
+    const char *old = lv_label_get_text(label);
+    if (old == nullptr || strcmp(old, text) != 0) {
+        lv_label_set_text(label, text);
+    }
+}
+
 static lv_obj_t *make_card(lv_obj_t *parent, int x, int y, int w, int h,
-                           const char *title)
+                            const char *title)
 {
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_remove_style_all(card);
@@ -690,7 +764,7 @@ static void ui_update_cb(lv_timer_t *t)
     // Eigene ESP-IP in der Topbar anzeigen.
     char ip_buf[28];
     snprintf(ip_buf, sizeof(ip_buf), "IP %s", snap.ip_str);
-    lv_label_set_text(lbl_ip, ip_buf);
+    label_set_text_if_changed(lbl_ip, ip_buf);
 
     // Uhr
     time_t now = time(nullptr);
@@ -700,13 +774,13 @@ static void ui_update_cb(lv_timer_t *t)
         char tbuf[16];
         snprintf(tbuf, sizeof(tbuf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min,
                  lt.tm_sec);
-        lv_label_set_text(lbl_clock, tbuf);
+        label_set_text_if_changed(lbl_clock, tbuf);
     } else {
-        lv_label_set_text(lbl_clock, "sync...");
+        label_set_text_if_changed(lbl_clock, "sync...");
     }
 
     if (!snap.data_valid) {
-        lv_label_set_text(lbl_power, "--");
+        label_set_text_if_changed(lbl_power, "--");
         return;
     }
 
@@ -720,19 +794,19 @@ static void ui_update_cb(lv_timer_t *t)
     char buf[32];
     if (snap.power_w >= 1000.0f) {
         snprintf(buf, sizeof(buf), "%.2f", snap.power_w / 1000.0f);
-        lv_label_set_text(lbl_power, buf);
-        lv_label_set_text(lbl_power_unit, "kW");
+        label_set_text_if_changed(lbl_power, buf);
+        label_set_text_if_changed(lbl_power_unit, "kW");
     } else {
         snprintf(buf, sizeof(buf), "%.1f", snap.power_w);
-        lv_label_set_text(lbl_power, buf);
-        lv_label_set_text(lbl_power_unit, "W");
+        label_set_text_if_changed(lbl_power, buf);
+        label_set_text_if_changed(lbl_power_unit, "W");
     }
     lv_obj_align_to(lbl_power_unit, lbl_power, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -6);
 
     snprintf(buf, sizeof(buf), "%.1f V", snap.voltage_v);
-    lv_label_set_text(lbl_voltage, buf);
+    label_set_text_if_changed(lbl_voltage, buf);
     snprintf(buf, sizeof(buf), "%.3f A", snap.current_a);
-    lv_label_set_text(lbl_current, buf);
+    label_set_text_if_changed(lbl_current, buf);
 
     const float eur_per_kwh = g_tariff_ct / 100.0f;
 
@@ -744,9 +818,9 @@ static void ui_update_cb(lv_timer_t *t)
     double today_kwh = today_wh / 1000.0;
     double today_eur = today_kwh * eur_per_kwh;
     snprintf(buf, sizeof(buf), "%.3f kWh", today_kwh);
-    lv_label_set_text(lbl_today_kwh, buf);
+    label_set_text_if_changed(lbl_today_kwh, buf);
     snprintf(buf, sizeof(buf), "%.2f EUR", today_eur);
-    lv_label_set_text(lbl_today_eur, buf);
+    label_set_text_if_changed(lbl_today_eur, buf);
 
     double sess_wh = 0;
     if (snap.session_start_wh >= 0) {
@@ -756,12 +830,12 @@ static void ui_update_cb(lv_timer_t *t)
     double sess_kwh = sess_wh / 1000.0;
     double sess_eur = sess_kwh * eur_per_kwh;
     snprintf(buf, sizeof(buf), "%.3f kWh", sess_kwh);
-    lv_label_set_text(lbl_session_kwh, buf);
+    label_set_text_if_changed(lbl_session_kwh, buf);
     snprintf(buf, sizeof(buf), "%.2f EUR", sess_eur);
-    lv_label_set_text(lbl_session_eur, buf);
+    label_set_text_if_changed(lbl_session_eur, buf);
 
     snprintf(buf, sizeof(buf), "Total: %.2f kWh", snap.total_wh / 1000.0);
-    lv_label_set_text(lbl_total_kwh, buf);
+    label_set_text_if_changed(lbl_total_kwh, buf);
 }
 
 // =============================================================================
@@ -775,7 +849,7 @@ static void run_provisioning_mode(void)
     // Display + LVGL hochziehen, danach SoftAP + HTTP-Server starten und
     // QR-Codes anzeigen. Wird verlassen erst durch Reboot vom User.
     load_runtime_config();   // Defaults fuer Rotation/Brightness reichen
-    init_lgfx();
+    init_lcd();
     init_lvgl();
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -838,7 +912,7 @@ extern "C" void app_main(void)
 
     load_runtime_config();
 
-    init_lgfx();
+    init_lcd();
     init_lvgl();
     build_ui();
 
