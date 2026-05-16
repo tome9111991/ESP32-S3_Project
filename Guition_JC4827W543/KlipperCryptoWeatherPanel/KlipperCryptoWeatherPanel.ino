@@ -118,9 +118,9 @@ const uint32_t COLOR_CLOUD = 0xaeb8c5;
 const uint32_t COLOR_RAIN = 0x58c8ff;
 const uint32_t COLOR_FOG = 0x6f7b8d;
 const char* TEMP_UNIT = " \xc2\xb0""C";
-const char* WEEKDAYS_DE[] = {
-  "Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"
-};
+
+#define UI_LANGUAGE_DE 0
+#define UI_LANGUAGE_EN 1
 
 // --- KONFIGURATION ---
 #include "config_private.h"
@@ -164,6 +164,9 @@ const char* WEEKDAYS_DE[] = {
 #if (DISPLAY_ROTATION < 0) || (DISPLAY_ROTATION > 3)
   #error "DISPLAY_ROTATION muss 0, 1, 2 oder 3 sein."
 #endif
+#ifndef UI_LANGUAGE
+  #define UI_LANGUAGE UI_LANGUAGE_DE
+#endif
 #ifndef SCREEN_TIME_ENABLED
   #define SCREEN_TIME_ENABLED 1
 #endif
@@ -183,6 +186,8 @@ const char* WEEKDAYS_DE[] = {
 
 // BTC-Spotpreis wird von CRYPTO (Live-Preis + 24h-Change) und BTC_DAY (Live-Kerze) geteilt.
 #define BTC_PRICE_FETCH_NEEDED (SCREEN_CRYPTO_PRICE_ENABLED || SCREEN_CRYPTO_CHART_ENABLED)
+
+#include "ui_texts.h"
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -221,7 +226,7 @@ const int MMU_GATE_MAX = 8;
 SemaphoreHandle_t dataMutex;
 SemaphoreHandle_t networkMutex;
 TaskHandle_t fetchTaskHandle = NULL;
-String currentBtcPrice = "Laden...";
+String currentBtcPrice = UI_TEXT_LOADING;
 float currentBtcLivePrice = 0.0f;
 int currentBtcPriceDirection = 0;
 float currentBtc24hOpen = 0.0f;
@@ -232,22 +237,22 @@ String btcDayRange = "H --  L --";
 String btcDayVolume = "VOL --";
 String btcCandleStatus = "CANDLE --";
 String currentTemp = "--";
-String weatherStatus = "WETTER: --";
-String weatherLocation = "Standort";
+String weatherStatus = UI_TEXT_WEATHER_INITIAL;
+String weatherLocation = UI_TEXT_LOCATION_FALLBACK;
 int weatherCode = -1;
 bool klipperAvailable = false;
 bool klipperHostAvailable = false;
 String klipperConnectionState = "--";
 String klipperConnectionMessage = "";
 String klipperState = "--";
-String klipperFile = "Kein Job";
+String klipperFile = UI_TEXT_NO_JOB;
 String klipperProgress = "--";
 String klipperNozzle = "--";
 String klipperBed = "--";
 String klipperDuration = "--";
-String klipperStatus = "KLIPPER --";
+String klipperStatus = String(UI_TEXT_KLIPPER) + " --";
 String klipperDisplayMessage = "";
-String klipperPrinterName = "KLIPPER";
+String klipperPrinterName = UI_TEXT_KLIPPER;
 String klipperMetadataFilename = "";
 float klipperEstimatedDurationSeconds = 0.0f;
 unsigned long klipperMetadataRetryAfter = 0;

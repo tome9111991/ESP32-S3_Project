@@ -21,6 +21,9 @@
 #define CRYPTO_CHART_TIMEFRAME "1D"
 #define KLIPPER_BASE_URL "http://mainsail"
 
+// UI-Sprache zur Compile-Zeit: UI_LANGUAGE_DE oder UI_LANGUAGE_EN.
+#define UI_LANGUAGE UI_LANGUAGE_DE
+
 // Display-Rotation. 2 = Standardausrichtung (wie bisher), 0 = um 180 Grad gedreht.
 // Erlaubte Werte: 0, 1, 2, 3 (LovyanGFX setRotation).
 #define DISPLAY_ROTATION 2

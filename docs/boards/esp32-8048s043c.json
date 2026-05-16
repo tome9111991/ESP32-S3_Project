@@ -1,0 +1,22 @@
+{
+  "id": "esp32-8048s043c",
+  "name": "ESP32-8048S043C (4.3\" 800x480)",
+  "projects": [
+    {
+      "id": "kcwpv2",
+      "name": "Klipper Crypto Weather Panel V2",
+      "description": {
+        "de": "ESP-IDF Firmware. Zeigt Klipper-/Wetter-/Crypto-Daten auf dem 4.3\" Display.",
+        "en": "ESP-IDF firmware. Shows Klipper, weather and crypto data on the 4.3\" display."
+      },
+      "chipFamily": "ESP32-S3",
+      "source": {
+        "type": "github-release",
+        "owner": "tome9111991",
+        "repo": "ESP32-S3_Project",
+        "tagPrefix": "KCWPv2-",
+        "assetTemplate": "KCWPv2-ESP32-8048S043C-{lang}-full.bin"
+      }
+    }
+  ]
+}

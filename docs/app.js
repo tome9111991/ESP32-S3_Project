@@ -1,12 +1,16 @@
 import { t, tx, getLocale, onLangChange, mountLangToggle } from "./i18n.js";
+import {
+  generateConfigHeader,
+  downloadConfigHeader,
+  encodeBase64Utf8,
+} from "./config-header.js";
+import { loadVersions } from "./releases.js";
 
 const wizardEl = document.getElementById("wizard");
 const installSlot = document.getElementById("install-slot");
 const statusBox = document.getElementById("status");
 
 let config;
-const releaseCache = new Map();
-const versionsCache = new Map();
 let activeManifestUrl = null;
 
 const state = {
@@ -50,10 +54,6 @@ function getBoard(id = state.board) {
 
 function getProject(boardId = state.board, projectId = state.project) {
   return getBoard(boardId)?.projects.find((p) => p.id === projectId) ?? null;
-}
-
-function projectKey(boardId, projectId) {
-  return `${boardId}/${projectId}`;
 }
 
 function getCurrentVersion(project) {
@@ -205,64 +205,6 @@ function initialFormValues(project) {
     }
   }
   return out;
-}
-
-// ---------- GitHub Releases ----------
-
-async function fetchReleases(owner, repo) {
-  const key = `${owner}/${repo}`;
-  if (releaseCache.has(key)) return releaseCache.get(key);
-  const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=50`;
-  const res = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
-  if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
-  const data = await res.json();
-  releaseCache.set(key, data);
-  return data;
-}
-
-function parseReleases(releases, project) {
-  const { tagPrefix, assetTemplate } = project.source;
-  const escaped = assetTemplate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const assetRe = new RegExp("^" + escaped.replace("\\{lang\\}", "([A-Za-z0-9]+)") + "$");
-
-  const out = [];
-  for (const rel of releases) {
-    if (!rel.tag_name.startsWith(tagPrefix)) continue;
-    if (rel.draft) continue;
-    const langs = new Map();
-    for (const asset of rel.assets ?? []) {
-      const m = assetRe.exec(asset.name);
-      if (!m) continue;
-      langs.set(m[1].toUpperCase(), {
-        name: asset.name,
-        url: asset.browser_download_url,
-        size: asset.size,
-      });
-    }
-    if (langs.size === 0) continue;
-    out.push({
-      tag: rel.tag_name,
-      version: rel.tag_name.slice(tagPrefix.length),
-      publishedAt: rel.published_at,
-      prerelease: rel.prerelease,
-      langs,
-    });
-  }
-  out.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
-  return out;
-}
-
-async function loadVersions(project) {
-  const key = projectKey(state.board, project.id);
-  if (versionsCache.has(key)) return versionsCache.get(key);
-  const promise = (async () => {
-    const releases = await fetchReleases(project.source.owner, project.source.repo);
-    const versions = parseReleases(releases, project);
-    project._versions = versions;
-    return versions;
-  })();
-  versionsCache.set(key, promise);
-  return promise;
 }
 
 // ---------- Step model ----------
@@ -464,8 +406,12 @@ function renderConfigStep({ stepNum, project }) {
         input = document.createElement("select");
         for (const opt of field.options ?? []) {
           const o = document.createElement("option");
-          o.value = String(opt);
-          o.textContent = String(opt);
+          // Select-Optionen koennen reine Werte oder { value, label } sein.
+          const hasOptionMeta = typeof opt === "object" && opt !== null;
+          const optionValue = hasOptionMeta ? opt.value : opt;
+          const optionLabel = hasOptionMeta ? tx(opt.label, String(optionValue)) : String(opt);
+          o.value = String(optionValue);
+          o.textContent = optionLabel;
           input.appendChild(o);
         }
       } else {
@@ -626,62 +572,6 @@ function renderConfigStep({ stepNum, project }) {
 
   updatePreview();
   return li;
-}
-
-// ---------- Config header generation ----------
-
-function escapeCString(s) {
-  return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function formatFloat(v) {
-  const num = Number(v);
-  if (!Number.isFinite(num)) return "0.0f";
-  // Sechs Nachkommastellen + f-Suffix, kompatibel zur Beispiel-Datei.
-  return num.toFixed(6) + "f";
-}
-
-function generateConfigHeader(project, values) {
-  const lines = [];
-  lines.push((project.source.preamble ?? "#pragma once\n").trimEnd());
-  lines.push("");
-  for (const group of project.source.groups ?? []) {
-    // Im Header bleiben die Gruppen-Labels auf Deutsch, damit der generierte
-    // C-Code unabhaengig von der UI-Sprache reproduzierbar bleibt.
-    const groupLabel = typeof group.label === "string"
-      ? group.label
-      : (group.label?.de ?? group.label?.en ?? "");
-    lines.push(`// ${groupLabel}`);
-    for (const f of group.fields) {
-      const raw = values[f.key];
-      let val;
-      if (f.type === "float") {
-        val = formatFloat(raw);
-      } else if (f.type === "boolean") {
-        const tVal = f.trueValue ?? 1;
-        const fVal = f.falseValue ?? 0;
-        val = String(raw === true ? tVal : fVal);
-      } else {
-        val = `"${escapeCString(raw ?? "")}"`;
-      }
-      lines.push(`#define ${f.key} ${val}`);
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
-function downloadConfigHeader(project, values) {
-  const text = generateConfigHeader(project, values);
-  const blob = new Blob([text], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = project.source.headerName ?? "config_private.h";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 // ---------- Install slot (per source type) ----------
@@ -1034,15 +924,6 @@ function renderBuildError(project) {
 
 // ---------- Build flow ----------
 
-function encodeBase64Utf8(s) {
-  // Browser btoa kann nur Latin-1. Fuer UTF-8 (Umlaute in SSID o.ae.) erst
-  // nach UTF-8 enkodieren, dann base64-encodieren.
-  const bytes = new TextEncoder().encode(s);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
-
 async function startBuild(project) {
   if (!project.source.workerUrl) {
     state.build = { phase: "error", message: t("build.error.no_worker") };
@@ -1319,7 +1200,7 @@ function render() {
 async function kickoffVersionLoad(project) {
   try {
     setStatusI18n("status.loading.releases");
-    await loadVersions(project);
+    await loadVersions(state.board, project);
     setStatus("");
   } catch (err) {
     console.error(err);
@@ -1340,6 +1221,25 @@ function applyStaticI18n() {
 
 // ---------- Bootstrap ----------
 
+async function loadConfig() {
+  const res = await fetch("projects.json", { cache: "no-cache" });
+  if (!res.ok) throw new Error(`projects.json: ${res.status}`);
+  const index = await res.json();
+
+  // Rueckwaerts-kompatibel: wenn boards bereits inline ausgeliefert wird
+  // (Array von Objekten), nutzen wir es direkt. Sonst sind es Pfade.
+  const boardEntries = Array.isArray(index.boards) ? index.boards : [];
+  const boards = await Promise.all(
+    boardEntries.map(async (entry) => {
+      if (typeof entry !== "string") return entry;
+      const r = await fetch(entry, { cache: "no-cache" });
+      if (!r.ok) throw new Error(`${entry}: ${r.status}`);
+      return r.json();
+    }),
+  );
+  return { ...index, boards };
+}
+
 async function applyUrlState() {
   const url = readUrlState();
   if (!url.board) return;
@@ -1355,7 +1255,7 @@ async function applyUrlState() {
 
   try {
     setStatusI18n("status.loading.releases");
-    await loadVersions(project);
+    await loadVersions(state.board, project);
     setStatus("");
   } catch (err) {
     console.error(err);
@@ -1384,9 +1284,7 @@ async function applyUrlState() {
     render();
   });
   try {
-    const res = await fetch("projects.json", { cache: "no-cache" });
-    if (!res.ok) throw new Error(`projects.json: ${res.status}`);
-    config = await res.json();
+    config = await loadConfig();
     await applyUrlState();
     const restoredProject = restoreActiveBuild();
     render();

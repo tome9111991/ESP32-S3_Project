@@ -155,7 +155,7 @@ void createKlipperScreen() {
   klipperTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(klipperTitleLabel, 220, 24);
   lv_obj_set_pos(klipperTitleLabel, 60, 20);
-  lv_label_set_text(klipperTitleLabel, "KLIPPER");
+  lv_label_set_text(klipperTitleLabel, UI_TEXT_KLIPPER);
 
   klipperStateLabel = createLabel(klipperScreen, &lv_font_montserrat_32, COLOR_TEXT, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(klipperStateLabel, 190, 40);
@@ -210,7 +210,7 @@ void createKlipperScreen() {
   klipperNozzleTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(klipperNozzleTitleLabel, 74, 30);
   lv_obj_set_pos(klipperNozzleTitleLabel, 60, 178);
-  lv_label_set_text(klipperNozzleTitleLabel, "Nozzle");
+  lv_label_set_text(klipperNozzleTitleLabel, UI_TEXT_NOZZLE);
 
   klipperNozzleLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_CYAN, LV_TEXT_ALIGN_LEFT);
   lv_obj_set_size(klipperNozzleLabel, 128, 30);
@@ -219,7 +219,7 @@ void createKlipperScreen() {
   klipperBedTitleLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(klipperBedTitleLabel, 58, 30);
   lv_obj_set_pos(klipperBedTitleLabel, 258, 178);
-  lv_label_set_text(klipperBedTitleLabel, "Bett");
+  lv_label_set_text(klipperBedTitleLabel, UI_TEXT_BED);
 
   klipperBedLabel = createLabel(klipperScreen, &lv_font_montserrat_18, COLOR_CYAN, LV_TEXT_ALIGN_RIGHT);
   lv_obj_set_size(klipperBedLabel, 104, 30);
@@ -262,7 +262,7 @@ void createBootScreen() {
   lv_obj_t* bootLabel = createLabel(bootScreen, &lv_font_montserrat_32, COLOR_TEXT, LV_TEXT_ALIGN_CENTER);
   lv_obj_set_size(bootLabel, 440, 44);
   lv_obj_align(bootLabel, LV_ALIGN_CENTER, 0, 0);
-  lv_label_set_text(bootLabel, "Booting");
+  lv_label_set_text(bootLabel, UI_TEXT_BOOTING);
 }
 
 void createUi() {
@@ -288,9 +288,9 @@ void refreshTimeUi() {
     updateTimeSecondProgress(-1);
     setHidden(timeSunIcon.root, true);
     lv_obj_set_style_text_color(timeStatusTitle, lv_color_hex(COLOR_RED), 0);
-    setLabelTextIfChanged(timeStatusTitle, "WLAN verbindet");
+    setLabelTextIfChanged(timeStatusTitle, UI_TEXT_WIFI_CONNECTING);
     char statusText[16];
-    snprintf(statusText, sizeof(statusText), "Status: %d", WiFi.status());
+    snprintf(statusText, sizeof(statusText), "%s: %d", UI_TEXT_STATUS, WiFi.status());
     setLabelTextIfChanged(timeStatusDetail, statusText);
     return;
   }
@@ -312,7 +312,7 @@ void refreshTimeUi() {
     setLabelTextIfChanged(timeLocationLabel, location.c_str());
     setLabelTextIfChanged(timeLabel, "--:--");
     updateWeatherImagePositionForTime("--:--");
-    setLabelTextIfChanged(weekdayLabel, "Zeit wird synchronisiert");
+    setLabelTextIfChanged(weekdayLabel, UI_TEXT_TIME_SYNCING);
     setLabelTextIfChanged(dateLabel, status.c_str());
     setLabelTextIfChanged(tempLabel, tempText.c_str());
     return;
@@ -327,7 +327,7 @@ void refreshTimeUi() {
     weekdayDateStringBuff,
     sizeof(weekdayDateStringBuff),
     "%s | %s",
-    WEEKDAYS_DE[timeinfo.tm_wday],
+    UI_WEEKDAYS[timeinfo.tm_wday],
     dateStringBuff
   );
 
@@ -562,8 +562,8 @@ void refreshKlipperUi() {
   xSemaphoreGive(dataMutex);
 
   if (!available) {
-    String stateText = hostAvailable ? formatKlippyConnectionState(connectionState) : "OFFLINE";
-    String detailText = hostAvailable ? klippyOfflineDetail(connectionState, connectionMessage) : "Moonraker nicht erreichbar";
+    String stateText = hostAvailable ? formatKlippyConnectionState(connectionState) : UI_TEXT_OFFLINE;
+    String detailText = hostAvailable ? klippyOfflineDetail(connectionState, connectionMessage) : UI_TEXT_MOONRAKER_UNREACHABLE;
     uint32_t stateColor = COLOR_ORANGE;
     if (!hostAvailable || connectionState.equalsIgnoreCase("error")) {
       stateColor = COLOR_LOSS;
@@ -572,13 +572,13 @@ void refreshKlipperUi() {
     }
 
     setKlipperOfflineLayout(stateColor);
-    setLabelTextIfChanged(klipperTitleLabel, hostAvailable ? printerName.c_str() : "KLIPPER");
+    setLabelTextIfChanged(klipperTitleLabel, hostAvailable ? printerName.c_str() : UI_TEXT_KLIPPER);
     setLabelTextIfChanged(klipperStateLabel, stateText.c_str());
     setLabelTextIfChanged(klipperProgressLabel, stateText.c_str());
     setLabelTextIfChanged(klipperFileLabel, detailText.c_str());
     setLabelTextIfChanged(klipperDurationLabel, hostAvailable ? "MAINSAIL OK" : "MAINSAIL --");
     setLabelTextIfChanged(klipperStatusLabel, status.c_str());
-    setLabelTextIfChanged(klipperMmuLabel, hostAvailable ? "Drucker einschalten" : "Warte auf Mainsail");
+    setLabelTextIfChanged(klipperMmuLabel, hostAvailable ? UI_TEXT_TURN_PRINTER_ON : UI_TEXT_MAINSAIL_WAIT);
 
     lv_obj_set_style_text_color(klipperStateLabel, lv_color_hex(stateColor), 0);
     lv_obj_set_style_text_color(klipperProgressLabel, lv_color_hex(stateColor), 0);
@@ -591,8 +591,8 @@ void refreshKlipperUi() {
   }
 
   setKlipperOnlineLayout();
-  setLabelTextIfChanged(klipperNozzleTitleLabel, "Nozzle");
-  setLabelTextIfChanged(klipperBedTitleLabel, "Bett");
+  setLabelTextIfChanged(klipperNozzleTitleLabel, UI_TEXT_NOZZLE);
+  setLabelTextIfChanged(klipperBedTitleLabel, UI_TEXT_BED);
   setLabelTextIfChanged(klipperStateLabel, state.c_str());
   setLabelTextIfChanged(klipperTitleLabel, printerName.c_str());
   setLabelTextIfChanged(klipperFileLabel, file.c_str());
@@ -601,14 +601,14 @@ void refreshKlipperUi() {
   setLabelTextIfChanged(klipperBedLabel, bed.c_str());
   setLabelTextIfChanged(klipperDurationLabel, duration.c_str());
   setLabelTextIfChanged(klipperStatusLabel, displayMessage.length() > 0 ? displayMessage.c_str() : status.c_str());
-  setLabelTextIfChanged(klipperMmuLabel, mmuAvailable ? mmuInfo.c_str() : "MMU nicht aktiv");
+  setLabelTextIfChanged(klipperMmuLabel, mmuAvailable ? mmuInfo.c_str() : UI_TEXT_MMU_INACTIVE);
 
   uint32_t stateColor = COLOR_GREEN;
-  if (state == "PAUSE") {
+  if (state == UI_TEXT_PAUSE) {
     stateColor = COLOR_ORANGE;
-  } else if (state == "FEHLER") {
+  } else if (state == UI_TEXT_ERROR) {
     stateColor = COLOR_LOSS;
-  } else if (state == "BEREIT" || state == "STANDBY") {
+  } else if (state == UI_TEXT_READY || state == "STANDBY") {
     stateColor = COLOR_MUTED;
   }
 

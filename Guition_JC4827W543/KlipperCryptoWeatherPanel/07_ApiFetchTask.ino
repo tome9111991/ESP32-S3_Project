@@ -37,7 +37,8 @@ String buildReverseGeocodeUrl() {
     String(locationLatitude, 6) +
     "&longitude=" +
     String(locationLongitude, 6) +
-    "&localityLanguage=de";
+    "&localityLanguage=" +
+    UI_REVERSE_GEOCODE_LANGUAGE;
 }
 
 bool weatherCodeIsThunder(int code) {
@@ -237,7 +238,7 @@ bool fetchWeatherValue() {
       if (parsedWeatherCode >= 0) {
         weatherCode = parsedWeatherCode;
       }
-      weatherStatus = "WETTER: OM";
+      weatherStatus = UI_TEXT_WEATHER_OK;
       xSemaphoreGive(dataMutex);
       Serial.println(String("Open-Meteo Temperatur: ") + temp + " C, code=" + String(parsedWeatherCode) + ", precipitation=" + String(precipitation, 2) + ", rain=" + String(rain, 2) + ", showers=" + String(showers, 2) + ", snowfall=" + String(snowfall, 2));
       http.end();
@@ -245,7 +246,7 @@ bool fetchWeatherValue() {
     }
 
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    weatherStatus = "OM: KEIN TEMP";
+    weatherStatus = UI_TEXT_WEATHER_NO_TEMP;
     xSemaphoreGive(dataMutex);
     Serial.println("Open-Meteo Temperatur nicht in Antwort gefunden:");
     Serial.println(payload.substring(0, 240));
@@ -267,8 +268,8 @@ bool fetchBtcPrice() {
   if (!http.begin(btcClient, url)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     currentBtcStatus = String(cryptoBaseSymbol) + " HTTP BEGIN";
-    if (currentBtcPrice == "Laden...") {
-      currentBtcPrice = String(cryptoBaseSymbol) + " FEHLER";
+    if (currentBtcPrice == UI_TEXT_LOADING) {
+      currentBtcPrice = String(cryptoBaseSymbol) + " " + UI_TEXT_ERROR;
     }
     xSemaphoreGive(dataMutex);
     return false;
@@ -321,9 +322,9 @@ bool fetchBtcPrice() {
     }
 
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    currentBtcStatus = String(cryptoBaseSymbol) + " JSON FEHLER";
-    if (currentBtcPrice == "Laden...") {
-      currentBtcPrice = String(cryptoBaseSymbol) + " FEHLER";
+    currentBtcStatus = String(cryptoBaseSymbol) + " JSON " + UI_TEXT_ERROR;
+    if (currentBtcPrice == UI_TEXT_LOADING) {
+      currentBtcPrice = String(cryptoBaseSymbol) + " " + UI_TEXT_ERROR;
     }
     xSemaphoreGive(dataMutex);
     Serial.printf("%s Preis nicht in Antwort gefunden:\n", cryptoBaseSymbol);
@@ -331,8 +332,8 @@ bool fetchBtcPrice() {
   } else {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     currentBtcStatus = String(cryptoBaseSymbol) + " HTTP: " + String(httpCodeBtc);
-    if (currentBtcPrice == "Laden...") {
-      currentBtcPrice = String(cryptoBaseSymbol) + " FEHLER";
+    if (currentBtcPrice == UI_TEXT_LOADING) {
+      currentBtcPrice = String(cryptoBaseSymbol) + " " + UI_TEXT_ERROR;
     }
     xSemaphoreGive(dataMutex);
     Serial.printf("%s Fehler: ", cryptoBaseSymbol);
@@ -485,21 +486,21 @@ String formatDurationClock(float seconds, bool forceHours) {
 
 String formatKlipperDuration(const String& secondsValue) {
   if (secondsValue.length() == 0) {
-    return "DAUER --";
+    return uiDurationText();
   }
 
   float secondsFloat = secondsValue.toFloat();
   if (!isfinite(secondsFloat) || secondsFloat <= 0.0f) {
-    return "DAUER --";
+    return uiDurationText();
   }
 
   unsigned long seconds = (unsigned long)secondsFloat;
   unsigned long hours = seconds / 3600UL;
   unsigned long minutes = (seconds % 3600UL) / 60UL;
   if (hours > 0) {
-    return "DAUER " + String(hours) + "H " + String(minutes) + "M";
+    return uiDurationText(hours, minutes);
   }
-  return "DAUER " + String(minutes) + "M";
+  return uiDurationText(minutes);
 }
 
 String formatKlipperDurationProgress(const String& secondsValue, float estimatedSeconds) {
@@ -518,22 +519,22 @@ String formatKlipperDurationProgress(const String& secondsValue, float estimated
 String formatKlipperState(String state) {
   state.toLowerCase();
   if (state == "printing") {
-    return "DRUCKT";
+    return UI_TEXT_PRINTING;
   }
   if (state == "paused" || state == "pausing") {
-    return "PAUSE";
+    return UI_TEXT_PAUSE;
   }
   if (state == "error") {
-    return "FEHLER";
+    return UI_TEXT_ERROR;
   }
   if (state == "complete") {
-    return "FERTIG";
+    return UI_TEXT_COMPLETE;
   }
   if (state == "cancelled" || state == "cancelling") {
-    return "ABBRUCH";
+    return UI_TEXT_CANCELLED;
   }
   if (state == "standby" || state == "ready") {
-    return "BEREIT";
+    return UI_TEXT_READY;
   }
   if (state.length() == 0) {
     return "--";
@@ -545,16 +546,16 @@ String formatKlipperState(String state) {
 String formatKlippyConnectionState(String state) {
   state.toLowerCase();
   if (state == "ready") {
-    return "BEREIT";
+    return UI_TEXT_READY;
   }
   if (state == "startup") {
-    return "START";
+    return UI_TEXT_START;
   }
   if (state == "shutdown" || state == "disconnected") {
-    return "AUS";
+    return UI_TEXT_OFF;
   }
   if (state == "error") {
-    return "FEHLER";
+    return UI_TEXT_ERROR;
   }
   if (state.length() == 0) {
     return "--";
@@ -571,7 +572,7 @@ String formatKlippyMessageForScreen(String message) {
   }
 
   message.replace("Once the underlying issue is corrected, use the\n", "");
-  message.replace("\"FIRMWARE_RESTART\" command to reset the firmware, reload the\nconfig, and restart the host software.", "FIRMWARE_RESTART ausfuehren");
+  message.replace("\"FIRMWARE_RESTART\" command to reset the firmware, reload the\nconfig, and restart the host software.", UI_TEXT_FIRMWARE_RESTART_HINT);
   message.replace("Klipper reports: ", "");
 
   const int maxLen = 132;
@@ -609,23 +610,23 @@ String klippyOfflineDetail(const String& state, const String& message) {
   String normalizedState = state;
   normalizedState.toLowerCase();
   if (normalizedState == "shutdown" || normalizedState == "disconnected") {
-    return "Drucker aus oder MCU nicht verbunden";
+    return UI_TEXT_PRINTER_OFF_DETAIL;
   }
   if (normalizedState == "startup") {
-    return "Klipper startet";
+    return UI_TEXT_KLIPPER_STARTING;
   }
   if (normalizedState == "error") {
-    return "Klipper Fehler";
+    return UI_TEXT_KLIPPER_ERROR;
   }
   if (normalizedState == "ready") {
-    return "Druckdaten nicht verfuegbar";
+    return UI_TEXT_PRINT_DATA_UNAVAILABLE;
   }
-  return "Klippy nicht bereit";
+  return UI_TEXT_KLIPPY_NOT_READY;
 }
 
 String formatKlipperFile(String filename) {
   if (filename.length() == 0) {
-    return "Kein Job";
+    return UI_TEXT_NO_JOB;
   }
 
   int slashIndex = max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
@@ -659,7 +660,7 @@ uint32_t parseKlipperColor(String colorText) {
 String formatKlipperMmuInfo(int tool, int gate, const String& action, const String& operation, const String& filament) {
   String activity = action.length() > 0 ? action : operation;
   if (activity.length() == 0) {
-    activity = "Idle";
+    activity = UI_TEXT_IDLE;
   }
 
   String info = "MMU";
@@ -955,7 +956,7 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
       klipperBed = klipperState;
       klipperDuration = "MAINSAIL OK";
       klipperDisplayMessage = "";
-      klipperMmuInfo = "Drucker einschalten";
+      klipperMmuInfo = UI_TEXT_TURN_PRINTER_ON;
       klipperMmuGateCount = 0;
       for (int i = 0; i < MMU_GATE_MAX; i++) {
         klipperMmuGateColors[i] = COLOR_DIM;
@@ -1196,7 +1197,7 @@ bool fetchKlipperStatus() {
     klipperHostAvailable = true;
     klipperAvailable = false;
     klipperMmuAvailable = false;
-    klipperStatus = "JSON FEHLER";
+    klipperStatus = String("JSON ") + UI_TEXT_ERROR;
     klipperDisplayMessage = "";
     xSemaphoreGive(dataMutex);
     Serial.println("Klipper Daten nicht in Antwort gefunden:");
@@ -1251,7 +1252,7 @@ bool fetchBtcCandles() {
   time_t nowTime = time(nullptr);
   if (nowTime < 100000) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    btcCandleStatus = "CANDLE WARTET ZEIT";
+    btcCandleStatus = UI_TEXT_CANDLE_WAIT_TIME;
     xSemaphoreGive(dataMutex);
     Serial.println("BTC Candles warten auf NTP-Zeit");
     return false;
@@ -1441,7 +1442,7 @@ void fetchDataTask(void *pvParameters) {
       klipperMmuAvailable = false;
       klipperConnectionState = "--";
       klipperConnectionMessage = "";
-      klipperStatus = "WLAN WARTET";
+      klipperStatus = UI_TEXT_WIFI_WAIT;
       klipperDisplayMessage = "";
       xSemaphoreGive(dataMutex);
 

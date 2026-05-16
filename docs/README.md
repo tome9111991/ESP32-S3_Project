@@ -20,13 +20,15 @@ docs/
 ├── index.html              UI (Board/Projekt/Version/Sprache + Buttons)
 ├── style.css
 ├── app.js                  Releases laden, Manifest dynamisch erzeugen
-├── projects.json           Konfig pro Board + Projekt
+├── projects.json           Index: globale Settings + Liste der Board-Dateien
+├── boards/                 Eine JSON-Datei pro Board (Projekte, Form-Felder, …)
 └── manifests/              Statische Manifeste fuer Projekte ohne Release
 ```
 
 ## Datenfluss
 
-1. Beim Laden zieht `app.js` die `projects.json` und fuellt die Board-Dropdown.
+1. Beim Laden zieht `app.js` die `projects.json` (Index), laedt parallel die
+   in `boards/` referenzierten Board-Dateien und fuellt die Board-Dropdown.
 2. Nach Board-Auswahl wird die Projekt-Dropdown gefuellt.
 3. Bei `source.type = "github-release"` ruft die Seite
    `https://api.github.com/repos/<owner>/<repo>/releases` ab,
@@ -40,7 +42,8 @@ docs/
 
 ## Neues Projekt mit Release-Source
 
-In `projects.json` einen Projekt-Eintrag anlegen:
+In der passenden `boards/<board-id>.json` einen Projekt-Eintrag anlegen
+(oder ein neues Board als eigene Datei und in `projects.json` referenzieren):
 
 ```json
 {
@@ -69,8 +72,8 @@ In `projects.json` einen Projekt-Eintrag anlegen:
 ## Neues Projekt mit statischem Manifest
 
 Falls kein GitHub-Release zur Verfuegung steht, kann ein klassisches
-ESP-Web-Tools-Manifest unter `docs/manifests/` abgelegt und in `projects.json`
-verlinkt werden:
+ESP-Web-Tools-Manifest unter `docs/manifests/` abgelegt und in der jeweiligen
+`boards/<board-id>.json` verlinkt werden:
 
 ```json
 {
