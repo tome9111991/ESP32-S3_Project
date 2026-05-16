@@ -1,0 +1,83 @@
+# =============================================================================
+# Board: Guition JC4827W543
+# Chip:  ESP32-S3-WROOM-1 N4R8 (4 MB Flash, 8 MB Octal-PSRAM)
+# =============================================================================
+
+# --- Target -------------------------------------------------------------------
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- CPU ----------------------------------------------------------------------
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+
+# --- Flash (4 MB, QIO, 80 MHz) ------------------------------------------------
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# --- PSRAM (8 MB Octal @ 80 MHz) ----------------------------------------------
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# XIP aus PSRAM AUS: LVGL-Buffer und Display-Transfers sollen den PSRAM-Bus
+# nicht unnoetig mit Code/rodata-Fetches teilen.
+# CONFIG_SPIRAM_FETCH_INSTRUCTIONS is not set
+# CONFIG_SPIRAM_RODATA is not set
+
+# --- FreeRTOS (1 kHz Tick - fluessiger fuer LVGL) -----------------------------
+CONFIG_FREERTOS_HZ=1000
+
+# --- Main Task Stack (LVGL braucht mehr als 3.5 kB Default) -------------------
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# --- CPU-Cache: 64 kB I-Cache + 64 kB D-Cache, 64-Byte Lines -----------------
+# Halbiert Cache-Misses gegenueber 32 kB / 32-Byte-Default.
+# Kostet ~64 kB internen SRAM, ist aber bei XIP aus PSRAM ein echter Boost.
+CONFIG_ESP32S3_INSTRUCTION_CACHE_64KB=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_LINE_64B=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# --- Compiler: Performance ----------------------------------------------------
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_PERF=y
+
+# --- Log-Level (etwas ruhiger) ------------------------------------------------
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+
+# --- Partition-Table (4 MB Flash, eine ca. 3 MB App, kein OTA/NVS) ------------
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- USB (Native USB des S3 - praktisch für CDC-Konsole/JTAG) -----------------
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
+
+# --- Brownout etwas toleranter (Display zieht Strompeaks) ---------------------
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+
+# --- LWIP / WiFi (Polling-Last gering, Defaults reichen) ---------------------
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5760
+CONFIG_LWIP_TCP_WND_DEFAULT=5760
+
+# --- HTTP-Client + Heap-Monitoring fuer Diagnose ------------------------------
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=n
+
+# --- LVGL ---------------------------------------------------------------------
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_34=y
+CONFIG_LV_FONT_MONTSERRAT_36=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+CONFIG_LV_USE_PERF_MONITOR=y

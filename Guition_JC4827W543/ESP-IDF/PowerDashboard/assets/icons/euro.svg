@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+  <title>Euro</title>
+  <path d="M22 6 a10 10 0 1 0 0 16"
+        fill="none" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="3"  y1="12" x2="17" y2="12" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="3"  y1="17" x2="17" y2="17" stroke="#FFC857" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

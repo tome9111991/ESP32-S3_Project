@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+  <title>WiFi offline</title>
+  <g fill="none" stroke-linecap="round" stroke-width="2.4">
+    <path d="M5 13 A 12 12 0 0 1 23 13" stroke="#39444f"/>
+    <path d="M8 16 A 8 8 0 0 1 20 16"   stroke="#39444f"/>
+    <path d="M11 19 A 4 4 0 0 1 17 19"  stroke="#39444f"/>
+  </g>
+  <circle cx="14" cy="22" r="2" fill="#39444f"/>
+  <g stroke="#ff5050" stroke-width="2.4" stroke-linecap="round">
+    <line x1="6"  y1="6"  x2="22" y2="22"/>
+  </g>
+</svg>

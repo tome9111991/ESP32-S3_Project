@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+  <title>Plug</title>
+  <path d="M7 2 L7 11 a7 7 0 0 0 14 0 L21 2"
+        fill="none" stroke="#A9B4C0" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="10" y1="1"  x2="10" y2="5"  stroke="#A9B4C0" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="18" y1="1"  x2="18" y2="5"  stroke="#A9B4C0" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="14" y1="18" x2="14" y2="22" stroke="#A9B4C0" stroke-width="2.4" stroke-linecap="round"/>
+  <rect x="10" y="22" width="8" height="5" rx="1.5" fill="#A9B4C0"/>
+</svg>

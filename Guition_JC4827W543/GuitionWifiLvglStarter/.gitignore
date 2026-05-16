@@ -1,0 +1,5 @@
+config_private.h
+build/
+*.elf
+*.bin
+*.map

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PowerDashboard Setup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #071018; color: #e6edf3; margin: 0; padding: 16px;
+    max-width: 640px; margin-left: auto; margin-right: auto;
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; color: #2EE59D; }
+  p.sub { margin: 0 0 20px; color: #7a8793; font-size: 14px; }
+  fieldset {
+    border: 1px solid #1e2c3a; border-radius: 8px; background: #101a24;
+    padding: 12px 14px; margin: 0 0 16px;
+  }
+  legend { padding: 0 6px; color: #2EE59D; font-weight: 600; }
+  label { display: block; font-size: 13px; color: #A9B4C0; margin: 8px 0 4px; }
+  input {
+    width: 100%; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid #2a3a4d; background: #0b1420; color: #fff;
+    font-size: 15px; font-family: inherit;
+  }
+  input:focus { outline: 2px solid #2EE59D; border-color: transparent; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .hint { font-size: 12px; color: #5b6773; margin-top: 2px; }
+  .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+  button {
+    padding: 10px 18px; border-radius: 6px; border: 0; cursor: pointer;
+    font-size: 15px; font-weight: 600;
+  }
+  button.primary { background: #2EE59D; color: #052b1a; }
+  button.ghost   { background: transparent; color: #7a8793; }
+  button:active  { transform: translateY(1px); }
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: #1e2c3a; padding: 10px 16px; border-radius: 6px;
+    color: #fff; opacity: 0; transition: opacity .2s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <h1>PowerDashboard</h1>
+  <p class="sub">Einstellungen - werden im Flash gespeichert.</p>
+
+  <form id="cfgForm">
+    <div id="groups"></div>
+    <div class="actions">
+      <button type="button" class="ghost" onclick="factoryReset()">Werks-Reset</button>
+      <button id="saveBtn" type="button" class="primary">Speichern + Neustart</button>
+    </div>
+  </form>
+  <div id="toast" class="toast"></div>
+
+<script>
+  let schema = [];
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderForm() {
+    const groups = {};
+    const order = [];
+    for (const f of schema) {
+      const g = f.group || "Allgemein";
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g].push(f);
+    }
+    const root = document.getElementById('groups');
+    root.innerHTML = '';
+    for (const g of order) {
+      const fs = document.createElement('fieldset');
+      fs.innerHTML = `<legend>${esc(g)}</legend>`;
+      for (const f of groups[g]) {
+        const div = document.createElement('div');
+        let inputAttr = '';
+        let value = f.value;
+        if (f.type === 'int') {
+          inputAttr = `type="number" step="1" min="${f.min}" max="${f.max}"`;
+        } else if (f.type === 'float') {
+          inputAttr = `type="number" step="0.01" min="${f.min}" max="${f.max}"`;
+        } else if (f.secret) {
+          inputAttr = `type="password" maxlength="${f.maxlen}" autocomplete="new-password"`;
+          // Bestehendes Passwort wird vom Server als leer geliefert.
+          // Leeres Feld lassen wir leer, damit Server bei Submit den Wert NICHT ueberschreibt.
+          value = '';
+        } else {
+          inputAttr = `type="text" maxlength="${f.maxlen}"`;
+        }
+        const placeholder = f.secret && f.has_value
+          ? 'leer lassen = unveraendert'
+          : '';
+        let hint = '';
+        if (f.type === 'int' || f.type === 'float') {
+          hint = `<div class="hint">Bereich ${f.min} - ${f.max}, Default ${f.default}</div>`;
+        } else if (!f.secret) {
+          hint = `<div class="hint">Default: ${esc(f.default)}</div>`;
+        }
+        div.innerHTML = `
+          <label for="f_${esc(f.key)}">${esc(f.label)}</label>
+          <input id="f_${esc(f.key)}" name="${esc(f.key)}" ${inputAttr}
+                 placeholder="${esc(placeholder)}" value="${esc(value)}">
+          ${hint}
+        `;
+        fs.appendChild(div);
+      }
+      root.appendChild(fs);
+    }
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  async function loadSchema() {
+    try {
+      const r = await fetch('/api/settings');
+      schema = await r.json();
+      renderForm();
+    } catch (e) {
+      toast('Laden fehlgeschlagen: ' + e);
+    }
+  }
+
+  function setBusy(busy) {
+    document.getElementById('saveBtn').disabled = busy;
+  }
+
+  async function saveAll() {
+    const out = {};
+    for (const f of schema) {
+      const el = document.getElementById('f_' + f.key);
+      if (!el) continue;
+      let v = el.value;
+      if (f.secret && v === '') continue;  // unveraendert lassen
+      out[f.key] = v;
+    }
+    try {
+      setBusy(true);
+      // Ein Request speichert und plant den Neustart auf dem ESP.
+      const r = await fetch('/api/settings/reboot', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(out)
+      });
+      if (!r.ok) {
+        toast('Fehler ' + r.status);
+        setBusy(false);
+        return false;
+      }
+      toast('Gespeichert. Neustart laeuft...');
+    } catch (e) {
+      setBusy(false);
+      toast('Speichern fehlgeschlagen: ' + e);
+    }
+    return false;
+  }
+
+  async function factoryReset() {
+    if (!confirm('Alle Einstellungen loeschen und neustarten?')) return;
+    await fetch('/api/factory_reset', {method: 'POST'});
+    toast('Reset. Neustart...');
+    setTimeout(() => fetch('/api/reboot', {method: 'POST'}), 800);
+  }
+
+  document.getElementById('cfgForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    saveAll();
+  });
+  document.getElementById('saveBtn').addEventListener('click', saveAll);
+  loadSchema();
+</script>
+</body>
+</html>

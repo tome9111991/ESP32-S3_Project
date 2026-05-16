@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+  <title>WiFi 2 bars</title>
+  <g fill="none" stroke-linecap="round" stroke-width="2.4">
+    <path d="M5 13 A 12 12 0 0 1 23 13" stroke="#39444f"/>
+    <path d="M8 16 A 8 8 0 0 1 20 16"   stroke="#39444f"/>
+    <path d="M11 19 A 4 4 0 0 1 17 19"  stroke="#FFC857"/>
+  </g>
+  <circle cx="14" cy="22" r="2" fill="#FFC857"/>
+</svg>
