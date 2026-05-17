@@ -18,7 +18,20 @@ typedef struct {
     int volume;
     bool muted;
     uint32_t last_update_ms;
+    char cover_url[320];
 } sonos_player_t;
+
+typedef struct {
+    uint16_t *pixels;        // RGB565 LE, w*h Worte, in PSRAM
+    int w;
+    int h;
+} sonos_cover_image_t;
+
+// Wird mit dem dekodierten Cover oder NULL (Reset) aufgerufen. Aufrufer uebernimmt
+// das Bild komplett (Pixel werden via free() freigegeben). Callback laeuft NICHT
+// im LVGL-Kontext, der Empfaenger muss den Tausch selbst schuetzen.
+typedef void (*sonos_cover_cb_t)(const sonos_cover_image_t *image, void *user);
+void sonos_cover_set_callback(sonos_cover_cb_t cb, void *user);
 
 typedef enum {
     SONOS_CMD_PLAY,

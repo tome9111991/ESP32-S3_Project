@@ -38,6 +38,10 @@ static lv_obj_t *s_host_buttons[8];
 static lv_anim_t s_text_scroll_anim;
 static bool s_text_scroll_anim_ready;
 static bool s_progress_dragging;
+static lv_obj_t *s_cover_image;
+static lv_obj_t *s_cover_placeholder;
+static lv_image_dsc_t *s_cover_dsc;
+static uint16_t *s_cover_pixels;
 
 #define TEXT_SCROLL_PAUSE_MS 3000
 #define PROGRESS_TIMER_MS 250
@@ -333,6 +337,65 @@ static void mute_clicked_cb(lv_event_t *e)
     sonos_queue_cmd(SONOS_CMD_TOGGLE_MUTE, 0);
 }
 
+static void ui_cover_cb(const sonos_cover_image_t *image, void *user)
+{
+    (void)user;
+
+    // Vor dem Tausch alte Pixel + dsc zwischenspeichern und LVGL anhalten.
+    if (!lvgl_port_lock(0)) {
+        if (image && image->pixels) free(image->pixels);
+        return;
+    }
+
+    lv_image_dsc_t *old_dsc = s_cover_dsc;
+    uint16_t *old_pixels = s_cover_pixels;
+
+    if (image && image->pixels && image->w > 0 && image->h > 0) {
+        lv_image_dsc_t *dsc = calloc(1, sizeof(lv_image_dsc_t));
+        if (!dsc) {
+            free(image->pixels);
+            lvgl_port_unlock();
+            return;
+        }
+        dsc->header.w = image->w;
+        dsc->header.h = image->h;
+        dsc->header.cf = LV_COLOR_FORMAT_RGB565;
+        dsc->header.stride = image->w * 2;
+        dsc->data_size = (uint32_t)image->w * image->h * 2;
+        dsc->data = (const uint8_t *)image->pixels;
+
+        // Nahezu quadratisch (Spotify/Apple-Cover) -> COVER fuellt die Box bis
+        // an die Kante (Integer-Rundung wuerde bei CONTAIN 1 px Schwarz lecken).
+        // Echte 16:9-Thumbnails -> CONTAIN als Letterbox, damit nichts vom
+        // eigentlichen Motiv weggeschnitten wird.
+        int dw = image->w, dh = image->h;
+        int diff = dw > dh ? dw - dh : dh - dw;
+        bool nearly_square = diff * 20 < dw + dh; // ~5% Toleranz
+        lv_image_set_inner_align(s_cover_image,
+                                 nearly_square ? LV_IMAGE_ALIGN_COVER
+                                               : LV_IMAGE_ALIGN_CONTAIN);
+
+        lv_image_set_src(s_cover_image, dsc);
+        lv_obj_clear_flag(s_cover_image, LV_OBJ_FLAG_HIDDEN);
+        if (s_cover_placeholder) lv_obj_add_flag(s_cover_placeholder, LV_OBJ_FLAG_HIDDEN);
+        s_cover_dsc = dsc;
+        s_cover_pixels = image->pixels;
+    } else {
+        // Reset: zurueck auf SONOS-Platzhalter
+        lv_image_set_src(s_cover_image, NULL);
+        lv_obj_add_flag(s_cover_image, LV_OBJ_FLAG_HIDDEN);
+        if (s_cover_placeholder) lv_obj_clear_flag(s_cover_placeholder, LV_OBJ_FLAG_HIDDEN);
+        s_cover_dsc = NULL;
+        s_cover_pixels = NULL;
+    }
+
+    lvgl_port_unlock();
+
+    // LVGL haelt nach dem Unlock keine Referenz mehr auf das alte Bild.
+    if (old_dsc) free(old_dsc);
+    if (old_pixels) free(old_pixels);
+}
+
 static void ui_update_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
@@ -471,7 +534,9 @@ void ui_sonos_build(void)
         }
     }
 
-    // Cover-Platzhalter; bewusst komplett schwarz, damit keine Kante/Verlauf sichtbar ist.
+    // Cover-Box ist gleichzeitig schwarzer Letterbox-Rahmen und Bildbehaelter.
+    // clip_corner sorgt dafuer, dass quadratische Cover sich an die 22 px Rundung
+    // anpassen statt mit scharfen Ecken aus der Box herauszuragen.
     lv_obj_t *cover = lv_obj_create(panel);
     lv_obj_set_pos(cover, 38, 68);
     lv_obj_set_size(cover, 258, 258);
@@ -479,19 +544,40 @@ void ui_sonos_build(void)
     lv_obj_set_style_bg_color(cover, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_grad_dir(cover, LV_GRAD_DIR_NONE, 0);
     lv_obj_set_style_border_width(cover, 0, 0);
+    lv_obj_set_style_pad_all(cover, 0, 0);
     lv_obj_clear_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *cover_note = lv_label_create(cover);
-    lv_label_set_text(cover_note, LV_SYMBOL_AUDIO);
-    lv_obj_set_style_text_color(cover_note, lv_color_hex(0xEDEDED), 0);
-    lv_obj_set_style_text_font(cover_note, &lv_font_montserrat_48, 0);
-    lv_obj_align(cover_note, LV_ALIGN_CENTER, 0, -18);
+    // Platzhalter zuerst anlegen -> liegt unter dem Bild. Sichtbar solange das
+    // Image-Widget noch keine echte Source hat (Boot, Player offline, kein Cover).
+    s_cover_placeholder = lv_obj_create(cover);
+    lv_obj_set_size(s_cover_placeholder, 258, 258);
+    lv_obj_align(s_cover_placeholder, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_opa(s_cover_placeholder, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_cover_placeholder, 0, 0);
+    lv_obj_set_style_pad_all(s_cover_placeholder, 0, 0);
+    lv_obj_clear_flag(s_cover_placeholder, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(s_cover_placeholder, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *cover_text = lv_label_create(cover);
-    lv_label_set_text(cover_text, "SONOS");
-    lv_obj_set_style_text_color(cover_text, lv_color_hex(0x8C8C8C), 0);
-    lv_obj_set_style_text_font(cover_text, &lv_font_montserrat_24, 0);
-    lv_obj_align(cover_text, LV_ALIGN_CENTER, 0, 46);
+    lv_obj_t *ph_icon = lv_label_create(s_cover_placeholder);
+    lv_label_set_text(ph_icon, LV_SYMBOL_AUDIO);
+    lv_obj_set_style_text_color(ph_icon, lv_color_hex(0xEDEDED), 0);
+    lv_obj_set_style_text_font(ph_icon, &lv_font_montserrat_48, 0);
+    lv_obj_align(ph_icon, LV_ALIGN_CENTER, 0, -18);
+
+    lv_obj_t *ph_text = lv_label_create(s_cover_placeholder);
+    lv_label_set_text(ph_text, "SONOS");
+    lv_obj_set_style_text_color(ph_text, lv_color_hex(0x8C8C8C), 0);
+    lv_obj_set_style_text_font(ph_text, &lv_font_montserrat_24, 0);
+    lv_obj_align(ph_text, LV_ALIGN_CENTER, 0, 46);
+
+    // Bewusst 4 px groesser als die 258x258-Box: der Cover-Container clippt
+    // seine Kinder am Rand, dadurch lecken Integer-Rundungsfehler in LVGLs
+    // Skalierungsmathe keinen schwarzen Pixelrand mehr durch.
+    s_cover_image = lv_image_create(cover);
+    lv_obj_set_size(s_cover_image, 262, 262);
+    lv_obj_align(s_cover_image, LV_ALIGN_CENTER, 0, 0);
+    lv_image_set_inner_align(s_cover_image, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_add_flag(s_cover_image, LV_OBJ_FLAG_HIDDEN);
 
     s_title_label = make_scroll_label(panel, "Warte auf Sonos", &lv_font_montserrat_36,
                                       lv_color_hex(0xFFFFFF), 328, 74, 438, 52);
@@ -611,4 +697,6 @@ void ui_sonos_build(void)
 
     lv_timer_create(ui_update_timer_cb, PROGRESS_TIMER_MS, NULL);
     lvgl_port_unlock();
+
+    sonos_cover_set_callback(ui_cover_cb, NULL);
 }

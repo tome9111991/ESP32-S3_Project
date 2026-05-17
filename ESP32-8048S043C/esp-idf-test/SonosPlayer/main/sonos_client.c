@@ -7,12 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "rom/tjpgd.h"
 
 #if __has_include("config_private.h")
   #include "config_private.h"
@@ -29,6 +31,11 @@
 #define SONOS_SEEK_HOLD_MS 3000
 #define HOST_COUNT      ((int)(sizeof(s_sonos_hosts) / sizeof(s_sonos_hosts[0])))
 
+#define COVER_DEBOUNCE_MS   1500
+#define COVER_MAX_BYTES     (300 * 1024)   // hartes Limit, falls Sonos mal was Riesiges liefert
+#define COVER_TJPGD_POOL    3500           // Arbeitsspeicher fuer ROM TJpgDec
+#define COVER_DECODE_MAX_DIM 400           // groesste Kantenlaenge nach jd_decomp-Skalierung
+
 static const char *TAG = "sonos";
 static const char *s_sonos_hosts[] = { SONOS_PLAYER_IPS };
 static sonos_player_t s_players[HOST_COUNT];
@@ -38,6 +45,14 @@ static QueueHandle_t s_cmd_queue;
 static bool s_task_started;
 static uint32_t s_seek_hold_until_ms[HOST_COUNT];
 static bool s_seek_hold_playing[HOST_COUNT];
+
+// Cover-Pipeline-State - alle Zugriffe nur aus dem sonos_task heraus,
+// ausser dem Callback-Setter, der den Mutex nimmt.
+static char s_cover_active_url[sizeof(((sonos_player_t *)0)->cover_url)];
+static char s_cover_pending_url[sizeof(((sonos_player_t *)0)->cover_url)];
+static uint32_t s_cover_pending_since_ms;
+static sonos_cover_cb_t s_cover_cb;
+static void *s_cover_cb_user;
 
 typedef struct {
     sonos_cmd_type_t type;
@@ -511,6 +526,7 @@ static bool sonos_get_position(const char *host, sonos_player_t *out)
     char artist[sizeof(out->artist)] = {0};
     char album[sizeof(out->album)] = {0};
     char source[sizeof(out->source)] = {0};
+    char art_path[sizeof(out->cover_url)] = {0};
 
     xml_extract_tag(xml, "TrackDuration", duration, sizeof(duration));
     xml_extract_tag(xml, "RelTime", rel_time, sizeof(rel_time));
@@ -524,6 +540,16 @@ static bool sonos_get_position(const char *host, sonos_player_t *out)
     xml_extract_tag(metadata, "dc:creator", artist, sizeof(artist));
     if (!artist[0]) xml_extract_tag(metadata, "upnp:artist", artist, sizeof(artist));
     xml_extract_tag(metadata, "upnp:album", album, sizeof(album));
+    xml_extract_tag(metadata, "upnp:albumArtURI", art_path, sizeof(art_path));
+    clean_text(art_path);
+    if (art_path[0]) {
+        if (art_path[0] == '/') {
+            snprintf(out->cover_url, sizeof(out->cover_url),
+                     "http://%s:%d%s", host, SONOS_PORT, art_path);
+        } else {
+            str_copy(out->cover_url, sizeof(out->cover_url), art_path);
+        }
+    }
     sanitize_music_text(title);
     sanitize_music_text(artist);
     sanitize_music_text(album);
@@ -739,6 +765,266 @@ void sonos_queue_cmd(sonos_cmd_type_t type, int value)
     xQueueSend(s_cmd_queue, &cmd, 0);
 }
 
+void sonos_cover_set_callback(sonos_cover_cb_t cb, void *user)
+{
+    if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    s_cover_cb = cb;
+    s_cover_cb_user = user;
+    if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+}
+
+static void cover_publish(const sonos_cover_image_t *img)
+{
+    sonos_cover_cb_t cb;
+    void *user;
+    if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    cb = s_cover_cb;
+    user = s_cover_cb_user;
+    if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+    if (cb) cb(img, user);
+    else if (img && img->pixels) free(img->pixels); // niemand interessiert -> nicht lecken
+}
+
+typedef struct {
+    uint8_t *data;
+    int len;
+    int cap;
+    int max;
+    bool overflow;
+} cover_dl_buf_t;
+
+static esp_err_t cover_dl_event_handler(esp_http_client_event_t *evt)
+{
+    cover_dl_buf_t *b = (cover_dl_buf_t *)evt->user_data;
+    if (evt->event_id != HTTP_EVENT_ON_DATA || !b || !evt->data || evt->data_len <= 0) {
+        return ESP_OK;
+    }
+    if (b->overflow) return ESP_OK;
+    int needed = b->len + evt->data_len;
+    if (needed > b->max) {
+        b->overflow = true;
+        return ESP_OK;
+    }
+    if (needed > b->cap) {
+        int new_cap = b->cap ? b->cap : 8192;
+        while (new_cap < needed) new_cap *= 2;
+        if (new_cap > b->max) new_cap = b->max;
+        uint8_t *next = heap_caps_realloc(b->data, new_cap,
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!next) {
+            b->overflow = true;
+            return ESP_OK;
+        }
+        b->data = next;
+        b->cap = new_cap;
+    }
+    memcpy(b->data + b->len, evt->data, evt->data_len);
+    b->len += evt->data_len;
+    return ESP_OK;
+}
+
+static bool cover_download(const char *url, uint8_t **out, int *out_len)
+{
+    *out = NULL;
+    *out_len = 0;
+
+    cover_dl_buf_t buf = {.max = COVER_MAX_BYTES};
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .timeout_ms = 5000,
+        .event_handler = cover_dl_event_handler,
+        .user_data = &buf,
+        .keep_alive_enable = false,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return false;
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK || status < 200 || status >= 300 || buf.overflow || buf.len < 4) {
+        ESP_LOGW(TAG, "cover dl failed status=%d err=%s len=%d overflow=%d",
+                 status, esp_err_to_name(err), buf.len, buf.overflow);
+        free(buf.data);
+        return false;
+    }
+    *out = buf.data;
+    *out_len = buf.len;
+    return true;
+}
+
+typedef struct {
+    const uint8_t *jpeg;
+    int jpeg_len;
+    int read_pos;
+    uint16_t *out_pixels;
+    int out_w;
+    int out_h;
+} cover_jd_ctx_t;
+
+static UINT cover_jd_input(JDEC *jd, BYTE *buf, UINT len)
+{
+    cover_jd_ctx_t *c = (cover_jd_ctx_t *)jd->device;
+    int remaining = c->jpeg_len - c->read_pos;
+    if (remaining <= 0) return 0;
+    int take = (int)len;
+    if (take > remaining) take = remaining;
+    if (buf) {
+        memcpy(buf, c->jpeg + c->read_pos, take);
+    }
+    // Ohne buf: nur "skippen" (Spec von TJpgDec verlangt das)
+    c->read_pos += take;
+    return (UINT)take;
+}
+
+static UINT cover_jd_output(JDEC *jd, void *bitmap, JRECT *rect)
+{
+    cover_jd_ctx_t *c = (cover_jd_ctx_t *)jd->device;
+    const uint8_t *src = (const uint8_t *)bitmap;
+    int x0 = rect->left, y0 = rect->top;
+    int x1 = rect->right, y1 = rect->bottom;
+    int bw = x1 - x0 + 1;
+
+    for (int y = y0; y <= y1; y++) {
+        if (y >= c->out_h) break;
+        uint16_t *dst = c->out_pixels + y * c->out_w + x0;
+        const uint8_t *s = src + (y - y0) * bw * 3;
+        int xmax = x1 < c->out_w - 1 ? x1 : c->out_w - 1;
+        for (int x = x0; x <= xmax; x++) {
+            uint8_t r = s[0], g = s[1], b = s[2];
+            *dst++ = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+            s += 3;
+        }
+    }
+    return 1;
+}
+
+static bool cover_decode(const uint8_t *jpeg, int jpeg_len, sonos_cover_image_t *out)
+{
+    out->pixels = NULL;
+    out->w = out->h = 0;
+
+    void *work = heap_caps_malloc(COVER_TJPGD_POOL, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+    if (!work) {
+        ESP_LOGW(TAG, "cover decode: pool alloc failed");
+        return false;
+    }
+
+    cover_jd_ctx_t ctx = {.jpeg = jpeg, .jpeg_len = jpeg_len};
+    JDEC jd;
+    JRESULT r = jd_prepare(&jd, cover_jd_input, work, COVER_TJPGD_POOL, &ctx);
+    if (r != JDR_OK) {
+        ESP_LOGW(TAG, "jd_prepare failed: %d", (int)r);
+        free(work);
+        return false;
+    }
+
+    // Skala so klein wie noetig: groesste Kante nach Skalierung <= COVER_DECODE_MAX_DIM
+    BYTE scale = 0;
+    int max_dim = (int)(jd.width > jd.height ? jd.width : jd.height);
+    while (scale < 3 && (max_dim >> scale) > COVER_DECODE_MAX_DIM) scale++;
+
+    int dec_w = (int)(jd.width >> scale);
+    int dec_h = (int)(jd.height >> scale);
+    if (dec_w <= 0 || dec_h <= 0) {
+        free(work);
+        return false;
+    }
+
+    size_t pixel_bytes = (size_t)dec_w * dec_h * 2;
+    uint16_t *pixels = heap_caps_malloc(pixel_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!pixels) {
+        ESP_LOGW(TAG, "cover decode: pixel alloc %u failed", (unsigned)pixel_bytes);
+        free(work);
+        return false;
+    }
+    memset(pixels, 0, pixel_bytes);
+    ctx.out_pixels = pixels;
+    ctx.out_w = dec_w;
+    ctx.out_h = dec_h;
+
+    r = jd_decomp(&jd, cover_jd_output, scale);
+    free(work);
+    if (r != JDR_OK) {
+        ESP_LOGW(TAG, "jd_decomp failed: %d", (int)r);
+        free(pixels);
+        return false;
+    }
+
+    out->pixels = pixels;
+    out->w = dec_w;
+    out->h = dec_h;
+    ESP_LOGI(TAG, "cover decoded src=%ux%u -> %dx%d (scale 1/%d, %u KB)",
+             jd.width, jd.height, dec_w, dec_h, 1 << scale, (unsigned)(pixel_bytes / 1024));
+    return true;
+}
+
+static bool cover_current_url_matches(const char *expected)
+{
+    sonos_player_t snap = sonos_snapshot_active();
+    return strcmp(snap.cover_url, expected) == 0;
+}
+
+static void cover_run_pipeline(const char *url)
+{
+    uint8_t *jpeg = NULL;
+    int jpeg_len = 0;
+    if (!cover_download(url, &jpeg, &jpeg_len)) return;
+
+    // Track koennte zwischen Download und Decode gewechselt haben.
+    if (!cover_current_url_matches(url)) {
+        free(jpeg);
+        return;
+    }
+
+    sonos_cover_image_t img = {0};
+    bool ok = cover_decode(jpeg, jpeg_len, &img);
+    free(jpeg);
+    if (!ok) return;
+
+    if (!cover_current_url_matches(url)) {
+        free(img.pixels);
+        return;
+    }
+    cover_publish(&img);
+}
+
+static void cover_tick(void)
+{
+    sonos_player_t snap = sonos_snapshot_active();
+    uint32_t now = (uint32_t)esp_log_timestamp();
+
+    // Player offline -> Platzhalter wiederherstellen
+    if (!snap.online) {
+        if (s_cover_active_url[0]) {
+            s_cover_active_url[0] = '\0';
+            s_cover_pending_url[0] = '\0';
+            cover_publish(NULL);
+        }
+        return;
+    }
+
+    // Leere URL kommt waehrend TRANSITIONING vor; altes Cover stehen lassen.
+    if (!snap.cover_url[0]) return;
+
+    // URL hat sich geaendert -> Debounce-Timer neu starten
+    if (strcmp(snap.cover_url, s_cover_pending_url) != 0) {
+        str_copy(s_cover_pending_url, sizeof(s_cover_pending_url), snap.cover_url);
+        s_cover_pending_since_ms = now;
+        return;
+    }
+
+    // Stabil genug und unterschiedlich zum aktiven Cover -> fetchen
+    if (strcmp(s_cover_pending_url, s_cover_active_url) == 0) return;
+    if (now - s_cover_pending_since_ms < COVER_DEBOUNCE_MS) return;
+
+    char url_local[sizeof(s_cover_pending_url)];
+    str_copy(url_local, sizeof(url_local), s_cover_pending_url);
+    str_copy(s_cover_active_url, sizeof(s_cover_active_url), url_local);
+    cover_run_pipeline(url_local);
+}
+
 static void sonos_task(void *arg)
 {
     (void)arg;
@@ -819,6 +1105,7 @@ static void sonos_task(void *arg)
             next_poll = now + SONOS_POLL_MS;
         }
 
+        cover_tick();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -827,6 +1114,6 @@ void sonos_service_start(void)
 {
     if (s_task_started) return;
     if (!s_state_mutex || !s_cmd_queue) sonos_service_init();
-    xTaskCreatePinnedToCore(sonos_task, "sonos_fetch", 12288, NULL, 4, NULL, 1);
+    xTaskCreatePinnedToCore(sonos_task, "sonos_fetch", 16384, NULL, 4, NULL, 1);
     s_task_started = true;
 }
