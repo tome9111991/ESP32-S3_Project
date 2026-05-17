@@ -21,8 +21,11 @@
   #define WIFI_PASSWORD ""
 #endif
 
+#define WIFI_READY_STABLE_MS 2000
+
 static const char *TAG = "wifi";
 static volatile bool s_connected;
+static volatile uint32_t s_connected_since_ms;
 static bool s_started;
 
 static const char *wifi_reason_name(uint8_t reason)
@@ -45,6 +48,13 @@ bool wifi_sta_is_connected(void)
     return s_connected;
 }
 
+bool wifi_sta_is_ready(void)
+{
+    if (!s_connected || s_connected_since_ms == 0) return false;
+    // Nach GOT_IP kurz warten, bis DHCP/ARP/Router wirklich ruhig sind.
+    return (uint32_t)(esp_log_timestamp() - s_connected_since_ms) >= WIFI_READY_STABLE_MS;
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
@@ -54,12 +64,14 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *event = (const wifi_event_sta_disconnected_t *)data;
         s_connected = false;
+        s_connected_since_ms = 0;
         ESP_LOGW(TAG, "WLAN getrennt, reason=%u (%s), neuer Versuch",
                  event->reason, wifi_reason_name(event->reason));
         esp_wifi_connect();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         const ip_event_got_ip_t *event = (const ip_event_got_ip_t *)data;
         s_connected = true;
+        s_connected_since_ms = (uint32_t)esp_log_timestamp();
         ESP_LOGI(TAG, "WLAN verbunden, IP=" IPSTR, IP2STR(&event->ip_info.ip));
     }
 }

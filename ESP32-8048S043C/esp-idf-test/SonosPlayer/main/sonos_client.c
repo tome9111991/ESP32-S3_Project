@@ -27,11 +27,13 @@
 #define HTTP_TIMEOUT_MS 2500
 #define SONOS_PORT      1400
 #define SONOS_POLL_MS   2500
+#define SONOS_OFFLINE_BACKOFF_MAX_MS 15000
 #define SONOS_CMD_QUEUE 8
 #define SONOS_SEEK_HOLD_MS 3000
 #define HOST_COUNT      ((int)(sizeof(s_sonos_hosts) / sizeof(s_sonos_hosts[0])))
 
-#define COVER_DEBOUNCE_MS   1500
+#define COVER_DEBOUNCE_MS   3500          // erst nach stabilem Track-/Progress-Poll laden
+#define COVER_POST_SKIP_DELAY_MS 4500    // Skip-Kommandos zuerst sauber pollen lassen
 #define COVER_MAX_BYTES     (300 * 1024)   // hartes Limit, falls Sonos mal was Riesiges liefert
 #define COVER_TJPGD_POOL    3500           // Arbeitsspeicher fuer ROM TJpgDec
 #define COVER_DECODE_MAX_DIM 400           // groesste Kantenlaenge nach jd_decomp-Skalierung
@@ -51,6 +53,7 @@ static bool s_seek_hold_playing[HOST_COUNT];
 static char s_cover_active_url[sizeof(((sonos_player_t *)0)->cover_url)];
 static char s_cover_pending_url[sizeof(((sonos_player_t *)0)->cover_url)];
 static uint32_t s_cover_pending_since_ms;
+static uint32_t s_cover_quiet_until_ms;
 static sonos_cover_cb_t s_cover_cb;
 static void *s_cover_cb_user;
 
@@ -511,6 +514,51 @@ static bool sonos_get_transport(const char *host, bool *playing_out, char *statu
     return true;
 }
 
+static void play_mode_to_flags(const char *mode, bool *shuffle_out,
+                               bool *repeat_out, bool *repeat_one_out)
+{
+    bool shuffle = strcmp(mode, "SHUFFLE") == 0 ||
+                   strcmp(mode, "SHUFFLE_NOREPEAT") == 0 ||
+                   strcmp(mode, "SHUFFLE_REPEAT_ONE") == 0;
+    bool repeat = strcmp(mode, "REPEAT_ALL") == 0 ||
+                  strcmp(mode, "REPEAT_ONE") == 0 ||
+                  strcmp(mode, "SHUFFLE") == 0 ||
+                  strcmp(mode, "SHUFFLE_REPEAT_ONE") == 0;
+    bool repeat_one = strcmp(mode, "REPEAT_ONE") == 0 ||
+                      strcmp(mode, "SHUFFLE_REPEAT_ONE") == 0;
+
+    if (shuffle_out) *shuffle_out = shuffle;
+    if (repeat_out) *repeat_out = repeat;
+    if (repeat_one_out) *repeat_one_out = repeat_one;
+}
+
+static const char *play_mode_from_flags(bool shuffle, bool repeat, bool repeat_one)
+{
+    if (repeat_one) return shuffle ? "SHUFFLE_REPEAT_ONE" : "REPEAT_ONE";
+    if (shuffle && repeat) return "SHUFFLE";
+    if (shuffle) return "SHUFFLE_NOREPEAT";
+    if (repeat) return "REPEAT_ALL";
+    return "NORMAL";
+}
+
+static bool sonos_get_play_mode(const char *host, bool *shuffle_out,
+                                bool *repeat_out, bool *repeat_one_out)
+{
+    char *xml = NULL;
+    bool ok = soap_post(host, "AVTransport", "GetTransportSettings",
+                        "<InstanceID>0</InstanceID>", &xml);
+    if (!ok) return false;
+
+    char mode[32] = {0};
+    xml_extract_tag(xml, "PlayMode", mode, sizeof(mode));
+    free(xml);
+
+    clean_text(mode);
+    if (!mode[0]) return false;
+    play_mode_to_flags(mode, shuffle_out, repeat_out, repeat_one_out);
+    return true;
+}
+
 static bool sonos_get_position(const char *host, sonos_player_t *out)
 {
     char *xml = NULL;
@@ -663,6 +711,9 @@ static bool poll_player(int index)
     str_copy(p.source, sizeof(p.source), "Sonos");
     if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
     str_copy(p.room, sizeof(p.room), s_players[index].room);
+    p.shuffle = s_players[index].shuffle;
+    p.repeat = s_players[index].repeat;
+    p.repeat_one = s_players[index].repeat_one;
     if (s_state_mutex) xSemaphoreGive(s_state_mutex);
     if (!p.room[0]) format_room_name(host, p.room, sizeof(p.room));
 
@@ -677,6 +728,8 @@ static bool poll_player(int index)
         position_ok = sonos_get_position(host, &p);
         volume_ok = sonos_get_volume(host, &p.volume);
         mute_ok = sonos_get_mute(host, &p.muted);
+        // Falls die Quelle keinen Modus liefert, bleibt der zuletzt bekannte Zustand stehen.
+        sonos_get_play_mode(host, &p.shuffle, &p.repeat, &p.repeat_one);
     }
 
     p.online = transport_ok;
@@ -710,6 +763,17 @@ static void set_mute(const char *host, bool muted)
              "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>%d</DesiredMute>",
              muted ? 1 : 0);
     soap_post(host, "RenderingControl", "SetMute", inner, NULL);
+}
+
+static void set_play_mode(const char *host, bool shuffle, bool repeat, bool repeat_one)
+{
+    const char *mode = play_mode_from_flags(shuffle, repeat, repeat_one);
+    char inner[128];
+    // Sonos hat getrennte PlayModes fuer Repeat-all und Repeat-one, auch mit Shuffle.
+    snprintf(inner, sizeof(inner),
+             "<InstanceID>0</InstanceID><NewPlayMode>%s</NewPlayMode>",
+             mode);
+    soap_post(host, "AVTransport", "SetPlayMode", inner, NULL);
 }
 
 static void transport_action(const char *host, const char *action)
@@ -758,6 +822,36 @@ static void set_active_seek_hint(int seconds, bool keep_playing)
     xSemaphoreGive(s_state_mutex);
 }
 
+static void set_active_volume_hint(int volume)
+{
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+    if (!s_state_mutex) return;
+
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    int idx = s_active_player;
+    if (idx >= 0 && idx < HOST_COUNT) {
+        // UI sofort auf Zielwert halten; der naechste Sonos-Poll bestaetigt ihn.
+        s_players[idx].volume = volume;
+    }
+    xSemaphoreGive(s_state_mutex);
+}
+
+static void set_active_play_mode_hint(bool shuffle, bool repeat, bool repeat_one)
+{
+    if (!s_state_mutex) return;
+
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    int idx = s_active_player;
+    if (idx >= 0 && idx < HOST_COUNT) {
+        // Buttonfarbe sofort anpassen; Sonos bestaetigt den Modus beim naechsten Poll.
+        s_players[idx].shuffle = shuffle;
+        s_players[idx].repeat = repeat;
+        s_players[idx].repeat_one = repeat_one;
+    }
+    xSemaphoreGive(s_state_mutex);
+}
+
 void sonos_queue_cmd(sonos_cmd_type_t type, int value)
 {
     if (!s_cmd_queue) return;
@@ -771,6 +865,18 @@ void sonos_cover_set_callback(sonos_cover_cb_t cb, void *user)
     s_cover_cb = cb;
     s_cover_cb_user = user;
     if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+}
+
+static void cover_delay_after_track_skip(void)
+{
+    uint32_t until = (uint32_t)esp_log_timestamp() + COVER_POST_SKIP_DELAY_MS;
+    if ((int32_t)(until - s_cover_quiet_until_ms) > 0) {
+        s_cover_quiet_until_ms = until;
+    }
+
+    // Nach Skip/Previous nicht mit einer alten Zwischen-URL loslaufen.
+    s_cover_pending_url[0] = '\0';
+    s_cover_pending_since_ms = 0;
 }
 
 static void cover_publish(const sonos_cover_image_t *img)
@@ -1017,6 +1123,9 @@ static void cover_tick(void)
 
     // Stabil genug und unterschiedlich zum aktiven Cover -> fetchen
     if (strcmp(s_cover_pending_url, s_cover_active_url) == 0) return;
+    // Cover-HTTP/JPEG blockiert diesen Task kurz; Kommandos und Polling haben Vorrang.
+    if ((int32_t)(s_cover_quiet_until_ms - now) > 0) return;
+    if (s_cmd_queue && uxQueueMessagesWaiting(s_cmd_queue) > 0) return;
     if (now - s_cover_pending_since_ms < COVER_DEBOUNCE_MS) return;
 
     char url_local[sizeof(s_cover_pending_url)];
@@ -1030,10 +1139,13 @@ static void sonos_task(void *arg)
     (void)arg;
     sonos_cmd_t cmd;
     uint32_t next_poll = 0;
+    uint32_t offline_backoff_ms = SONOS_POLL_MS;
 
     while (true) {
-        if (!wifi_sta_is_connected()) {
+        if (!wifi_sta_is_ready()) {
             mark_wifi_waiting();
+            next_poll = 0;
+            offline_backoff_ms = SONOS_POLL_MS;
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
@@ -1050,6 +1162,7 @@ static void sonos_task(void *arg)
             }
             if (cmd.type == SONOS_CMD_RESCAN) {
                 next_poll = 0;
+                offline_backoff_ms = SONOS_POLL_MS;
                 continue;
             }
             if (!snap.online) continue;
@@ -1063,12 +1176,15 @@ static void sonos_task(void *arg)
                 break;
             case SONOS_CMD_NEXT:
                 transport_action(snap.host, "Next");
+                cover_delay_after_track_skip();
                 break;
             case SONOS_CMD_PREVIOUS:
                 transport_action(snap.host, "Previous");
+                cover_delay_after_track_skip();
                 break;
             case SONOS_CMD_VOLUME:
                 set_volume(snap.host, cmd.value);
+                set_active_volume_hint(cmd.value);
                 break;
             case SONOS_CMD_TOGGLE_MUTE:
                 set_mute(snap.host, !snap.muted);
@@ -1080,6 +1196,25 @@ static void sonos_task(void *arg)
                     set_active_seek_hint(cmd.value, snap.playing);
                 }
                 break;
+            case SONOS_CMD_TOGGLE_SHUFFLE: {
+                bool shuffle = !snap.shuffle;
+                set_play_mode(snap.host, shuffle, snap.repeat, snap.repeat_one);
+                set_active_play_mode_hint(shuffle, snap.repeat, snap.repeat_one);
+                break;
+            }
+            case SONOS_CMD_TOGGLE_REPEAT: {
+                bool repeat = true;
+                bool repeat_one = true;
+                if (snap.repeat_one) {
+                    repeat_one = false;
+                } else if (snap.repeat) {
+                    repeat = false;
+                    repeat_one = false;
+                }
+                set_play_mode(snap.host, snap.shuffle, repeat, repeat_one);
+                set_active_play_mode_hint(snap.shuffle, repeat, repeat_one);
+                break;
+            }
             default:
                 break;
             }
@@ -1093,6 +1228,7 @@ static void sonos_task(void *arg)
                 if (poll_player(i)) any_online = true;
                 vTaskDelay(pdMS_TO_TICKS(80));
             }
+            uint32_t poll_delay_ms = SONOS_POLL_MS;
             if (!any_online) {
                 xSemaphoreTake(s_state_mutex, portMAX_DELAY);
                 for (int i = 0; i < HOST_COUNT; i++) {
@@ -1101,8 +1237,18 @@ static void sonos_task(void *arg)
                     str_copy(s_players[i].status, sizeof(s_players[i].status), "Nicht erreichbar");
                 }
                 xSemaphoreGive(s_state_mutex);
+                poll_delay_ms = offline_backoff_ms;
+                // Bei Offline-Phasen langsamer pollen, damit Kaltstarts ruhiger bleiben.
+                if (offline_backoff_ms < SONOS_OFFLINE_BACKOFF_MAX_MS) {
+                    offline_backoff_ms *= 2;
+                    if (offline_backoff_ms > SONOS_OFFLINE_BACKOFF_MAX_MS) {
+                        offline_backoff_ms = SONOS_OFFLINE_BACKOFF_MAX_MS;
+                    }
+                }
+            } else {
+                offline_backoff_ms = SONOS_POLL_MS;
             }
-            next_poll = now + SONOS_POLL_MS;
+            next_poll = (uint32_t)esp_log_timestamp() + poll_delay_ms;
         }
 
         cover_tick();

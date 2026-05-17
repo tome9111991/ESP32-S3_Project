@@ -17,6 +17,9 @@ typedef struct {
     int duration_sec;
     int volume;
     bool muted;
+    bool shuffle;
+    bool repeat;
+    bool repeat_one;
     uint32_t last_update_ms;
     char cover_url[320];
 } sonos_player_t;
@@ -41,6 +44,8 @@ typedef enum {
     SONOS_CMD_VOLUME,
     SONOS_CMD_TOGGLE_MUTE,
     SONOS_CMD_SEEK,
+    SONOS_CMD_TOGGLE_SHUFFLE,
+    SONOS_CMD_TOGGLE_REPEAT,
     SONOS_CMD_SELECT,
     SONOS_CMD_RESCAN,
 } sonos_cmd_type_t;

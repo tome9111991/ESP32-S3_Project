@@ -8,6 +8,22 @@ Some application sketches are board-specific Arduino/LVGL dashboards, while othe
 
 Code is organized by hardware target. Each board folder contains its own Arduino sketches, display notes, assets, and setup documentation.
 
+## Project Scope and Transparency
+
+This is an independent DIY firmware and documentation repository. It is not
+affiliated with, endorsed by, certified by, or sponsored by any hardware,
+software, music service, or platform vendor unless explicitly stated.
+
+Some project pages or hardware lists may contain affiliate links or donation
+links. If you use those links, the maintainer may receive a small commission or
+donation at no extra cost to you. Such links help support development, but they
+do not change the technical recommendations, project license, or the project's
+independent status.
+
+Third-party product names are used only to describe compatibility or the tested
+hardware/software environment. Logos, certification badges, and vendor-owned
+assets are not included unless their use is clearly permitted.
+
 ## Web Flasher
 
 A browser-based flasher lives on GitHub Pages:
@@ -33,6 +49,7 @@ Pre-configured URLs can be shared, e.g.
 | `ESP32-8048S043C/displaytest_esp_lcd_doublefb/` | Direct `esp_lcd` RGB display/touch test using double framebuffer in PSRAM. Recommended baseline for this board. |
 | `ESP32-8048S043C/displaytest/` | Arduino_GFX display/touch test for basic validation. |
 | `ESP32-8048S043C/displaytest_lovyan/` | LovyanGFX RGB experiment kept for reference. |
+| `ESP32-8048S043C/esp-idf-test/SonosPlayer/` | Unofficial ESP-IDF DIY controller/display for local Sonos speakers. |
 | `ESP32-8048S043C/BOARD_CODING_NOTES.md` | Hardware notes, tested timings, GT911 touch details, and board-specific implementation guidance. |
 | `Guition_JC4827W543/` | Board support, tests, and application sketches for the Guition JC4827W543 480 x 272 HMI display. |
 | `Guition_JC4827W543/KlipperCryptoWeatherPanel/` | Dashboard sketch for the Guition JC4827W543. |

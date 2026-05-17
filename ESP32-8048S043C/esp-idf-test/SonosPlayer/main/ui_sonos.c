@@ -19,7 +19,6 @@
 
 static lv_obj_t *s_title_label;
 static lv_obj_t *s_artist_label;
-static lv_obj_t *s_album_label;
 static lv_obj_t *s_source_badge;
 static lv_obj_t *s_source_icon;
 static lv_obj_t *s_source_badge_label;
@@ -31,6 +30,11 @@ static lv_obj_t *s_duration_label;
 static lv_obj_t *s_volume_label;
 static lv_obj_t *s_volume_icon_label;
 static lv_obj_t *s_play_label;
+static lv_obj_t *s_shuffle_btn;
+static lv_obj_t *s_shuffle_label;
+static lv_obj_t *s_loop_btn;
+static lv_obj_t *s_loop_label;
+static lv_obj_t *s_loop_one_label;
 static lv_obj_t *s_status_dot;
 static lv_obj_t *s_progress_slider;
 static lv_obj_t *s_volume_slider;
@@ -38,6 +42,10 @@ static lv_obj_t *s_host_buttons[8];
 static lv_anim_t s_text_scroll_anim;
 static bool s_text_scroll_anim_ready;
 static bool s_progress_dragging;
+static bool s_volume_dragging;
+static uint32_t s_volume_hold_until_ms;
+static uint32_t s_volume_last_send_ms;
+static int s_volume_last_sent = -1;
 static lv_obj_t *s_cover_image;
 static lv_obj_t *s_cover_placeholder;
 static lv_image_dsc_t *s_cover_dsc;
@@ -53,6 +61,12 @@ static uint16_t *s_cover_pixels;
 #define PROGRESS_TOUCH_Y 222
 #define PROGRESS_TOUCH_W 460
 #define PROGRESS_TOUCH_H 48
+#define VOLUME_SEND_INTERVAL_MS 180
+#define VOLUME_HOLD_MS 2500
+// Verschiebt die obere Now-Playing-Gruppe im grauen Container etwas nach oben.
+#define NOW_PLAYING_Y_SHIFT 35
+// Schiebt die Transport-Control-Bar als Gruppe etwas weiter weg vom rechten Rand.
+#define TRANSPORT_X_SHIFT 20
 
 static const char *host_short_name(const char *host)
 {
@@ -126,6 +140,38 @@ static void progress_set_from_touch(lv_event_t *e)
     lv_label_set_text(s_position_label, tbuf);
 }
 
+static int volume_clamp(int volume)
+{
+    if (volume < 0) return 0;
+    if (volume > 100) return 100;
+    return volume;
+}
+
+static void volume_set_local(int volume)
+{
+    volume = volume_clamp(volume);
+    if (s_volume_slider) lv_slider_set_value(s_volume_slider, volume, LV_ANIM_OFF);
+    if (s_volume_label) lv_label_set_text_fmt(s_volume_label, "%d", volume);
+}
+
+static void volume_queue_live(int volume, bool force)
+{
+    uint32_t now = (uint32_t)esp_log_timestamp();
+    volume = volume_clamp(volume);
+
+    // Beim Ziehen nicht jede Pixelbewegung senden, aber Sonos trotzdem live nachfuehren.
+    if (!force && s_volume_last_sent == volume) return;
+    if (!force && s_volume_last_send_ms != 0 &&
+        now - s_volume_last_send_ms < VOLUME_SEND_INTERVAL_MS) {
+        return;
+    }
+
+    sonos_queue_cmd(SONOS_CMD_VOLUME, volume);
+    s_volume_last_sent = volume;
+    s_volume_last_send_ms = now;
+    s_volume_hold_until_ms = now + VOLUME_HOLD_MS;
+}
+
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font,
                             lv_color_t color, int x, int y, int w, int h)
 {
@@ -164,6 +210,40 @@ static void set_label_text_changed(lv_obj_t *label, const char *text)
     const char *current = lv_label_get_text(label);
     if (!current || strcmp(current, next) != 0) {
         lv_label_set_text(label, next);
+    }
+}
+
+static void set_mode_button_active(lv_obj_t *btn, lv_obj_t *label, bool active, bool online)
+{
+    if (!btn || !label) return;
+
+    // Aktive Shuffle/Repeat-Modi muessen auf dem grauen Panel sofort erkennbar sein.
+    if (!online) {
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0x8A8A8A), 0);
+    } else if (active) {
+        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0x202020), 0);
+    } else {
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xCFCFCF), 0);
+    }
+}
+
+static void set_loop_one_visible(bool repeat_one, bool online)
+{
+    if (!s_loop_one_label) return;
+
+    // Die kleine 1 entspricht dem Sonos-Repeat-One-Zustand.
+    if (online && repeat_one) {
+        lv_obj_clear_flag(s_loop_one_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(s_loop_one_label, lv_color_hex(0x202020), 0);
+    } else {
+        lv_obj_add_flag(s_loop_one_label, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -289,6 +369,18 @@ static void next_clicked_cb(lv_event_t *e)
     sonos_queue_cmd(SONOS_CMD_NEXT, 0);
 }
 
+static void shuffle_clicked_cb(lv_event_t *e)
+{
+    (void)e;
+    sonos_queue_cmd(SONOS_CMD_TOGGLE_SHUFFLE, 0);
+}
+
+static void repeat_clicked_cb(lv_event_t *e)
+{
+    (void)e;
+    sonos_queue_cmd(SONOS_CMD_TOGGLE_REPEAT, 0);
+}
+
 static void rescan_clicked_cb(lv_event_t *e)
 {
     (void)e;
@@ -304,7 +396,38 @@ static void host_clicked_cb(lv_event_t *e)
 static void volume_released_cb(lv_event_t *e)
 {
     lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
-    sonos_queue_cmd(SONOS_CMD_VOLUME, (int)lv_slider_get_value(slider));
+    int volume = (int)lv_slider_get_value(slider);
+    s_volume_dragging = false;
+    volume_set_local(volume);
+    volume_queue_live(volume, true);
+}
+
+static void volume_pressed_cb(lv_event_t *e)
+{
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
+    int volume = (int)lv_slider_get_value(slider);
+    s_volume_dragging = true;
+    volume_set_local(volume);
+    volume_queue_live(volume, true);
+}
+
+static void volume_changed_cb(lv_event_t *e)
+{
+    if (!s_volume_dragging) return;
+
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
+    int volume = (int)lv_slider_get_value(slider);
+    volume_set_local(volume);
+    volume_queue_live(volume, false);
+}
+
+static void volume_press_lost_cb(lv_event_t *e)
+{
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
+    int volume = (int)lv_slider_get_value(slider);
+    s_volume_dragging = false;
+    volume_set_local(volume);
+    volume_queue_live(volume, true);
 }
 
 static void progress_pressed_cb(lv_event_t *e)
@@ -403,7 +526,6 @@ static void ui_update_timer_cb(lv_timer_t *timer)
 
     set_label_text_changed(s_title_label, snap.title[0] ? snap.title : "Kein Titel");
     set_label_text_changed(s_artist_label, snap.artist[0] ? snap.artist : "Sonos");
-    set_label_text_changed(s_album_label, snap.album);
 
     const char *source_name = snap.online ? (snap.source[0] ? snap.source : "Sonos") : "Offline";
     set_source_badge(source_name, snap.online);
@@ -420,6 +542,9 @@ static void ui_update_timer_cb(lv_timer_t *timer)
 
     lv_obj_set_style_bg_color(s_status_dot,
                               snap.online ? lv_color_hex(0x35D07F) : lv_color_hex(0x8A8A8A), 0);
+    set_mode_button_active(s_shuffle_btn, s_shuffle_label, snap.shuffle, snap.online);
+    set_mode_button_active(s_loop_btn, s_loop_label, snap.repeat, snap.online);
+    set_loop_one_visible(snap.repeat_one, snap.online);
 
     int max = snap.duration_sec > 0 ? snap.duration_sec * PROGRESS_SCALE_MS : 100 * PROGRESS_SCALE_MS;
     int pos = progress_position_ms(&snap);
@@ -437,8 +562,18 @@ static void ui_update_timer_cb(lv_timer_t *timer)
     format_time(snap.duration_sec, tbuf, sizeof(tbuf));
     lv_label_set_text(s_duration_label, tbuf);
 
-    lv_slider_set_value(s_volume_slider, snap.volume, LV_ANIM_OFF);
-    lv_label_set_text_fmt(s_volume_label, "%d", snap.volume);
+    uint32_t now = (uint32_t)esp_log_timestamp();
+    bool volume_hold = s_volume_dragging;
+    if (!volume_hold && s_volume_hold_until_ms != 0) {
+        if ((int32_t)(s_volume_hold_until_ms - now) > 0) {
+            volume_hold = true;
+        } else {
+            s_volume_hold_until_ms = 0;
+        }
+    }
+    if (!volume_hold) {
+        volume_set_local(snap.volume);
+    }
     lv_label_set_text(s_volume_icon_label, snap.muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
     lv_obj_set_style_text_color(s_volume_icon_label,
                                 snap.muted ? lv_color_hex(0xD0D0D0) : lv_color_hex(0xFFFFFF), 0);
@@ -466,6 +601,8 @@ void ui_sonos_build(void)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x050505), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    // Panel ragt unten heraus, der Screen selbst soll aber fest stehen.
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
     // Kompakte Kopfzeile, damit der Player unten mehr Platz bekommt.
     lv_obj_t *top = lv_obj_create(scr);
@@ -509,7 +646,8 @@ void ui_sonos_build(void)
     // Graue Hauptflaeche wie ein querformatiger Now-Playing-Sheet.
     lv_obj_t *panel = lv_obj_create(scr);
     lv_obj_set_pos(panel, 0, 56);
-    lv_obj_set_size(panel, 800, 424);
+    // Etwas ueber den unteren Rand ziehen: unten wirken die Ecken dadurch eckig.
+    lv_obj_set_size(panel, 800, 456);
     lv_obj_set_style_bg_color(panel, lv_color_hex(0x4A4A4A), 0);
     lv_obj_set_style_border_width(panel, 0, 0);
     lv_obj_set_style_radius(panel, 30, 0);
@@ -538,7 +676,7 @@ void ui_sonos_build(void)
     // clip_corner sorgt dafuer, dass quadratische Cover sich an die 22 px Rundung
     // anpassen statt mit scharfen Ecken aus der Box herauszuragen.
     lv_obj_t *cover = lv_obj_create(panel);
-    lv_obj_set_pos(cover, 38, 68);
+    lv_obj_set_pos(cover, 38, 68 - NOW_PLAYING_Y_SHIFT);
     lv_obj_set_size(cover, 258, 258);
     lv_obj_set_style_radius(cover, 22, 0);
     lv_obj_set_style_bg_color(cover, lv_color_hex(0x000000), 0);
@@ -580,15 +718,13 @@ void ui_sonos_build(void)
     lv_obj_add_flag(s_cover_image, LV_OBJ_FLAG_HIDDEN);
 
     s_title_label = make_scroll_label(panel, "Warte auf Sonos", &lv_font_montserrat_36,
-                                      lv_color_hex(0xFFFFFF), 328, 74, 438, 52);
+                                      lv_color_hex(0xFFFFFF), 328, 74 - NOW_PLAYING_Y_SHIFT, 438, 52);
     s_artist_label = make_scroll_label(panel, "Verbinde mit WLAN", &lv_font_montserrat_18,
-                                       lv_color_hex(0xD5D5D5), 330, 131, 416, 28);
-    s_album_label = make_scroll_label(panel, "", &lv_font_montserrat_18,
-                                      lv_color_hex(0xBDBDBD), 330, 160, 416, 28);
+                                       lv_color_hex(0xD5D5D5), 330, 131 - NOW_PLAYING_Y_SHIFT, 416, 28);
 
-    // Dienst-Badge ersetzt das generische Musik-Symbol; unbekannte Quellen zeigen Text.
+    // Source steht direkt unter dem Interpreten; die Album-Zeile wird nicht angezeigt.
     s_source_badge = lv_obj_create(panel);
-    lv_obj_set_pos(s_source_badge, 330, 198);
+    lv_obj_set_pos(s_source_badge, 330, 166 - NOW_PLAYING_Y_SHIFT);
     lv_obj_set_size(s_source_badge, 40, 24);
     lv_obj_set_style_radius(s_source_badge, 6, 0);
     lv_obj_set_style_bg_color(s_source_badge, lv_color_hex(0x202020), 0);
@@ -607,7 +743,7 @@ void ui_sonos_build(void)
     lv_obj_center(s_source_badge_label);
 
     s_source_label = make_scroll_label(panel, "Sonos", &lv_font_montserrat_18,
-                                       lv_color_hex(0xFFFFFF), 382, 198, 368, 30);
+                                       lv_color_hex(0xFFFFFF), 382, 166 - NOW_PLAYING_Y_SHIFT, 368, 30);
 
     s_progress_slider = lv_slider_create(panel);
     lv_obj_set_pos(s_progress_slider, PROGRESS_X, PROGRESS_Y);
@@ -641,11 +777,14 @@ void ui_sonos_build(void)
                                   lv_color_hex(0xDADADA), 680, 262, 70, 24);
     lv_obj_set_style_text_align(s_duration_label, LV_TEXT_ALIGN_RIGHT, 0);
 
-    make_icon_button(panel, LV_SYMBOL_SHUFFLE, 342, 288, 54, rescan_clicked_cb);
-    make_icon_button(panel, LV_SYMBOL_PREV, 430, 286, 58, previous_clicked_cb);
+    s_shuffle_btn = make_icon_button(panel, LV_SYMBOL_SHUFFLE,
+                                     342 - TRANSPORT_X_SHIFT, 288, 54, shuffle_clicked_cb);
+    s_shuffle_label = lv_obj_get_child(s_shuffle_btn, 0);
+    make_icon_button(panel, LV_SYMBOL_PREV,
+                     430 - TRANSPORT_X_SHIFT, 286, 58, previous_clicked_cb);
 
     lv_obj_t *play_btn = lv_button_create(panel);
-    lv_obj_set_pos(play_btn, 518, 270);
+    lv_obj_set_pos(play_btn, 518 - TRANSPORT_X_SHIFT, 270);
     lv_obj_set_size(play_btn, 84, 84);
     lv_obj_set_style_radius(play_btn, 42, 0);
     lv_obj_set_style_bg_color(play_btn, lv_color_hex(0x5A5A5A), 0);
@@ -657,8 +796,17 @@ void ui_sonos_build(void)
     lv_obj_set_style_text_font(s_play_label, &lv_font_montserrat_48, 0);
     lv_obj_center(s_play_label);
 
-    make_icon_button(panel, LV_SYMBOL_NEXT, 632, 286, 58, next_clicked_cb);
-    make_icon_button(panel, LV_SYMBOL_LOOP, 724, 288, 54, rescan_clicked_cb);
+    make_icon_button(panel, LV_SYMBOL_NEXT,
+                     632 - TRANSPORT_X_SHIFT, 286, 58, next_clicked_cb);
+    s_loop_btn = make_icon_button(panel, LV_SYMBOL_LOOP,
+                                  724 - TRANSPORT_X_SHIFT, 288, 54, repeat_clicked_cb);
+    s_loop_label = lv_obj_get_child(s_loop_btn, 0);
+    s_loop_one_label = lv_label_create(s_loop_btn);
+    lv_label_set_text(s_loop_one_label, "1");
+    lv_obj_set_style_text_color(s_loop_one_label, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_text_font(s_loop_one_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(s_loop_one_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(s_loop_one_label, LV_OBJ_FLAG_HIDDEN);
 
     // Lautsprecher ist ein Button: Tippen schaltet Sonos-Mute um.
     lv_obj_t *vol_btn = lv_button_create(panel);
@@ -681,7 +829,10 @@ void ui_sonos_build(void)
     lv_obj_set_size(s_volume_slider, 310, 8);
     lv_slider_set_range(s_volume_slider, 0, 100);
     lv_obj_set_ext_click_area(s_volume_slider, 24);
+    lv_obj_add_event_cb(s_volume_slider, volume_pressed_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_volume_slider, volume_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_volume_slider, volume_released_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(s_volume_slider, volume_press_lost_cb, LV_EVENT_PRESS_LOST, NULL);
     lv_obj_set_style_bg_color(s_volume_slider, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_volume_slider, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(s_volume_slider, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
@@ -692,7 +843,7 @@ void ui_sonos_build(void)
 
     // Raumname links unter das Cover setzen, damit er die Lautstaerke-Zeile nicht ueberdeckt.
     s_room_label = make_scroll_label(panel, "Wohnzimmer", &lv_font_montserrat_24,
-                                     lv_color_hex(0xFFFFFF), 38, 338, 258, 34);
+                                     lv_color_hex(0xFFFFFF), 38, 338 - NOW_PLAYING_Y_SHIFT, 258, 34);
     lv_obj_set_style_text_align(s_room_label, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_timer_create(ui_update_timer_cb, PROGRESS_TIMER_MS, NULL);
