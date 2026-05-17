@@ -48,7 +48,10 @@ static esp_lcd_panel_handle_t panel_init(void)
         .out_color_format = LCD_COLOR_FMT_RGB565,
         .num_fbs = 2,
         // Bounce-Buffer entkoppelt LCD-DMA und PSRAM-Framebuffer.
-        .bounce_buffer_size_px = BOARD_LCD_H_RES * 10,
+        // 20 Zeilen statt 10 (~32 KB statt 16 KB Internal-SRAM): mehr Reserve
+        // gegen PSRAM-Bus-Stalls waehrend Cover-Decode/JPEG-Download. Verhindert
+        // duenne horizontale Streifen, wenn der LCD-DMA-Bounce kurz unterlaeuft.
+        .bounce_buffer_size_px = BOARD_LCD_H_RES * 20,
         .dma_burst_size = 64,
         .disp_gpio_num = -1,
         .pclk_gpio_num = PIN_PCLK,

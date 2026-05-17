@@ -21,7 +21,12 @@
   #define WIFI_PASSWORD ""
 #endif
 
-#define WIFI_READY_STABLE_MS 2000
+// Kurzer ARP-/Routing-Puffer nach GOT_IP. Der echte Stabilitaets-Check ist
+// der erste Sonos-Poll: schlaegt er fehl, greift der Offline-Backoff im
+// sonos_task (2.5s → 15s). So warten wir nicht laenger als noetig, riskieren
+// aber auch nichts: ein gescheiterter erster HTTP-Versuch hat nur das
+// 2.5s-Timeout als Kosten und keine Mehrlast.
+#define WIFI_READY_STABLE_MS 300
 
 static const char *TAG = "wifi";
 static volatile bool s_connected;

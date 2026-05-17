@@ -36,7 +36,10 @@
 #define COVER_POST_SKIP_DELAY_MS 4500    // Skip-Kommandos zuerst sauber pollen lassen
 #define COVER_MAX_BYTES     (300 * 1024)   // hartes Limit, falls Sonos mal was Riesiges liefert
 #define COVER_TJPGD_POOL    3500           // Arbeitsspeicher fuer ROM TJpgDec
-#define COVER_DECODE_MAX_DIM 400           // groesste Kantenlaenge nach jd_decomp-Skalierung
+// Anzeige ist 258x258 - groesser zu dekodieren verbrennt nur PSRAM-Bandbreite
+// und konkurriert mit dem LCD-DMA. 260 liefert genau die Anzeigegroesse plus
+// minimale Reserve fuer LVGLs LV_IMAGE_ALIGN_CONTAIN/COVER-Rundungsmathe.
+#define COVER_DECODE_MAX_DIM 260           // groesste Kantenlaenge nach jd_decomp-Skalierung
 
 static const char *TAG = "sonos";
 static const char *s_sonos_hosts[] = { SONOS_PLAYER_IPS };
@@ -47,6 +50,10 @@ static QueueHandle_t s_cmd_queue;
 static bool s_task_started;
 static uint32_t s_seek_hold_until_ms[HOST_COUNT];
 static bool s_seek_hold_playing[HOST_COUNT];
+// Raumname kommt aus device_description.xml und aendert sich praktisch nie.
+// Pro Online-Session einmal abfragen; bei Offline-Phase zuruecksetzen, damit
+// ein in der Sonos-App umbenannter Raum nach Reconnect auch hier ankommt.
+static bool s_room_fetched[HOST_COUNT];
 static sonos_queue_track_t s_queue_tracks[SONOS_QUEUE_MAX_TRACKS];
 static sonos_queue_track_t s_queue_parse_tracks[SONOS_QUEUE_MAX_TRACKS];
 static int s_queue_count;
@@ -79,6 +86,13 @@ static uint32_t s_cover_pending_since_ms;
 static uint32_t s_cover_quiet_until_ms;
 static sonos_cover_cb_t s_cover_cb;
 static void *s_cover_cb_user;
+
+// Wiederverwendbare HTTP-Verbindung fuer einen kompletten Poll-Zyklus.
+// poll_player oeffnet sie vor den SOAP-Calls und raeumt sie am Ende auf;
+// soap_post_to konsumiert sie transparent. Spart 5x TCP-Handshake pro 2.5s.
+// Nur im sonos_task gueltig - alle SOAP-Calls passieren in einem Task,
+// daher kein Mutex noetig.
+static esp_http_client_handle_t s_poll_session;
 
 typedef struct {
     sonos_cmd_type_t type;
@@ -260,11 +274,26 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+// SOAP-Antworten und device_description liegen typisch bei 1-6 KB, mit
+// TrackMetaData hin und wieder bei 8-12 KB. 8 KB Pre-Alloc trifft die Mehrheit
+// ohne realloc-Durchgang im HTTP-Receive-Pfad.
+#define HTTP_BUF_INITIAL_CAP 8192
+
+static void http_buf_prealloc(http_buf_t *buf)
+{
+    buf->data = malloc(HTTP_BUF_INITIAL_CAP);
+    if (buf->data) {
+        buf->cap = HTTP_BUF_INITIAL_CAP;
+        buf->data[0] = '\0';
+    }
+}
+
 static bool http_get_text(const char *url, char **response_out)
 {
     if (response_out) *response_out = NULL;
 
     http_buf_t buf = {0};
+    http_buf_prealloc(&buf);
     esp_http_client_config_t cfg = {
         .url = url,
         .timeout_ms = HTTP_TIMEOUT_MS,
@@ -273,7 +302,10 @@ static bool http_get_text(const char *url, char **response_out)
         .keep_alive_enable = false,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return false;
+    if (!client) {
+        free(buf.data);
+        return false;
+    }
 
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
@@ -321,16 +353,29 @@ static bool soap_post_to(const char *host, const char *root, const char *service
     if (body_len <= 0 || body_len >= (int)sizeof(body)) return false;
 
     http_buf_t buf = {0};
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .timeout_ms = HTTP_TIMEOUT_MS,
-        .event_handler = http_event_handler,
-        .user_data = &buf,
-        .keep_alive_enable = false,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) {
-        return false;
+    http_buf_prealloc(&buf);
+
+    // Wenn poll_player eine Session geoeffnet hat, TCP-Verbindung wiederverwenden.
+    // Sonst lokalen Handle anlegen (cmd-handler-Pfad).
+    esp_http_client_handle_t client = s_poll_session;
+    bool owns_client = false;
+    if (client) {
+        esp_http_client_set_url(client, url);
+        esp_http_client_set_user_data(client, &buf);
+    } else {
+        esp_http_client_config_t cfg = {
+            .url = url,
+            .timeout_ms = HTTP_TIMEOUT_MS,
+            .event_handler = http_event_handler,
+            .user_data = &buf,
+            .keep_alive_enable = false,
+        };
+        client = esp_http_client_init(&cfg);
+        if (!client) {
+            free(buf.data);
+            return false;
+        }
+        owns_client = true;
     }
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
@@ -340,7 +385,7 @@ static bool soap_post_to(const char *host, const char *root, const char *service
 
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
+    if (owns_client) esp_http_client_cleanup(client);
 
     if (err != ESP_OK || status < 200 || status >= 300) {
         ESP_LOGW(TAG, "SOAP %s/%s %s failed status=%d err=%s",
@@ -1137,13 +1182,33 @@ static bool poll_player(int index)
     if (s_state_mutex) xSemaphoreGive(s_state_mutex);
     if (!p.room[0]) format_room_name(host, p.room, sizeof(p.room));
 
+    // TCP-Verbindung fuer alle SOAP-Calls dieses Zyklus oeffnen. Spart 5x
+    // Handshake gegenueber dem alten Per-Call-Pattern. Wenn die Init scheitert
+    // (Heap knapp etc.), bleibt die Session NULL und alle Calls fallen
+    // automatisch auf den Per-Call-Pfad zurueck - kein Regressionsrisiko.
+    char session_url[64];
+    snprintf(session_url, sizeof(session_url), "http://%s:%d/", host, SONOS_PORT);
+    esp_http_client_config_t session_cfg = {
+        .url = session_url,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .event_handler = http_event_handler,
+        .keep_alive_enable = true,
+    };
+    s_poll_session = esp_http_client_init(&session_cfg);
+
     bool transport_ok = sonos_get_transport(host, &p.playing, p.status, sizeof(p.status));
     bool position_ok = false;
     bool volume_ok = false;
     bool mute_ok = false;
     if (transport_ok) {
         // Raumname kommt direkt vom Sonos-Geraet; Fallback bleibt die IP.
-        sonos_get_device_room(host, p.room, sizeof(p.room));
+        // Pro Online-Session nur einmal abfragen - spart einen HTTP-Roundtrip
+        // pro Poll-Zyklus.
+        if (!s_room_fetched[index]) {
+            if (sonos_get_device_room(host, p.room, sizeof(p.room))) {
+                s_room_fetched[index] = true;
+            }
+        }
         sonos_get_media_source(host, p.source, sizeof(p.source));
         position_ok = sonos_get_position(host, &p);
         volume_ok = sonos_get_volume(host, &p.volume);
@@ -1152,7 +1217,15 @@ static bool poll_player(int index)
         sonos_get_play_mode(host, &p.shuffle, &p.repeat, &p.repeat_one);
     }
 
+    if (s_poll_session) {
+        esp_http_client_cleanup(s_poll_session);
+        s_poll_session = NULL;
+    }
+
     p.online = transport_ok;
+    // Geht der Player offline, beim naechsten Online-Werden den Raumnamen
+    // neu holen (User koennte ihn in der Sonos-App umbenannt haben).
+    if (!transport_ok) s_room_fetched[index] = false;
     p.last_update_ms = (uint32_t)esp_log_timestamp();
     if (!position_ok) {
         str_copy(p.title, sizeof(p.title), "Sonos verbunden");
@@ -1377,12 +1450,22 @@ static esp_err_t cover_dl_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+// Typische Sonos-Cover liegen zwischen 30 KB (TIDAL) und 200 KB (Spotify HD).
+// Mit 64 KB Pre-Alloc trifft der erste realloc-Aufruf nur bei groesseren Covern,
+// statt 4-5x exponentiell zu wachsen waehrend LCD-DMA aus PSRAM lesen will.
+#define COVER_DL_INITIAL_CAP (64 * 1024)
+
 static bool cover_download(const char *url, uint8_t **out, int *out_len)
 {
     *out = NULL;
     *out_len = 0;
 
     cover_dl_buf_t buf = {.max = COVER_MAX_BYTES};
+    buf.data = heap_caps_malloc(COVER_DL_INITIAL_CAP,
+                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (buf.data) buf.cap = COVER_DL_INITIAL_CAP;
+    // Falls die Pre-Alloc scheitert, faellt der Event-Handler auf seinen
+    // bisherigen Wachstumspfad zurueck.
     esp_http_client_config_t cfg = {
         .url = url,
         .timeout_ms = 5000,

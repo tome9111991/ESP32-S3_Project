@@ -284,6 +284,19 @@ static const lv_image_dsc_t *source_icon_for_name(const char *source)
 
 static void set_source_badge(const char *source, bool online)
 {
+    // Diff-Check: der 250ms-UI-Timer ruft das hier sonst bei jedem Tick auf
+    // und triggert LVGL-Invalidations, obwohl sich nichts geaendert hat.
+    static char s_last_source[64];
+    static bool s_last_online_set;
+    static bool s_last_online;
+    if (s_last_online_set && s_last_online == online &&
+        strcmp(s_last_source, source ? source : "") == 0) {
+        return;
+    }
+    snprintf(s_last_source, sizeof(s_last_source), "%s", source ? source : "");
+    s_last_online = online;
+    s_last_online_set = true;
+
     const char *text = "SO";
     const lv_image_dsc_t *icon = online ? source_icon_for_name(source) : NULL;
     lv_color_t bg = lv_color_hex(0x202020);
@@ -544,12 +557,26 @@ static void ui_update_timer_cb(lv_timer_t *timer)
     set_label_text_changed(s_source_label, source);
     set_label_text_changed(s_status_label, snap.status);
     set_label_text_changed(s_room_label, snap.room[0] ? snap.room : "Wohnzimmer");
-    if (!s_progress_dragging) {
+    // Play/Pause-Symbol nur bei Aenderung tauschen, sonst flackert LVGL
+    // bei jedem Timer-Tick die Region neu.
+    static bool s_last_playing_set;
+    static bool s_last_playing;
+    if (!s_progress_dragging &&
+        (!s_last_playing_set || s_last_playing != snap.playing)) {
         lv_label_set_text(s_play_label, snap.playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+        s_last_playing = snap.playing;
+        s_last_playing_set = true;
     }
 
-    lv_obj_set_style_bg_color(s_status_dot,
-                              snap.online ? lv_color_hex(0x35D07F) : lv_color_hex(0x8A8A8A), 0);
+    // Status-Dot-Farbe nur bei Online-Wechsel umfaerben.
+    static bool s_last_dot_online_set;
+    static bool s_last_dot_online;
+    if (!s_last_dot_online_set || s_last_dot_online != snap.online) {
+        lv_obj_set_style_bg_color(s_status_dot,
+                                  snap.online ? lv_color_hex(0x35D07F) : lv_color_hex(0x8A8A8A), 0);
+        s_last_dot_online = snap.online;
+        s_last_dot_online_set = true;
+    }
     set_mode_button_active(s_shuffle_btn, s_shuffle_label, snap.shuffle, snap.online);
     set_mode_button_active(s_loop_btn, s_loop_label, snap.repeat, snap.online);
     set_loop_one_visible(snap.repeat_one, snap.online);
@@ -557,7 +584,12 @@ static void ui_update_timer_cb(lv_timer_t *timer)
     int max = snap.duration_sec > 0 ? snap.duration_sec * PROGRESS_SCALE_MS : 100 * PROGRESS_SCALE_MS;
     int pos = progress_position_ms(&snap);
     if (pos > max) pos = max;
-    lv_slider_set_range(s_progress_slider, 0, max);
+    // Slider-Range nur bei Track-Wechsel anpassen, nicht jeden Tick.
+    static int s_last_slider_max = -1;
+    if (max != s_last_slider_max) {
+        lv_slider_set_range(s_progress_slider, 0, max);
+        s_last_slider_max = max;
+    }
     if (!s_progress_dragging) {
         lv_slider_set_value(s_progress_slider, pos, LV_ANIM_OFF);
     }
@@ -567,8 +599,13 @@ static void ui_update_timer_cb(lv_timer_t *timer)
         format_position_time((pos + 500) / PROGRESS_SCALE_MS, tbuf, sizeof(tbuf));
         lv_label_set_text(s_position_label, tbuf);
     }
-    format_time(snap.duration_sec, tbuf, sizeof(tbuf));
-    lv_label_set_text(s_duration_label, tbuf);
+    // Duration aendert sich nur beim Track-Wechsel.
+    static int s_last_duration_sec = -1;
+    if (snap.duration_sec != s_last_duration_sec) {
+        format_time(snap.duration_sec, tbuf, sizeof(tbuf));
+        lv_label_set_text(s_duration_label, tbuf);
+        s_last_duration_sec = snap.duration_sec;
+    }
 
     uint32_t now = (uint32_t)esp_log_timestamp();
     bool volume_hold = s_volume_dragging;
@@ -582,9 +619,16 @@ static void ui_update_timer_cb(lv_timer_t *timer)
     if (!volume_hold) {
         volume_set_local(snap.volume);
     }
-    lv_label_set_text(s_volume_icon_label, snap.muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
-    lv_obj_set_style_text_color(s_volume_icon_label,
-                                snap.muted ? lv_color_hex(0xD0D0D0) : lv_color_hex(0xFFFFFF), 0);
+    // Mute-Icon nur bei Aenderung tauschen.
+    static bool s_last_muted_set;
+    static bool s_last_muted;
+    if (!s_last_muted_set || s_last_muted != snap.muted) {
+        lv_label_set_text(s_volume_icon_label, snap.muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
+        lv_obj_set_style_text_color(s_volume_icon_label,
+                                    snap.muted ? lv_color_hex(0xD0D0D0) : lv_color_hex(0xFFFFFF), 0);
+        s_last_muted = snap.muted;
+        s_last_muted_set = true;
+    }
 
     int active = sonos_active_index();
     int count = sonos_host_count();
