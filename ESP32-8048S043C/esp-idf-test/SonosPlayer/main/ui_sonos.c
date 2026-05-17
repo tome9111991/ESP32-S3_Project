@@ -3,6 +3,7 @@
 #include "ui_sonos.h"
 #include "sonos_client.h"
 #include "ui_assets.h"
+#include "ui_queue.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +40,7 @@ static lv_obj_t *s_status_dot;
 static lv_obj_t *s_progress_slider;
 static lv_obj_t *s_volume_slider;
 static lv_obj_t *s_host_buttons[8];
+static lv_obj_t *s_player_screen;
 static lv_anim_t s_text_scroll_anim;
 static bool s_text_scroll_anim_ready;
 static bool s_progress_dragging;
@@ -387,6 +389,12 @@ static void rescan_clicked_cb(lv_event_t *e)
     sonos_queue_cmd(SONOS_CMD_RESCAN, 0);
 }
 
+static void queue_clicked_cb(lv_event_t *e)
+{
+    (void)e;
+    ui_queue_show();
+}
+
 static void host_clicked_cb(lv_event_t *e)
 {
     int index = (int)(intptr_t)lv_event_get_user_data(e);
@@ -599,6 +607,7 @@ void ui_sonos_build(void)
     if (!lvgl_port_lock(0)) return;
 
     lv_obj_t *scr = lv_screen_active();
+    s_player_screen = scr;
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x050505), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     // Panel ragt unten heraus, der Screen selbst soll aber fest stehen.
@@ -841,6 +850,20 @@ void ui_sonos_build(void)
                                 lv_color_hex(0xE8E8E8), 720, 362, 48, 34);
     lv_obj_set_style_text_align(s_volume_label, LV_TEXT_ALIGN_RIGHT, 0);
 
+    // Links in der Lautstaerke-Zeile oeffnet dieser Button die Sonos-Queue.
+    lv_obj_t *queue_btn = lv_button_create(panel);
+    lv_obj_set_pos(queue_btn, 38, 338);
+    lv_obj_set_size(queue_btn, 56, 56);
+    lv_obj_set_style_radius(queue_btn, 28, 0);
+    lv_obj_set_style_bg_color(queue_btn, lv_color_hex(0x5A5A5A), 0);
+    lv_obj_set_style_shadow_width(queue_btn, 0, 0);
+    lv_obj_add_event_cb(queue_btn, queue_clicked_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *queue_lbl = lv_label_create(queue_btn);
+    lv_label_set_text(queue_lbl, LV_SYMBOL_LIST);
+    lv_obj_set_style_text_color(queue_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(queue_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_center(queue_lbl);
+
     // Raumname links unter das Cover setzen, damit er die Lautstaerke-Zeile nicht ueberdeckt.
     s_room_label = make_scroll_label(panel, "Wohnzimmer", &lv_font_montserrat_24,
                                      lv_color_hex(0xFFFFFF), 38, 338 - NOW_PLAYING_Y_SHIFT, 258, 34);
@@ -850,4 +873,9 @@ void ui_sonos_build(void)
     lvgl_port_unlock();
 
     sonos_cover_set_callback(ui_cover_cb, NULL);
+}
+
+void ui_sonos_show(void)
+{
+    if (s_player_screen) lv_screen_load(s_player_screen);
 }

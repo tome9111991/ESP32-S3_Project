@@ -47,6 +47,29 @@ static QueueHandle_t s_cmd_queue;
 static bool s_task_started;
 static uint32_t s_seek_hold_until_ms[HOST_COUNT];
 static bool s_seek_hold_playing[HOST_COUNT];
+static sonos_queue_track_t s_queue_tracks[SONOS_QUEUE_MAX_TRACKS];
+static sonos_queue_track_t s_queue_parse_tracks[SONOS_QUEUE_MAX_TRACKS];
+static int s_queue_count;
+static int s_queue_start;
+static int s_queue_total;
+static bool s_queue_loading;
+static char s_queue_status[48] = "Noch nicht geladen";
+static uint32_t s_queue_last_update_ms;
+
+#define SONOS_QUEUE_CACHE_SLOTS 4
+#define SONOS_QUEUE_CACHE_TTL_MS 60000   // nach 1 min als veraltet behandeln
+#define SONOS_QUEUE_PRELOAD_DELAY_MS 150 // Atempause vor jedem Preload-SOAP
+
+typedef struct {
+    bool valid;
+    int start_index;
+    int count;
+    int total;
+    uint32_t fetched_ms;
+    sonos_queue_track_t tracks[SONOS_QUEUE_MAX_TRACKS];
+} queue_page_cache_t;
+
+static queue_page_cache_t s_queue_cache[SONOS_QUEUE_CACHE_SLOTS];
 
 // Cover-Pipeline-State - alle Zugriffe nur aus dem sonos_task heraus,
 // ausser dem Callback-Setter, der den Mutex nimmt.
@@ -69,6 +92,7 @@ typedef struct {
 } http_buf_t;
 
 static bool xml_extract_tag(const char *xml, const char *tag, char *out, size_t out_size);
+static bool xml_extract_tag_alloc(const char *xml, const char *tag, char **out);
 static void clean_text(char *s);
 
 static void str_copy(char *dst, size_t dst_size, const char *src)
@@ -121,6 +145,71 @@ sonos_player_t sonos_snapshot_active(void)
     snap = s_players[idx];
     if (s_state_mutex) xSemaphoreGive(s_state_mutex);
     return snap;
+}
+
+int sonos_queue_snapshot(sonos_queue_track_t *tracks, int max_tracks,
+                         char *status, size_t status_size,
+                         bool *loading, uint32_t *last_update_ms,
+                         int *start_index, int *total_count)
+{
+    int count = 0;
+    if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+
+    count = s_queue_count;
+    if (tracks && max_tracks > 0) {
+        int copy_count = count < max_tracks ? count : max_tracks;
+        memcpy(tracks, s_queue_tracks, sizeof(sonos_queue_track_t) * copy_count);
+    }
+    if (status && status_size > 0) str_copy(status, status_size, s_queue_status);
+    if (loading) *loading = s_queue_loading;
+    if (last_update_ms) *last_update_ms = s_queue_last_update_ms;
+    if (start_index) *start_index = s_queue_start;
+    if (total_count) *total_count = s_queue_total;
+
+    if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+    return count;
+}
+
+bool sonos_queue_apply_cached(int start_index)
+{
+    if (!s_state_mutex) return false;
+    bool ok = false;
+
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    queue_page_cache_t *slot = NULL;
+    for (int i = 0; i < SONOS_QUEUE_CACHE_SLOTS; i++) {
+        if (s_queue_cache[i].valid && s_queue_cache[i].start_index == start_index) {
+            slot = &s_queue_cache[i];
+            break;
+        }
+    }
+    if (slot) {
+        uint32_t now = (uint32_t)esp_log_timestamp();
+        if (now - slot->fetched_ms < SONOS_QUEUE_CACHE_TTL_MS) {
+            if (slot->count > 0) {
+                memcpy(s_queue_tracks, slot->tracks,
+                       sizeof(sonos_queue_track_t) * slot->count);
+            }
+            s_queue_count = slot->count;
+            s_queue_start = slot->start_index;
+            if (slot->total > 0) s_queue_total = slot->total;
+            s_queue_loading = false;
+            if (s_queue_total > 0 && slot->count > 0) {
+                snprintf(s_queue_status, sizeof(s_queue_status), "%d-%d/%d Tracks",
+                         slot->start_index + 1, slot->start_index + slot->count,
+                         s_queue_total);
+            } else if (slot->count == 1) {
+                str_copy(s_queue_status, sizeof(s_queue_status), "1 Track");
+            } else {
+                snprintf(s_queue_status, sizeof(s_queue_status), "%d Tracks",
+                         slot->count);
+            }
+            s_queue_last_update_ms = now;
+            ok = true;
+        }
+    }
+    xSemaphoreGive(s_state_mutex);
+    return ok;
 }
 
 void sonos_service_init(void)
@@ -206,14 +295,14 @@ static bool http_get_text(const char *url, char **response_out)
     return response_out ? *response_out != NULL : true;
 }
 
-static bool soap_post(const char *host, const char *service, const char *action,
-                      const char *inner, char **response_out)
+static bool soap_post_to(const char *host, const char *root, const char *service,
+                         const char *action, const char *inner, char **response_out)
 {
     if (response_out) *response_out = NULL;
 
     char url[160];
-    snprintf(url, sizeof(url), "http://%s:%d/MediaRenderer/%s/Control",
-             host, SONOS_PORT, service);
+    snprintf(url, sizeof(url), "http://%s:%d/%s/%s/Control",
+             host, SONOS_PORT, root, service);
 
     char soap_action[128];
     snprintf(soap_action, sizeof(soap_action),
@@ -225,7 +314,7 @@ static bool soap_post(const char *host, const char *service, const char *action,
         "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">"
         "<s:Body>";
     const char *suffix = "</s:Body></s:Envelope>";
-    char body[640];
+    char body[1024];
     int body_len = snprintf(body, sizeof(body),
                             "%s<u:%s xmlns:u=\"urn:schemas-upnp-org:service:%s:1\">%s</u:%s>%s",
                             prefix, action, service, inner ? inner : "", action, suffix);
@@ -269,6 +358,12 @@ static bool soap_post(const char *host, const char *service, const char *action,
     return true;
 }
 
+static bool soap_post(const char *host, const char *service, const char *action,
+                      const char *inner, char **response_out)
+{
+    return soap_post_to(host, "MediaRenderer", service, action, inner, response_out);
+}
+
 static bool sonos_get_device_room(const char *host, char *room, size_t room_size)
 {
     char url[96];
@@ -310,6 +405,34 @@ static bool xml_extract_tag(const char *xml, const char *tag, char *out, size_t 
     if (n >= out_size) n = out_size - 1;
     memcpy(out, p, n);
     out[n] = '\0';
+    return true;
+}
+
+static bool xml_extract_tag_alloc(const char *xml, const char *tag, char **out)
+{
+    if (out) *out = NULL;
+    if (!xml || !tag || !out) return false;
+
+    char open[64];
+    char close[64];
+    snprintf(open, sizeof(open), "<%s", tag);
+    snprintf(close, sizeof(close), "</%s>", tag);
+
+    const char *p = strstr(xml, open);
+    if (!p) return false;
+    p = strchr(p, '>');
+    if (!p) return false;
+    p++;
+
+    const char *q = strstr(p, close);
+    if (!q) return false;
+
+    size_t n = (size_t)(q - p);
+    char *buf = malloc(n + 1);
+    if (!buf) return false;
+    memcpy(buf, p, n);
+    buf[n] = '\0';
+    *out = buf;
     return true;
 }
 
@@ -569,6 +692,7 @@ static bool sonos_get_position(const char *host, sonos_player_t *out)
     char duration[32] = {0};
     char rel_time[32] = {0};
     char uri[256] = {0};
+    char track_no[16] = {0};
     char metadata[4096] = {0};
     char title[sizeof(out->title)] = {0};
     char artist[sizeof(out->artist)] = {0};
@@ -579,6 +703,7 @@ static bool sonos_get_position(const char *host, sonos_player_t *out)
     xml_extract_tag(xml, "TrackDuration", duration, sizeof(duration));
     xml_extract_tag(xml, "RelTime", rel_time, sizeof(rel_time));
     xml_extract_tag(xml, "TrackURI", uri, sizeof(uri));
+    xml_extract_tag(xml, "Track", track_no, sizeof(track_no));
     xml_extract_tag(xml, "TrackMetaData", metadata, sizeof(metadata));
     free(xml);
 
@@ -613,6 +738,8 @@ static bool sonos_get_position(const char *host, sonos_player_t *out)
     str_copy(out->album, sizeof(out->album), album);
     out->duration_sec = parse_sonos_time(duration);
     out->position_sec = parse_sonos_time(rel_time);
+    out->queue_index = track_no[0] ? atoi(track_no) : 0;
+    if (out->queue_index < 0) out->queue_index = 0;
     return true;
 }
 
@@ -632,6 +759,299 @@ static bool sonos_get_media_source(const char *host, char *source, size_t source
     clean_text(uri);
     clean_text(metadata);
     return detect_source_text(uri, metadata, source, source_size);
+}
+
+static bool xml_extract_attr(const char *xml, const char *attr, char *out, size_t out_size)
+{
+    if (!xml || !attr || !out || out_size == 0) return false;
+    out[0] = '\0';
+
+    char needle[32];
+    snprintf(needle, sizeof(needle), "%s=\"", attr);
+    const char *p = strstr(xml, needle);
+    if (!p) return false;
+    p += strlen(needle);
+    const char *q = strchr(p, '"');
+    if (!q) return false;
+
+    size_t n = (size_t)(q - p);
+    if (n >= out_size) n = out_size - 1;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    clean_text(out);
+    return true;
+}
+
+static void queue_set_status(const char *status, bool loading)
+{
+    if (!s_state_mutex) return;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    str_copy(s_queue_status, sizeof(s_queue_status), status);
+    s_queue_loading = loading;
+    s_queue_last_update_ms = (uint32_t)esp_log_timestamp();
+    xSemaphoreGive(s_state_mutex);
+}
+
+static void queue_clear_status(const char *status)
+{
+    if (!s_state_mutex) return;
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    s_queue_count = 0;
+    s_queue_loading = false;
+    str_copy(s_queue_status, sizeof(s_queue_status), status);
+    s_queue_last_update_ms = (uint32_t)esp_log_timestamp();
+    xSemaphoreGive(s_state_mutex);
+}
+
+static void queue_parse_item(const char *item, sonos_queue_track_t *track)
+{
+    char duration[32] = {0};
+
+    memset(track, 0, sizeof(*track));
+    xml_extract_tag(item, "dc:title", track->title, sizeof(track->title));
+    xml_extract_tag(item, "dc:creator", track->artist, sizeof(track->artist));
+    if (!track->artist[0]) xml_extract_tag(item, "upnp:artist", track->artist, sizeof(track->artist));
+    xml_extract_tag(item, "upnp:album", track->album, sizeof(track->album));
+    xml_extract_attr(item, "duration", duration, sizeof(duration));
+
+    sanitize_music_text(track->title);
+    sanitize_music_text(track->artist);
+    sanitize_music_text(track->album);
+    track->duration_sec = parse_sonos_time(duration);
+
+    if (!track->title[0]) str_copy(track->title, sizeof(track->title), "Unbekannter Titel");
+    if (!track->artist[0]) str_copy(track->artist, sizeof(track->artist), "Sonos");
+}
+
+// Caller muss s_state_mutex halten.
+static queue_page_cache_t *queue_cache_find_locked(int start_index)
+{
+    for (int i = 0; i < SONOS_QUEUE_CACHE_SLOTS; i++) {
+        if (s_queue_cache[i].valid && s_queue_cache[i].start_index == start_index) {
+            return &s_queue_cache[i];
+        }
+    }
+    return NULL;
+}
+
+// Caller muss s_state_mutex halten. Liefert immer einen Slot zum Beschreiben
+// (gleicher Index -> ueberschreiben; sonst freier Slot oder aeltester Slot).
+static queue_page_cache_t *queue_cache_alloc_locked(int start_index)
+{
+    queue_page_cache_t *hit = queue_cache_find_locked(start_index);
+    if (hit) return hit;
+    for (int i = 0; i < SONOS_QUEUE_CACHE_SLOTS; i++) {
+        if (!s_queue_cache[i].valid) return &s_queue_cache[i];
+    }
+    int oldest = 0;
+    for (int i = 1; i < SONOS_QUEUE_CACHE_SLOTS; i++) {
+        if (s_queue_cache[i].fetched_ms < s_queue_cache[oldest].fetched_ms) oldest = i;
+    }
+    return &s_queue_cache[oldest];
+}
+
+// Caller muss s_state_mutex halten.
+static void queue_cache_invalidate_all_locked(void)
+{
+    for (int i = 0; i < SONOS_QUEUE_CACHE_SLOTS; i++) {
+        s_queue_cache[i].valid = false;
+    }
+}
+
+// Caller muss s_state_mutex halten.
+static void queue_cache_store_locked(int start_index, int count, int total,
+                                     const sonos_queue_track_t *tracks)
+{
+    queue_page_cache_t *slot = queue_cache_alloc_locked(start_index);
+    slot->valid = true;
+    slot->start_index = start_index;
+    slot->count = count;
+    slot->total = total;
+    slot->fetched_ms = (uint32_t)esp_log_timestamp();
+    if (count > 0 && tracks) {
+        memcpy(slot->tracks, tracks, sizeof(sonos_queue_track_t) * count);
+    }
+}
+
+// Eine Queue-Seite per UPnP/SOAP holen. Schreibt das Ergebnis nur in den
+// uebergebenen Track-Puffer, beruehrt keinen globalen State.
+static bool sonos_fetch_queue_page(const char *host, int start_index,
+                                   sonos_queue_track_t *out_tracks,
+                                   int *out_count, int *out_total)
+{
+    if (start_index < 0) start_index = 0;
+    if (out_count) *out_count = 0;
+    if (out_total) *out_total = 0;
+
+    char inner[256];
+    snprintf(inner, sizeof(inner),
+             "<ObjectID>Q:0</ObjectID>"
+             "<BrowseFlag>BrowseDirectChildren</BrowseFlag>"
+             "<Filter>*</Filter>"
+             "<StartingIndex>%d</StartingIndex>"
+             "<RequestedCount>%d</RequestedCount>"
+             "<SortCriteria></SortCriteria>",
+             start_index, SONOS_QUEUE_MAX_TRACKS);
+
+    char *xml = NULL;
+    if (!soap_post_to(host, "MediaServer", "ContentDirectory", "Browse", inner, &xml)) {
+        return false;
+    }
+
+    char total_buf[16] = {0};
+    xml_extract_tag(xml, "TotalMatches", total_buf, sizeof(total_buf));
+    int total = atoi(total_buf);
+
+    char *result = NULL;
+    if (!xml_extract_tag_alloc(xml, "Result", &result)) {
+        free(xml);
+        return false;
+    }
+    free(xml);
+    clean_text(result);
+
+    int count = 0;
+    const char *p = result;
+    while (count < SONOS_QUEUE_MAX_TRACKS && (p = strstr(p, "<item")) != NULL) {
+        const char *start = strchr(p, '>');
+        const char *end = strstr(p, "</item>");
+        if (!start || !end || end <= start) break;
+
+        size_t n = (size_t)(end - p + strlen("</item>"));
+        char *item = malloc(n + 1);
+        if (!item) break;
+        memcpy(item, p, n);
+        item[n] = '\0';
+        queue_parse_item(item, &out_tracks[count]);
+        free(item);
+
+        count++;
+        p = end + strlen("</item>");
+    }
+    free(result);
+
+    if (out_count) *out_count = count;
+    if (out_total) *out_total = total;
+    return true;
+}
+
+static bool sonos_refresh_queue(const char *host, int start_index)
+{
+    if (start_index < 0) start_index = 0;
+    queue_set_status("Lade Liste", true);
+
+    int count = 0;
+    int total = 0;
+    if (!sonos_fetch_queue_page(host, start_index, s_queue_parse_tracks, &count, &total)) {
+        queue_clear_status("Liste nicht erreichbar");
+        return false;
+    }
+
+    if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    // Hat sich die Queue-Groesse geaendert, sind alle vorherigen Seiten potentiell verschoben.
+    if (total != s_queue_total) queue_cache_invalidate_all_locked();
+    // Grosser Track-Puffer bleibt statisch, damit der Sonos-Task-Stack klein bleibt.
+    memcpy(s_queue_tracks, s_queue_parse_tracks, sizeof(sonos_queue_track_t) * count);
+    s_queue_count = count;
+    s_queue_start = start_index;
+    s_queue_total = total;
+    s_queue_loading = false;
+    if (total > 0 && count > 0) {
+        snprintf(s_queue_status, sizeof(s_queue_status), "%d-%d/%d Tracks",
+                 start_index + 1, start_index + count, total);
+    } else if (count == 1) {
+        str_copy(s_queue_status, sizeof(s_queue_status), "1 Track");
+    } else {
+        snprintf(s_queue_status, sizeof(s_queue_status), "%d Tracks", count);
+    }
+    s_queue_last_update_ms = (uint32_t)esp_log_timestamp();
+    queue_cache_store_locked(start_index, count, total, s_queue_parse_tracks);
+    if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+    return count > 0;
+}
+
+// Holt eine Seite still in den Cache, ohne den UI-View zu beruehren.
+static bool sonos_preload_queue_page(const char *host, int start_index)
+{
+    if (start_index < 0) return false;
+
+    bool skip = false;
+    int known_total = 0;
+    if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    queue_page_cache_t *hit = queue_cache_find_locked(start_index);
+    if (hit) {
+        uint32_t age = (uint32_t)esp_log_timestamp() - hit->fetched_ms;
+        if (age < SONOS_QUEUE_CACHE_TTL_MS) skip = true;
+    }
+    known_total = s_queue_total;
+    if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+
+    if (skip) return true;
+    if (known_total > 0 && start_index >= known_total) return false;
+
+    int count = 0;
+    int total = 0;
+    if (!sonos_fetch_queue_page(host, start_index, s_queue_parse_tracks, &count, &total)) {
+        return false;
+    }
+
+    if (s_state_mutex) xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    if (total != s_queue_total) {
+        queue_cache_invalidate_all_locked();
+        s_queue_total = total;
+    }
+    queue_cache_store_locked(start_index, count, total, s_queue_parse_tracks);
+    if (s_state_mutex) xSemaphoreGive(s_state_mutex);
+    return count > 0;
+}
+
+#define QUEUE_IDLE_PREFETCH_INTERVAL_MS 5000
+
+static int s_idle_prefetch_page = -1;
+static uint32_t s_idle_prefetch_attempt_ms;
+
+// Tries to enqueue a preload command, skips when the page is already cached fresh
+// or lies outside the known queue range.
+static void queue_schedule_preload(int start_index)
+{
+    if (start_index < 0) return;
+    if (!s_state_mutex) return;
+
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    int total = s_queue_total;
+    queue_page_cache_t *hit = queue_cache_find_locked(start_index);
+    bool fresh = false;
+    if (hit) {
+        uint32_t age = (uint32_t)esp_log_timestamp() - hit->fetched_ms;
+        fresh = age < SONOS_QUEUE_CACHE_TTL_MS;
+    }
+    xSemaphoreGive(s_state_mutex);
+
+    if (total > 0 && start_index >= total) return;
+    if (fresh) return;
+    sonos_queue_cmd(SONOS_CMD_QUEUE_PRELOAD, start_index);
+}
+
+// Im Idle die Seite mit dem aktuell laufenden Track in den Cache holen,
+// damit ui_queue_show() ohne SOAP-Roundtrip aufmacht.
+static void queue_idle_prefetch_tick(void)
+{
+    if (!s_cmd_queue || uxQueueMessagesWaiting(s_cmd_queue) > 0) return;
+    sonos_player_t snap = sonos_snapshot_active();
+    if (!snap.online || snap.queue_index <= 0) return;
+
+    uint32_t now = (uint32_t)esp_log_timestamp();
+    int page = ((snap.queue_index - 1) / SONOS_QUEUE_MAX_TRACKS) * SONOS_QUEUE_MAX_TRACKS;
+
+    if (page == s_idle_prefetch_page
+        && (uint32_t)(now - s_idle_prefetch_attempt_ms) < QUEUE_IDLE_PREFETCH_INTERVAL_MS) {
+        return;
+    }
+    s_idle_prefetch_page = page;
+    s_idle_prefetch_attempt_ms = now;
+
+    // queue_schedule_preload prueft TTL + total und skippt von selbst, wenn frisch.
+    queue_schedule_preload(page);
 }
 
 static bool sonos_get_volume(const char *host, int *volume_out)
@@ -801,6 +1221,18 @@ static void seek_to_second(const char *host, int seconds)
     soap_post(host, "AVTransport", "Seek", inner, NULL);
 }
 
+static void seek_to_queue_track(const char *host, int track_number)
+{
+    if (track_number <= 0) return;
+
+    char inner[128];
+    // Queue-Tracknummern sind bei Sonos 1-basiert.
+    snprintf(inner, sizeof(inner),
+             "<InstanceID>0</InstanceID><Unit>TRACK_NR</Unit>"
+             "<Target>%d</Target>", track_number);
+    soap_post(host, "AVTransport", "Seek", inner, NULL);
+}
+
 static void set_active_seek_hint(int seconds, bool keep_playing)
 {
     if (seconds < 0) seconds = 0;
@@ -818,6 +1250,22 @@ static void set_active_seek_hint(int seconds, bool keep_playing)
         s_players[idx].last_update_ms = (uint32_t)esp_log_timestamp();
         s_seek_hold_playing[idx] = keep_playing;
         s_seek_hold_until_ms[idx] = s_players[idx].last_update_ms + SONOS_SEEK_HOLD_MS;
+    }
+    xSemaphoreGive(s_state_mutex);
+}
+
+static void set_active_queue_track_hint(int track_number)
+{
+    if (track_number <= 0 || !s_state_mutex) return;
+
+    xSemaphoreTake(s_state_mutex, portMAX_DELAY);
+    int idx = s_active_player;
+    if (idx >= 0 && idx < HOST_COUNT) {
+        // Die UI markiert den gewaehlten Track sofort; der naechste Poll liefert Details.
+        s_players[idx].queue_index = track_number;
+        s_players[idx].position_sec = 0;
+        s_players[idx].playing = true;
+        s_players[idx].last_update_ms = (uint32_t)esp_log_timestamp();
     }
     xSemaphoreGive(s_state_mutex);
 }
@@ -1165,6 +1613,28 @@ static void sonos_task(void *arg)
                 offline_backoff_ms = SONOS_POLL_MS;
                 continue;
             }
+            if (cmd.type == SONOS_CMD_QUEUE_REFRESH) {
+                if (snap.online) {
+                    // Die Queue liegt beim Gruppen-Koordinator unter MediaServer/ContentDirectory.
+                    if (sonos_refresh_queue(snap.host, cmd.value)) {
+                        // Nach erfolgreichem Refresh die Nachbarseiten vorladen,
+                        // damit das nachfolgende Wischen instant wirkt.
+                        queue_schedule_preload(cmd.value - SONOS_QUEUE_MAX_TRACKS);
+                        queue_schedule_preload(cmd.value + SONOS_QUEUE_MAX_TRACKS);
+                    }
+                } else {
+                    queue_clear_status("Player offline");
+                }
+                continue;
+            }
+            if (cmd.type == SONOS_CMD_QUEUE_PRELOAD) {
+                if (snap.online) {
+                    // Atempause: andere Kommandos und Polling haben Vorrang.
+                    vTaskDelay(pdMS_TO_TICKS(SONOS_QUEUE_PRELOAD_DELAY_MS));
+                    sonos_preload_queue_page(snap.host, cmd.value);
+                }
+                continue;
+            }
             if (!snap.online) continue;
 
             switch (cmd.type) {
@@ -1194,6 +1664,14 @@ static void sonos_task(void *arg)
                     if (cmd.value > snap.duration_sec) cmd.value = snap.duration_sec;
                     seek_to_second(snap.host, cmd.value);
                     set_active_seek_hint(cmd.value, snap.playing);
+                }
+                break;
+            case SONOS_CMD_QUEUE_PLAY_TRACK:
+                if (cmd.value > 0) {
+                    seek_to_queue_track(snap.host, cmd.value);
+                    transport_action(snap.host, "Play");
+                    set_active_queue_track_hint(cmd.value);
+                    cover_delay_after_track_skip();
                 }
                 break;
             case SONOS_CMD_TOGGLE_SHUFFLE: {
@@ -1252,6 +1730,7 @@ static void sonos_task(void *arg)
         }
 
         cover_tick();
+        queue_idle_prefetch_tick();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

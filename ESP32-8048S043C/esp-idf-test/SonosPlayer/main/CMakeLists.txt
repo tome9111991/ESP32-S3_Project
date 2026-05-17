@@ -5,6 +5,7 @@ idf_component_register(SRCS "main.c"
                             "wifi_sta.c"
                             "sonos_client.c"
                             "ui_sonos.c"
+                            "ui_queue.c"
                             ${UI_ASSET_SRCS}
                        INCLUDE_DIRS "."
                        REQUIRES esp_lcd
