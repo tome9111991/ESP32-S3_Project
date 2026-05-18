@@ -14,30 +14,47 @@ RGB-panel + GT911 + LVGL scaffold.
 - Starts LVGL via `esp_lvgl_port`
 - Shows the four dashboard screens: time/weather, live crypto price, crypto
   candle chart, and Klipper/Moonraker status
+- Tap the weather icon on the time screen to open the weather detail page
+  with current extras and a 5-day forecast
 - Tap left/right to switch screens; auto-rotation cycles enabled screens with
   per-screen durations
-- Long-press anywhere opens a popup with Settings / Reboot / Factory-Reset
-  (factory reset clears the whole NVS partition and reboots back to the
-  compile-time defaults)
-- Settings menu has five real sub-screens:
+- Long-press anywhere opens a popup with Settings / Reboot / Firmware /
+  Factory-Reset (factory reset clears the whole NVS partition and reboots back
+  to the compile-time defaults)
+- Firmware page shows build metadata and can check/install OTA updates from
+  GitHub Releases when matching release assets are available
+- Settings menu has six real sub-screens:
   - **WLAN** — SSID list + on-screen keyboard, credentials in NVS
   - **Screens** — enable/disable each dashboard screen, per-screen rotation
     duration (5..120 s)
   - **Crypto** — base / quote / chart-timeframe (15M / 1H / 6H / 1D)
-  - **Display** — brightness slider (32..255) with live preview, 180-degree
-    rotation toggle (reboot on change)
+  - **Display** — brightness slider (32..255) with live preview, night-mode
+    toggle, 180-degree rotation toggle (reboot on change)
   - **Touch calibration** — 5-point flow that stores affine map in NVS and
     honors the current 180-degree rotation
+  - **Location** — latitude/longitude editor with keyboard, persisted in NVS
 - Backlight runs on LEDC PWM (250 Hz, 8 bit); day/night brightness follows the
-  computed sun position (full brightness from sunrise+90 min, night value after
-  sunset)
-- Fetches weather from Bright Sky, crypto from Coinbase (spot, 24h stats,
-  candles), and printer data from Moonraker (`/server/info`,
-  `/printer/info`, `/printer/objects/query`, `/server/files/metadata`) using
-  native ESP-IDF HTTP + cJSON; MMU tool / gate / colors / status are rendered
-  on the Klipper screen when present
+  computed sun position (full brightness from sunrise+90 min, night value
+  after sunset; night dimming can be disabled in Display settings)
+- Fetches weather from Open-Meteo, reverse-geocoded location names from
+  BigDataCloud, crypto from Coinbase (spot, 24h stats, candles),
+  and printer data from Moonraker (`/server/info`, `/printer/info`,
+  `/printer/objects/query`, `/server/files/metadata`,
+  `/server/database/item`) using native ESP-IDF HTTP + cJSON; MMU tool / gate /
+  colors / status are rendered on the Klipper screen when present
 
 ## Hardware
+
+Bill of Materials:
+
+Some links may be affiliate links. If you buy through them, I may earn a small
+commission at no extra cost to you.
+
+| Qty | Part | Source |
+| ---: | --- | --- |
+| 1 | ESP32-8048S043C ESP32-S3 HMI display | [Amazon](https://amzn.to/4uZAayc), [AliExpress](https://s.click.aliexpress.com/e/_c4ahltJL), select `Color: Capacitive touch` |
+| 4 | M3x6 cylinder head screws | [Amazon](https://amzn.to/430va00), [AliExpress](https://s.click.aliexpress.com/e/_c3xgcUUx), select `50pcs M3x6mm` |
+| 4 | M3 heat-set inserts, 5x4 mm | [Amazon](https://amzn.to/4wgW0P7), [AliExpress](https://s.click.aliexpress.com/e/_c3v6WnvD), `30pcs` |
 
 | Item | Value |
 |---|---|
@@ -53,9 +70,9 @@ Pinout: see `../../BOARD_CODING_NOTES.md` and the constants near the top of
 
 ## Build / Flash
 
-On the first build the component manager downloads LVGL, esp_lvgl_port and
-esp_lcd_touch_gt911 from the Espressif Component Registry — this can take
-about a minute.
+On the first build the component manager downloads LVGL, esp_lvgl_port,
+esp_lcd_touch_gt911 and cJSON from the Espressif Component Registry — this
+can take about a minute.
 
 ```bash
 idf.py build
@@ -63,6 +80,10 @@ idf.py -p COMx flash monitor
 ```
 
 `Ctrl+]` exits the monitor.
+
+The local helper `build.ps1` defaults to
+`idf.py -B C:\espbuild\kwp_8048 -p COM4 build` and forwards extra arguments
+to `idf.py`.
 
 ## Project layout
 
@@ -79,21 +100,26 @@ KlipperCryptoWeatherPanel_port/
     ├── idf_component.yml          # managed dependencies (LVGL, touch)
     ├── app_state.h                # shared state, constants, public APIs
     ├── config_private.example.h   # copy to config_private.h locally
+    ├── version.h                  # firmware metadata + OTA release defaults
     ├── i18n.h                     # UI string catalog (X-Macro + T(id))
     ├── i18n.c                     # compile-time language selection
     ├── main.c                     # panel + touch + LVGL host loop
-    ├── net_fetcher.c              # WiFi/NTP/Bright Sky/Coinbase/Moonraker
+    ├── net_fetcher.c              # WiFi/NTP/Open-Meteo/Coinbase/Moonraker
+    ├── ota_service.c/.h           # GitHub Releases OTA check/install
     ├── display_brightness.c       # LEDC PWM + sun-based day/night curve
     ├── touch_calibration.c        # CAL map, NVS, 5-point UI
     ├── ui_screens.c               # the four dashboard screens
+    ├── ui_weather_detail.c        # detail page for current + 5-day weather
     ├── ui_chart.c                 # candle chart renderer
-    ├── ui_popup.c                 # long-press popup (Settings/Reboot/Reset)
+    ├── ui_popup.c                 # long-press popup (Settings/Reboot/FW/Reset)
+    ├── ui_firmware_info.c         # firmware metadata + OTA UI
     ├── ui_settings_menu.c         # settings list (port of 12_SettingsMenu)
     ├── ui_wifi_setup.c            # WLAN sub-screen (scan + keyboard)
     ├── ui_keyboard.c              # on-screen keyboard widget
     ├── ui_screen_settings.c       # enable/disable + per-screen durations
     ├── ui_crypto_settings.c       # base / quote / timeframe selector
-    ├── ui_display_settings.c      # brightness + rotate-180
+    ├── ui_display_settings.c      # brightness, night mode, rotate-180
+    ├── ui_location_settings.c     # runtime latitude/longitude editor
     ├── ui_font_price_digits.*     # large crypto price font
     ├── ui_font_time_digits.*      # large clock font
     ├── ui_assets.h                # icon table
@@ -112,10 +138,18 @@ changing defaults: delete `sdkconfig` and regenerate.
 | `esp_lcd` | ESP-IDF built-in | RGB panel driver |
 | `esp_driver_i2c` | ESP-IDF built-in | I2C master for touch |
 | `esp_driver_gpio` | ESP-IDF built-in | Backlight, touch reset |
+| `esp_driver_ledc` | ESP-IDF built-in | Backlight PWM |
 | `esp_timer` | ESP-IDF built-in | Timestamps |
+| `esp_wifi`, `esp_event`, `esp_netif` | ESP-IDF built-in | WiFi station mode |
+| `nvs_flash` | ESP-IDF built-in | Runtime settings |
+| `esp_http_client` | ESP-IDF built-in | REST API requests |
+| `esp_https_ota`, `app_update` | ESP-IDF built-in | OTA install + rollback |
+| `esp-tls`, `mbedtls` | ESP-IDF built-in | TLS and certificate bundle |
+| `lwip` | ESP-IDF built-in | DHCP/NTP networking |
+| `espressif/cjson` | Component Registry | JSON parsing |
 | `espressif/esp_lvgl_port` | Component Registry | LVGL integration for ESP boards |
 | `espressif/esp_lcd_touch_gt911` | Component Registry | GT911 I2C driver |
-| `lvgl/lvgl` | Component Registry (transitive) | UI library |
+| `lvgl/lvgl` | Component Registry | UI library |
 
 ## Configuration
 
@@ -133,13 +167,14 @@ reset without needing a console.
 | Domain | Keys | Source |
 |---|---|---|
 | WiFi | `wifi/ssid`, `wifi/pass` | WLAN sub-screen |
-| Display | `display/day_bright`, `display/rotate180` | Display sub-screen |
-| Screens | enable + duration per screen | Screens sub-screen |
+| Display | `display/day_bright`, `display/night_en`, `display/rotate180` | Display sub-screen |
+| Screens | `screens/time`, `screens/price`, `screens/chart`, `screens/klipper`, `screens/d_*` | Screens sub-screen |
 | Crypto | base, quote, timeframe | Crypto sub-screen |
+| Location | `location/lat`, `location/lon` | Location sub-screen |
 | Touch | calibration affine map | Touch sub-screen |
 
-Fields not (yet) exposed via UI — location/timezone, Coinbase vs. another
-service, Klipper base URL — stay in `config_private.h`.
+Fields not (yet) exposed via UI — timezone, Coinbase vs. another service,
+price prefix, Klipper base URL — stay in `config_private.h`.
 
 ### UI language (compile-time)
 
@@ -159,17 +194,52 @@ Switching the language with `menuconfig` changes `sdkconfig.h`, which most
 TUs include transitively → expect a near-full recompile after the switch.
 Editing only `i18n.c` (e.g. tweaking a translation) rebuilds just that file.
 
+### Firmware metadata and OTA
+
+`main/version.h` provides fallback values for:
+
+| Macro | Default | Purpose |
+|---|---|---|
+| `APP_FW_NAME` | `KCWPv2` | Release tag prefix and firmware screen name |
+| `APP_FW_VERSION` | `20260513` | Current version; compared lexicographically |
+| `APP_FW_BOARD` | `ESP32-8048S043C` | OTA asset selector |
+| `APP_OTA_REPO_OWNER` / `APP_OTA_REPO_NAME` | local defaults | GitHub Releases source |
+
+These can be overridden from CMake, for example:
+
+```bash
+idf.py build -DAPP_FW_VERSION="20260514" -DAPP_FW_BOARD="ESP32-8048S043C"
+```
+
+The OTA checker scans GitHub Releases for tags named `APP_FW_NAME-<version>`
+and expects an asset named:
+
+```text
+APP_FW_NAME-APP_FW_BOARD-APP_FW_LANG.bin
+```
+
+`APP_FW_LANG` is `DE` or `EN` from the compile-time language selection. OTA
+installation pauses the normal API fetch loop, uses the OTA slots from
+`partitions.csv`, and relies on bootloader rollback. The release API call uses
+the certificate bundle; the large firmware stream intentionally skips server
+certificate verification to reduce heap pressure during the download.
+
 ## Technical decisions
 
 A few non-obvious things that were learned the hard way and are worth
 documenting:
 
-### Double framebuffer + DIRECT render mode
+### RGB framebuffers, DIRECT render mode and rotation
 
-`num_fbs = 2`, `avoid_tearing = true`, `direct_mode = true`. These three are
-coupled: `esp_lvgl_port` uses the two panel FBs as front/back buffers and
-swaps them on VSYNC. Without `direct_mode`, LVGL falls back to partial mode,
-but its flush logic does not match full-size FBs → blank or stuck image.
+The RGB panel itself is initialized with `num_fbs = 2` in PSRAM. In normal
+orientation, `direct_mode = true` and `avoid_tearing = true` are used together:
+`esp_lvgl_port` treats the two panel FBs as front/back buffers and swaps them
+on VSYNC. If that fast path is tested again, keep those two flags coupled.
+
+With the current default `DISPLAY_ROTATE_180_DEFAULT = 1`, the port deliberately
+uses a 20-line LVGL partial buffer instead of the direct full-frame path. That
+flushes through `esp_lcd_panel_draw_bitmap()`, which honors the 180-degree
+rotation reliably on this RGB panel.
 
 ### Bounce buffer is mandatory, not optional
 
@@ -203,6 +273,14 @@ Trade-off: later flash/NVS writes may produce occasional display artifacts —
 the right fix then is to pause LVGL around the write, not to tighten the
 driver beyond what `esp_lvgl_port` expects.
 
+### 180-degree rotation persists in NVS
+
+The Display settings screen persists `display/rotate180` and reboots after a
+change so the buffer layout, touch map, and LVGL display state start cleanly.
+The touch coordinate callback returns panel pixels; LVGL applies display
+rotation internally, while the local touch polling timer mirrors manually for
+screen-switch detection and the long-press feedback arc.
+
 ### Pixels via `esp_lcd_panel_draw_bitmap()`, not direct FB writes
 
 Direct CPU writes to the PSRAM framebuffer have cache coherency issues:
@@ -220,20 +298,6 @@ the `esp_lcd_touch` handle. This way **every** consumer (LVGL input and our
 own polling) receives already-mapped screen pixels — no per-call conversion
 needed.
 
-### 180-degree display rotation via panel mirror
-
-`DISPLAY_ROTATE_180_DEFAULT = 1` matches the Arduino sketch. The actual rotation
-flag is loaded from NVS (`display/rotate180`) at boot and applied via
-`LV_DISPLAY_ROTATION_180` after the RGB display is added. The touch coordinate
-callback returns panel pixels; LVGL applies the rotation internally via
-`lv_display_rotate_point`, and the local touch polling timer mirrors manually
-for screen-switch detection and the feedback arc. With rotation enabled, LVGL
-uses a small 20-line partial buffer and flushes through
-`esp_lcd_panel_draw_bitmap()`, since that path honors the panel mirror on RGB
-panels. Software rotation stays disabled — no extra rotation buffer. Toggling
-the option in the Display sub-screen persists to NVS and triggers a clean
-reboot so the buffer layout and touch map come up in the new orientation.
-
 ## Pitfalls
 
 | Symptom | Cause | Fix |
@@ -248,15 +312,17 @@ reboot so the buffer layout and touch map come up in the new orientation.
 | Screen shakes / button tears on UI updates | LCD-DMA fights LVGL writes on the PSRAM bus | Enable `bb_mode` + `bounce_buffer_size_px = LCD_H_RES * 10` |
 | Constant subtle wobble even without UI changes | CPU instruction fetches hit PSRAM during DMA bursts | Disable `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` |
 | Image unstable even with bounce buffer | PCLK too high for panel timing | Lower PCLK to 14 MHz |
+| OTA check finds no update | Release tag/asset does not match | Use `APP_FW_NAME-<version>` tag and `APP_FW_NAME-APP_FW_BOARD-APP_FW_LANG.bin` asset |
 
 ## Open items
 
 Feature parity with the Arduino sketch is reached. See `TODO.md` for the
 remaining items, which are mostly nice-to-have:
 
-- OTA / web-based config (OTA partitions are already laid out).
+- Web-based config, if runtime configuration should move beyond the panel UI.
 - API status / diagnostics screen.
 - README screenshots.
+- Release workflow documentation for producing OTA assets.
 
 Two refactor ideas (`net_fetcher.c` split into per-service files, `g_app` write
 setters) are tracked but intentionally on hold — the current shape is
@@ -274,3 +340,8 @@ new complexity.
 - esp_lcd_touch_gt911:
   https://components.espressif.com/components/espressif/esp_lcd_touch_gt911
 - LVGL 9 docs: https://docs.lvgl.io/9/
+- Open-Meteo forecast API: https://open-meteo.com/en/docs
+- BigDataCloud Reverse Geocoding API:
+  https://www.bigdatacloud.com/free-api/free-reverse-geocode-to-city-api
+- Coinbase Exchange API: https://docs.cdp.coinbase.com/exchange/docs/welcome
+- Moonraker API: https://moonraker.readthedocs.io/
