@@ -1,3 +1,33 @@
+// HTTP-Client-Pool: persistente Instanzen pro Endpunkt-Gruppe.
+// Verhindert TLS-Heap-Churn (mbedTLS-Context-Allokationen) und erlaubt
+// HTTP-Keep-Alive bei haeufig befragten Hosts (Klipper alle 7s).
+static WiFiClientSecure coinbaseSpotTls;
+static WiFiClientSecure coinbaseExchangeTls;
+static WiFiClientSecure openMeteoTls;
+static WiFiClientSecure geocodeTls;
+static WiFiClient klipperPlain;
+
+static HTTPClient coinbaseSpotHttp;
+static HTTPClient coinbaseExchangeHttp;
+static HTTPClient openMeteoHttp;
+static HTTPClient geocodeHttp;
+static HTTPClient klipperHttp;
+
+static bool httpClientsInited = false;
+
+static void initHttpClientsOnce() {
+  if (httpClientsInited) {
+    return;
+  }
+  // NetworkClientSecure (neuer Core) hat kein setBufferSizes mehr -> Default-Puffer.
+  // Hauptgewinn ist die Wiederverwendung der TLS-Instanzen (keine mbedTLS-Allokationsspitzen pro Call).
+  coinbaseSpotTls.setInsecure();
+  coinbaseExchangeTls.setInsecure();
+  openMeteoTls.setInsecure();
+  geocodeTls.setInsecure();
+  httpClientsInited = true;
+}
+
 String readHttpPayloadChunked(HTTPClient& http, size_t reserveBytes) {
   StreamString payload;
   int httpSize = http.getSize();
@@ -106,29 +136,29 @@ int weatherDisplayCodeFromCurrent(int code, const String& currentTime, float pre
 }
 
 bool resolveWeatherLocationName() {
-  WiFiClientSecure locationClient;
-  locationClient.setInsecure();
+  initHttpClientsOnce();
 
-  HTTPClient http;
   String url = buildReverseGeocodeUrl();
-  if (!http.begin(locationClient, url)) {
+  if (!geocodeHttp.begin(geocodeTls, url)) {
     Serial.println("Geo HTTP begin fehlgeschlagen");
     return false;
   }
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(8000);
+  geocodeHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  // HTTPS + setReuse(true) ist im aktuellen NetworkClientSecure buggy
+  // (Folgeanfragen liefern "connection refused"). Daher nur fuer plain HTTP an.
+  geocodeHttp.setReuse(false);
+  geocodeHttp.setTimeout(8000);
 
-  int httpCode = http.GET();
+  int httpCode = geocodeHttp.GET();
   Serial.printf("Geo HTTP: %d\n", httpCode);
   yieldFetchTask();
   if (httpCode != HTTP_CODE_OK) {
-    http.end();
+    geocodeHttp.end();
     return false;
   }
 
-  String payload = readHttpPayloadChunked(http, 2048);
-  http.end();
+  String payload = readHttpPayloadChunked(geocodeHttp, 2048);
+  geocodeHttp.end();
   yieldFetchTask();
 
   JsonDocument doc;
@@ -163,23 +193,21 @@ bool fetchWeatherValue() {
     weatherLocationNameResolved = resolveWeatherLocationName();
   }
 
-  WiFiClientSecure weatherClient;
-  weatherClient.setInsecure();
+  initHttpClientsOnce();
 
-  HTTPClient http;
   String weatherUrl = buildOpenMeteoUrl();
-  if (!http.begin(weatherClient, weatherUrl)) {
+  if (!openMeteoHttp.begin(openMeteoTls, weatherUrl)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     weatherStatus = "OM: HTTP BEGIN";
     xSemaphoreGive(dataMutex);
     Serial.println("Open-Meteo HTTP begin fehlgeschlagen");
     return false;
   }
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(8000);
+  openMeteoHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  openMeteoHttp.setReuse(false);
+  openMeteoHttp.setTimeout(8000);
 
-  int httpCodeWeather = http.GET();
+  int httpCodeWeather = openMeteoHttp.GET();
   Serial.printf("Open-Meteo HTTP: %d\n", httpCodeWeather);
   yieldFetchTask();
 
@@ -188,7 +216,7 @@ bool fetchWeatherValue() {
   xSemaphoreGive(dataMutex);
 
   if (httpCodeWeather == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 8192);
+    String payload = readHttpPayloadChunked(openMeteoHttp, 8192);
     yieldFetchTask();
 
     JsonDocument doc;
@@ -200,7 +228,7 @@ bool fetchWeatherValue() {
       Serial.print("Open-Meteo JSON Parse Fehler: ");
       Serial.println(error.c_str());
       Serial.println(payload.substring(0, 240));
-      http.end();
+      openMeteoHttp.end();
       return false;
     }
 
@@ -241,7 +269,7 @@ bool fetchWeatherValue() {
       weatherStatus = UI_TEXT_WEATHER_OK;
       xSemaphoreGive(dataMutex);
       Serial.println(String("Open-Meteo Temperatur: ") + temp + " C, code=" + String(parsedWeatherCode) + ", precipitation=" + String(precipitation, 2) + ", rain=" + String(rain, 2) + ", showers=" + String(showers, 2) + ", snowfall=" + String(snowfall, 2));
-      http.end();
+      openMeteoHttp.end();
       return true;
     }
 
@@ -252,20 +280,18 @@ bool fetchWeatherValue() {
     Serial.println(payload.substring(0, 240));
   } else {
     Serial.print("Open-Meteo Fehler: ");
-    Serial.println(http.errorToString(httpCodeWeather));
+    Serial.println(openMeteoHttp.errorToString(httpCodeWeather));
   }
 
-  http.end();
+  openMeteoHttp.end();
   return false;
 }
 
 bool fetchBtcPrice() {
-  WiFiClientSecure btcClient;
-  btcClient.setInsecure();
+  initHttpClientsOnce();
 
-  HTTPClient http;
   String url = cryptoSpotUrl();
-  if (!http.begin(btcClient, url)) {
+  if (!coinbaseSpotHttp.begin(coinbaseSpotTls, url)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     currentBtcStatus = String(cryptoBaseSymbol) + " HTTP BEGIN";
     if (currentBtcPrice == UI_TEXT_LOADING) {
@@ -275,15 +301,15 @@ bool fetchBtcPrice() {
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(8000);
-  int httpCodeBtc = http.GET();
+  coinbaseSpotHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  coinbaseSpotHttp.setReuse(false);
+  coinbaseSpotHttp.setTimeout(8000);
+  int httpCodeBtc = coinbaseSpotHttp.GET();
   Serial.printf("%s HTTP: %d\n", cryptoBaseSymbol, httpCodeBtc);
   yieldFetchTask();
 
   if (httpCodeBtc == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 1024);
+    String payload = readHttpPayloadChunked(coinbaseSpotHttp, 1024);
     yieldFetchTask();
     String marker = "\"amount\":\"";
     int amountIndex = payload.indexOf(marker);
@@ -316,7 +342,7 @@ bool fetchBtcPrice() {
         xSemaphoreGive(dataMutex);
         updateLiveCandleFromPrice(livePrice);
 
-        http.end();
+        coinbaseSpotHttp.end();
         return true;
       }
     }
@@ -337,32 +363,30 @@ bool fetchBtcPrice() {
     }
     xSemaphoreGive(dataMutex);
     Serial.printf("%s Fehler: ", cryptoBaseSymbol);
-    Serial.println(http.errorToString(httpCodeBtc));
+    Serial.println(coinbaseSpotHttp.errorToString(httpCodeBtc));
   }
 
-  http.end();
+  coinbaseSpotHttp.end();
   return false;
 }
 
 bool fetchBtcStats() {
-  WiFiClientSecure statsClient;
-  statsClient.setInsecure();
+  initHttpClientsOnce();
 
-  HTTPClient http;
-  if (!http.begin(statsClient, cryptoStatsUrl())) {
+  if (!coinbaseExchangeHttp.begin(coinbaseExchangeTls, cryptoStatsUrl())) {
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(8000);
-  http.addHeader("User-Agent", "ESP32-S3-HMI");
-  int httpCodeStats = http.GET();
+  coinbaseExchangeHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  coinbaseExchangeHttp.setReuse(false);
+  coinbaseExchangeHttp.setTimeout(8000);
+  coinbaseExchangeHttp.addHeader("User-Agent", "ESP32-S3-HMI");
+  int httpCodeStats = coinbaseExchangeHttp.GET();
   Serial.printf("%s Stats HTTP: %d\n", cryptoBaseSymbol, httpCodeStats);
   yieldFetchTask();
 
   if (httpCodeStats == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 1024);
+    String payload = readHttpPayloadChunked(coinbaseExchangeHttp, 1024);
     yieldFetchTask();
 
     JsonDocument doc;
@@ -376,7 +400,7 @@ bool fetchBtcStats() {
         currentBtc24hOpen = openPrice;
         currentBtc24hReady = true;
         xSemaphoreGive(dataMutex);
-        http.end();
+        coinbaseExchangeHttp.end();
         return true;
       }
     } else {
@@ -388,10 +412,10 @@ bool fetchBtcStats() {
     Serial.println(payload.substring(0, 240));
   } else {
     Serial.print("BTC Stats Fehler: ");
-    Serial.println(http.errorToString(httpCodeStats));
+    Serial.println(coinbaseExchangeHttp.errorToString(httpCodeStats));
   }
 
-  http.end();
+  coinbaseExchangeHttp.end();
   return false;
 }
 
@@ -728,24 +752,22 @@ bool fetchKlipperFileMetadata(const String& filename, float& estimatedSeconds) {
     return false;
   }
 
-  WiFiClient klipperClient;
-  HTTPClient http;
   String url = String(klipperBaseUrl) + "/server/files/metadata?filename=" + urlEncodeQueryParam(filename);
 
-  if (!http.begin(klipperClient, url)) {
+  if (!klipperHttp.begin(klipperPlain, url)) {
     Serial.println("Klipper Metadata HTTP begin fehlgeschlagen");
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(3000);
-  int httpCodeMetadata = http.GET();
+  klipperHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  klipperHttp.setReuse(true);
+  klipperHttp.setTimeout(3000);
+  int httpCodeMetadata = klipperHttp.GET();
   Serial.printf("Klipper Metadata HTTP: %d\n", httpCodeMetadata);
   yieldFetchTask();
 
   if (httpCodeMetadata == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 4096);
+    String payload = readHttpPayloadChunked(klipperHttp, 4096);
     yieldFetchTask();
 
     JsonDocument filter;
@@ -764,7 +786,7 @@ bool fetchKlipperFileMetadata(const String& filename, float& estimatedSeconds) {
       if (isfinite(parsedEstimate) && parsedEstimate > 0.5f) {
         estimatedSeconds = parsedEstimate;
         Serial.printf("Klipper Metadata Estimate: %.0f Sekunden\n", estimatedSeconds);
-        http.end();
+        klipperHttp.end();
         return true;
       }
     } else {
@@ -776,10 +798,10 @@ bool fetchKlipperFileMetadata(const String& filename, float& estimatedSeconds) {
     Serial.println(payload.substring(0, 240));
   } else {
     Serial.print("Klipper Metadata Fehler: ");
-    Serial.println(http.errorToString(httpCodeMetadata));
+    Serial.println(klipperHttp.errorToString(httpCodeMetadata));
   }
 
-  http.end();
+  klipperHttp.end();
   return false;
 }
 
@@ -818,24 +840,22 @@ float klipperEstimatedSecondsForFile(const String& filename) {
 }
 
 bool fetchKlipperPrinterName() {
-  WiFiClient klipperClient;
-  HTTPClient http;
   String url = String(klipperBaseUrl) + "/server/database/item?namespace=mainsail&key=general.printername";
 
-  if (!http.begin(klipperClient, url)) {
+  if (!klipperHttp.begin(klipperPlain, url)) {
     Serial.println("Klipper Name HTTP begin fehlgeschlagen");
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(3000);
-  int httpCodeName = http.GET();
+  klipperHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  klipperHttp.setReuse(true);
+  klipperHttp.setTimeout(3000);
+  int httpCodeName = klipperHttp.GET();
   Serial.printf("Klipper Name HTTP: %d\n", httpCodeName);
   yieldFetchTask();
 
   if (httpCodeName == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 512);
+    String payload = readHttpPayloadChunked(klipperHttp, 512);
     yieldFetchTask();
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
@@ -855,15 +875,15 @@ bool fetchKlipperPrinterName() {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       klipperPrinterName = name;
       xSemaphoreGive(dataMutex);
-      http.end();
+      klipperHttp.end();
       return true;
     }
   } else {
     Serial.print("Klipper Name Fehler: ");
-    Serial.println(http.errorToString(httpCodeName));
+    Serial.println(klipperHttp.errorToString(httpCodeName));
   }
 
-  http.end();
+  klipperHttp.end();
   return false;
 }
 
@@ -871,11 +891,9 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
   klippyState = "";
   klippyMessage = "";
 
-  WiFiClient klipperClient;
-  HTTPClient http;
   String url = String(klipperBaseUrl) + "/server/info";
 
-  if (!http.begin(klipperClient, url)) {
+  if (!klipperHttp.begin(klipperPlain, url)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     klipperHostAvailable = false;
     klipperAvailable = false;
@@ -889,15 +907,15 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(3000);
-  int httpCodeInfo = http.GET();
+  klipperHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  klipperHttp.setReuse(true);
+  klipperHttp.setTimeout(3000);
+  int httpCodeInfo = klipperHttp.GET();
   Serial.printf("Moonraker Info HTTP: %d\n", httpCodeInfo);
   yieldFetchTask();
 
   if (httpCodeInfo == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 1024);
+    String payload = readHttpPayloadChunked(klipperHttp, 1024);
     yieldFetchTask();
 
     JsonDocument doc;
@@ -915,7 +933,7 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
       Serial.print("Moonraker Info JSON Parse Fehler: ");
       Serial.println(error.c_str());
       Serial.println(payload.substring(0, 240));
-      http.end();
+      klipperHttp.end();
       return false;
     }
 
@@ -965,7 +983,7 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
     }
     xSemaphoreGive(dataMutex);
 
-    http.end();
+    klipperHttp.end();
     return true;
   }
 
@@ -979,31 +997,29 @@ bool fetchKlipperServerInfo(String& klippyState, String& klippyMessage) {
   klipperDisplayMessage = "";
   xSemaphoreGive(dataMutex);
   Serial.print("Moonraker Info Fehler: ");
-  Serial.println(http.errorToString(httpCodeInfo));
+  Serial.println(klipperHttp.errorToString(httpCodeInfo));
 
-  http.end();
+  klipperHttp.end();
   return false;
 }
 
 bool fetchKlipperPrinterInfo(String& klippyState, String& klippyMessage) {
-  WiFiClient klipperClient;
-  HTTPClient http;
   String url = String(klipperBaseUrl) + "/printer/info";
 
-  if (!http.begin(klipperClient, url)) {
+  if (!klipperHttp.begin(klipperPlain, url)) {
     Serial.println("Klipper Printer Info HTTP begin fehlgeschlagen");
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(3000);
-  int httpCodeInfo = http.GET();
+  klipperHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  klipperHttp.setReuse(true);
+  klipperHttp.setTimeout(3000);
+  int httpCodeInfo = klipperHttp.GET();
   Serial.printf("Klipper Printer Info HTTP: %d\n", httpCodeInfo);
   yieldFetchTask();
 
   if (httpCodeInfo == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 2048);
+    String payload = readHttpPayloadChunked(klipperHttp, 2048);
     yieldFetchTask();
 
     JsonDocument doc;
@@ -1012,7 +1028,7 @@ bool fetchKlipperPrinterInfo(String& klippyState, String& klippyMessage) {
       Serial.print("Klipper Printer Info JSON Parse Fehler: ");
       Serial.println(error.c_str());
       Serial.println(payload.substring(0, 240));
-      http.end();
+      klipperHttp.end();
       return false;
     }
 
@@ -1034,13 +1050,13 @@ bool fetchKlipperPrinterInfo(String& klippyState, String& klippyMessage) {
       klippyMessage = message;
     }
 
-    http.end();
+    klipperHttp.end();
     return true;
   }
 
   Serial.print("Klipper Printer Info Fehler: ");
-  Serial.println(http.errorToString(httpCodeInfo));
-  http.end();
+  Serial.println(klipperHttp.errorToString(httpCodeInfo));
+  klipperHttp.end();
   return false;
 }
 
@@ -1063,12 +1079,10 @@ bool fetchKlipperStatus() {
     return true;
   }
 
-  WiFiClient klipperClient;
-  HTTPClient http;
   String url = buildKlipperQueryUrl();
   bool statusHttpEnded = false;
 
-  if (!http.begin(klipperClient, url)) {
+  if (!klipperHttp.begin(klipperPlain, url)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     klipperHostAvailable = true;
     klipperAvailable = false;
@@ -1080,15 +1094,15 @@ bool fetchKlipperStatus() {
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(3000);
-  int httpCodeKlipper = http.GET();
+  klipperHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  klipperHttp.setReuse(true);
+  klipperHttp.setTimeout(3000);
+  int httpCodeKlipper = klipperHttp.GET();
   Serial.printf("Klipper HTTP: %d\n", httpCodeKlipper);
   yieldFetchTask();
 
   if (httpCodeKlipper == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 4096);
+    String payload = readHttpPayloadChunked(klipperHttp, 4096);
     yieldFetchTask();
 
     JsonDocument doc;
@@ -1104,7 +1118,7 @@ bool fetchKlipperStatus() {
       Serial.println("Klipper JSON konnte nicht geparst werden:");
       Serial.println(error.c_str());
       Serial.println(payload.substring(0, 240));
-      http.end();
+      klipperHttp.end();
       return false;
     }
 
@@ -1151,7 +1165,7 @@ bool fetchKlipperStatus() {
 
     float estimatedSeconds = 0.0f;
     if (hasKlipperData && rawFilename.length() > 0) {
-      http.end();
+      klipperHttp.end();
       statusHttpEnded = true;
       estimatedSeconds = klipperEstimatedSecondsForFile(rawFilename);
     } else if (hasKlipperData) {
@@ -1188,7 +1202,7 @@ bool fetchKlipperStatus() {
       }
       xSemaphoreGive(dataMutex);
       if (!statusHttpEnded) {
-        http.end();
+        klipperHttp.end();
       }
       return true;
     }
@@ -1203,7 +1217,7 @@ bool fetchKlipperStatus() {
     Serial.println("Klipper Daten nicht in Antwort gefunden:");
     Serial.println(payload.substring(0, 240));
     if (!statusHttpEnded) {
-      http.end();
+      klipperHttp.end();
     }
     return false;
   } else {
@@ -1215,11 +1229,11 @@ bool fetchKlipperStatus() {
     klipperDisplayMessage = "";
     xSemaphoreGive(dataMutex);
     Serial.print("Klipper Fehler: ");
-    Serial.println(http.errorToString(httpCodeKlipper));
+    Serial.println(klipperHttp.errorToString(httpCodeKlipper));
   }
 
   if (!statusHttpEnded) {
-    http.end();
+    klipperHttp.end();
   }
   return false;
 }
@@ -1258,29 +1272,27 @@ bool fetchBtcCandles() {
     return false;
   }
 
-  WiFiClientSecure candleClient;
-  candleClient.setInsecure();
+  initHttpClientsOnce();
 
   String candlesUrl = buildBtcCandlesUrl();
 
-  HTTPClient http;
-  if (!http.begin(candleClient, candlesUrl)) {
+  if (!coinbaseExchangeHttp.begin(coinbaseExchangeTls, candlesUrl)) {
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     btcCandleStatus = "CANDLE HTTP BEGIN";
     xSemaphoreGive(dataMutex);
     return false;
   }
 
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false);
-  http.setTimeout(8000);
-  http.addHeader("User-Agent", "ESP32-S3-HMI");
-  int httpCodeCandles = http.GET();
+  coinbaseExchangeHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  coinbaseExchangeHttp.setReuse(false);
+  coinbaseExchangeHttp.setTimeout(8000);
+  coinbaseExchangeHttp.addHeader("User-Agent", "ESP32-S3-HMI");
+  int httpCodeCandles = coinbaseExchangeHttp.GET();
   Serial.printf("BTC Candles HTTP: %d\n", httpCodeCandles);
   yieldFetchTask();
 
   if (httpCodeCandles == HTTP_CODE_OK) {
-    String payload = readHttpPayloadChunked(http, 8192);
+    String payload = readHttpPayloadChunked(coinbaseExchangeHttp, 8192);
     yieldFetchTask();
     Serial.printf("BTC Candles Payload: %u Bytes\n", (unsigned)payload.length());
     if (parsedBtcCandles == nullptr && !initBtcStorage()) {
@@ -1288,7 +1300,7 @@ bool fetchBtcCandles() {
       btcCandleStatus = "CANDLE RAM";
       btcDayDataReady = false;
       xSemaphoreGive(dataMutex);
-      http.end();
+      coinbaseExchangeHttp.end();
       return false;
     }
 
@@ -1302,7 +1314,7 @@ bool fetchBtcCandles() {
         parsedBtcCandles[0].time,
         parsedBtcCandles[parsedCount - 1].time
       );
-      http.end();
+      coinbaseExchangeHttp.end();
       return true;
     }
 
@@ -1318,10 +1330,10 @@ bool fetchBtcCandles() {
     btcDayDataReady = false;
     xSemaphoreGive(dataMutex);
     Serial.print("BTC Candles Fehler: ");
-    Serial.println(http.errorToString(httpCodeCandles));
+    Serial.println(coinbaseExchangeHttp.errorToString(httpCodeCandles));
   }
 
-  http.end();
+  coinbaseExchangeHttp.end();
   return false;
 }
 

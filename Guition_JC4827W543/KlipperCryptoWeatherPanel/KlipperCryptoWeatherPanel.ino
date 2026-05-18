@@ -9,6 +9,8 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <LittleFS.h>
+#include <WebServer.h>
 
 #define LV_CONF_INCLUDE_SIMPLE
 #include <lvgl.h>
@@ -179,6 +181,9 @@ const char* TEMP_UNIT = " \xc2\xb0""C";
 #ifndef SCREEN_KLIPPER_ENABLED
   #define SCREEN_KLIPPER_ENABLED 1
 #endif
+#ifndef DEBUG_ENABLED
+  #define DEBUG_ENABLED 0
+#endif
 
 #if !(SCREEN_TIME_ENABLED || SCREEN_CRYPTO_PRICE_ENABLED || SCREEN_CRYPTO_CHART_ENABLED || SCREEN_KLIPPER_ENABLED)
   #error "Mindestens ein Screen muss aktiviert sein (SCREEN_*_ENABLED in config_private.h)."
@@ -275,7 +280,8 @@ const unsigned long wifiReconnectInterval = 10000;
 unsigned long lastHealthLog = 0;
 const unsigned long healthLogInterval = 60000;
 const uint32_t fetchTaskStackSize = 16384;
-const UBaseType_t fetchTaskPriority = 0;
+// Prio 1: nicht IDLE-Niveau, damit der Task nicht mit dem Core-1-IDLE-Task konkurriert.
+const UBaseType_t fetchTaskPriority = 1;
 // Auf diesem Setup nicht auf Core 0 legen: dort laufen WLAN/TCPIP-Anteile und IDLE0-WDT.
 const BaseType_t fetchTaskCore = 1;
 
@@ -411,6 +417,11 @@ static uint32_t lvTickMillis();
 const char* resetReasonName(esp_reset_reason_t reason);
 void printBootDiagnostics();
 void printRuntimeHealth();
+void initHealthLog();
+void dumpHealthLogOnBoot();
+void appendHealthLogLine(const char* line);
+void startHealthServerIfNeeded();
+void serviceHealthServer();
 bool getLocalTimeFast(struct tm& timeinfo);
 bool configureTimeOnce();
 void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap);
@@ -540,6 +551,11 @@ void setup() {
   delay(200);
   printBootDiagnostics();
 
+#if DEBUG_ENABLED
+  initHealthLog();
+  dumpHealthLogOnBoot();
+#endif
+
   dataMutex = xSemaphoreCreateMutex();
   if (dataMutex == NULL) {
     Serial.println("Mutex Init fehlgeschlagen!");
@@ -603,6 +619,9 @@ void setup() {
 
 void loop() {
   updateWifiState();
+#if DEBUG_ENABLED
+  serviceHealthServer();
+#endif
 
   unsigned long now = millis();
   if (now - lastUiRefresh >= uiRefreshInterval) {
@@ -615,10 +634,12 @@ void loop() {
     updateBrightnessBySun();
   }
 
+#if DEBUG_ENABLED
   if (now - lastHealthLog >= healthLogInterval) {
     lastHealthLog = now;
     printRuntimeHealth();
   }
+#endif
 
   if (currentScreen == SCREEN_KLIPPER && !isKlipperScreenAvailable()) {
     lastScreenSwitch = now;

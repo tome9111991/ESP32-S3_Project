@@ -1,3 +1,85 @@
+static int wifiReconnectFailures = 0;
+static const int wifiHardResetThreshold = 3;
+
+#if DEBUG_ENABLED
+static WebServer healthServer(80);
+static bool healthServerStarted = false;
+
+static void sendHealthFile(const char* path, const char* notFoundMessage) {
+  if (!LittleFS.exists(path)) {
+    healthServer.send(404, "text/plain", notFoundMessage);
+    return;
+  }
+  File f = LittleFS.open(path, "r");
+  if (!f) {
+    healthServer.send(500, "text/plain", "open failed");
+    return;
+  }
+  healthServer.streamFile(f, "text/csv");
+  f.close();
+}
+
+static void handleHealthCsv() {
+  sendHealthFile("/health.csv", "no log yet");
+}
+
+static void handleHealthOldCsv() {
+  sendHealthFile("/health.old.csv", "no rotated log");
+}
+
+static size_t fileSizeOrZero(const char* path) {
+  if (!LittleFS.exists(path)) {
+    return 0;
+  }
+  File f = LittleFS.open(path, "r");
+  if (!f) {
+    return 0;
+  }
+  size_t size = f.size();
+  f.close();
+  return size;
+}
+
+static void handleHealthIndex() {
+  String html;
+  html.reserve(512);
+  html += "<!doctype html><meta charset=utf-8><title>Health Log</title>";
+  html += "<h1>ESP32 Health Log</h1><ul>";
+  html += "<li><a href='/health.csv'>health.csv</a> (";
+  html += String((unsigned long)fileSizeOrZero("/health.csv"));
+  html += " Bytes)</li>";
+  html += "<li><a href='/health.old.csv'>health.old.csv</a> (";
+  html += String((unsigned long)fileSizeOrZero("/health.old.csv"));
+  html += " Bytes)</li></ul>";
+  html += "<p>Spalten: uptime_s,heap,min,maxAlloc,internalLargest,psramFree,fetchStackHWM,wifi,rssi</p>";
+  healthServer.send(200, "text/html", html);
+}
+
+void startHealthServerIfNeeded() {
+  if (healthServerStarted) {
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+  healthServer.on("/", handleHealthIndex);
+  healthServer.on("/health.csv", handleHealthCsv);
+  healthServer.on("/health.old.csv", handleHealthOldCsv);
+  healthServer.begin();
+  healthServerStarted = true;
+  Serial.print("Health-Server bereit: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
+}
+
+void serviceHealthServer() {
+  if (!healthServerStarted) {
+    return;
+  }
+  healthServer.handleClient();
+}
+#endif // DEBUG_ENABLED
+
 void updateWifiState() {
   bool connected = (WiFi.status() == WL_CONNECTED);
   bool wasConnected = wifiConnected;
@@ -8,10 +90,14 @@ void updateWifiState() {
       Serial.print("WLAN verbunden, IP: ");
       Serial.println(WiFi.localIP());
       Serial.printf("RSSI: %d dBm, Kanal: %d\n", WiFi.RSSI(), WiFi.channel());
+      wifiReconnectFailures = 0;
     }
     if (!timeConfigured) {
       configureTimeOnce();
     }
+#if DEBUG_ENABLED
+    startHealthServerIfNeeded();
+#endif
     return;
   }
 
@@ -22,9 +108,23 @@ void updateWifiState() {
     }
 
     lastWifiReconnectAttempt = now;
-    Serial.printf("WLAN getrennt, neuer Verbindungsversuch. Status: %d\n", WiFi.status());
-    WiFi.disconnect();
-    WiFi.begin(ssid, password);
+    wifiReconnectFailures++;
+    Serial.printf("WLAN getrennt, Versuch %d. Status: %d\n", wifiReconnectFailures, WiFi.status());
+
+    if (wifiReconnectFailures >= wifiHardResetThreshold) {
+      // Stack-Reset: nach mehreren Fehlversuchen kompletten Mode-Toggle erzwingen.
+      Serial.println("WLAN Hard-Reset: WIFI_OFF -> WIFI_STA");
+      WiFi.disconnect(true, true);
+      WiFi.mode(WIFI_OFF);
+      delay(200);
+      WiFi.mode(WIFI_STA);
+      WiFi.setSleep(false);
+      WiFi.begin(ssid, password);
+      wifiReconnectFailures = 0;
+    } else {
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+    }
 
     if (networkMutex != NULL) {
       xSemaphoreGive(networkMutex);
@@ -37,11 +137,15 @@ void beginWiFi() {
     xSemaphoreTake(networkMutex, portMAX_DELAY);
   }
 
+  // Kein NVS-Write pro Verbindung -> Flash-Wear und Latenz vermeiden.
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, password);
   lastWifiReconnectAttempt = millis();
   wifiConnected = (WiFi.status() == WL_CONNECTED);
+  wifiReconnectFailures = 0;
   Serial.printf("WLAN-Verbindung gestartet: '%s', Status: %d\n", ssid, WiFi.status());
 
   if (networkMutex != NULL) {

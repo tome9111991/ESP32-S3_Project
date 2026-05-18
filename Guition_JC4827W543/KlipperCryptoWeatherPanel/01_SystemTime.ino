@@ -44,20 +44,114 @@ void printBootDiagnostics() {
   );
 }
 
+#if DEBUG_ENABLED
+static const char* HEALTH_LOG_PATH = "/health.csv";
+static const char* HEALTH_LOG_OLD_PATH = "/health.old.csv";
+static const size_t HEALTH_LOG_MAX_BYTES = 48 * 1024;
+static bool healthLogEnabled = false;
+
+void initHealthLog() {
+  if (!LittleFS.begin(true)) {
+    Serial.println("LittleFS Mount fehlgeschlagen, kein Health-Log");
+    healthLogEnabled = false;
+    return;
+  }
+  healthLogEnabled = true;
+  Serial.printf("LittleFS: %u/%u Bytes belegt\n",
+    (unsigned)LittleFS.usedBytes(),
+    (unsigned)LittleFS.totalBytes());
+}
+
+static size_t healthLogFileSize(const char* path) {
+  if (!LittleFS.exists(path)) {
+    return 0;
+  }
+  File f = LittleFS.open(path, "r");
+  if (!f) {
+    return 0;
+  }
+  size_t size = f.size();
+  f.close();
+  return size;
+}
+
+void dumpHealthLogOnBoot() {
+  if (!healthLogEnabled) {
+    return;
+  }
+  // Kein Voll-Dump auf Serial mehr -- Datei wird per Web-Endpunkt abgeholt.
+  Serial.printf("Health-Log: current=%u Bytes, old=%u Bytes (abrufbar unter /health.csv bzw. /health.old.csv sobald WLAN steht)\n",
+    (unsigned)healthLogFileSize(HEALTH_LOG_PATH),
+    (unsigned)healthLogFileSize(HEALTH_LOG_OLD_PATH));
+
+  // Boot-Marker mit Reset-Grund anhaengen, damit man Sessions im Log unterscheiden kann.
+  File f = LittleFS.open(HEALTH_LOG_PATH, "a");
+  if (f) {
+    if (f.size() == 0) {
+      f.println("# uptime_s,heap,min,maxAlloc,internalLargest,psramFree,fetchStackHWM,wifi,rssi");
+    }
+    f.printf("# boot reason=%s\n", resetReasonName(esp_reset_reason()));
+    f.close();
+  }
+}
+
+static void rotateHealthLogIfNeeded() {
+  if (!healthLogEnabled) {
+    return;
+  }
+  File f = LittleFS.open(HEALTH_LOG_PATH, "r");
+  if (!f) {
+    return;
+  }
+  size_t size = f.size();
+  f.close();
+  if (size < HEALTH_LOG_MAX_BYTES) {
+    return;
+  }
+  if (LittleFS.exists(HEALTH_LOG_OLD_PATH)) {
+    LittleFS.remove(HEALTH_LOG_OLD_PATH);
+  }
+  LittleFS.rename(HEALTH_LOG_PATH, HEALTH_LOG_OLD_PATH);
+  Serial.println("Health-Log rotiert");
+}
+
+void appendHealthLogLine(const char* line) {
+  if (!healthLogEnabled) {
+    return;
+  }
+  rotateHealthLogIfNeeded();
+  File f = LittleFS.open(HEALTH_LOG_PATH, "a");
+  if (!f) {
+    return;
+  }
+  f.println(line);
+  f.close();
+}
+
 void printRuntimeHealth() {
   UBaseType_t fetchStackWatermark = fetchTaskHandle != NULL ? uxTaskGetStackHighWaterMark(fetchTaskHandle) : 0;
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t minHeap = ESP.getMinFreeHeap();
+  uint32_t maxAlloc = ESP.getMaxAllocHeap();
+  uint32_t intLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  uint32_t psramFree = ESP.getFreePsram();
+  int wifiStatus = WiFi.status();
+  int rssi = wifiStatus == WL_CONNECTED ? WiFi.RSSI() : 0;
+
   Serial.printf(
     "Health: heap=%u min=%u maxAlloc=%u internalLargest=%u psramFree=%u fetchStackWatermark=%u wifi=%d rssi=%d\n",
-    ESP.getFreeHeap(),
-    ESP.getMinFreeHeap(),
-    ESP.getMaxAllocHeap(),
-    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-    ESP.getFreePsram(),
-    (unsigned)fetchStackWatermark,
-    WiFi.status(),
-    WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0
+    freeHeap, minHeap, maxAlloc, intLargest, psramFree,
+    (unsigned)fetchStackWatermark, wifiStatus, rssi
   );
+
+  char csvLine[160];
+  unsigned long uptimeSeconds = millis() / 1000UL;
+  snprintf(csvLine, sizeof(csvLine), "%lu,%u,%u,%u,%u,%u,%u,%d,%d",
+    uptimeSeconds, freeHeap, minHeap, maxAlloc, intLargest, psramFree,
+    (unsigned)fetchStackWatermark, wifiStatus, rssi);
+  appendHealthLogLine(csvLine);
 }
+#endif // DEBUG_ENABLED
 
 bool getLocalTimeFast(struct tm& timeinfo) {
   time_t now = time(nullptr);

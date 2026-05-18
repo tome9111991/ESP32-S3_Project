@@ -35,3 +35,9 @@
 #define SCREEN_CRYPTO_PRICE_ENABLED 1
 #define SCREEN_CRYPTO_CHART_ENABLED 1
 #define SCREEN_KLIPPER_ENABLED 1
+
+// Debug-Schalter. 1 = an, 0 = aus.
+// Wenn 1: periodisches Health-CSV-Log auf LittleFS (/health.csv) und
+// HTTP-Server auf Port 80 (Index + /health.csv + /health.old.csv).
+// Default 0: kein Flash-Schreiben, kein WebServer -> spart Heap und Flash-Zyklen.
+#define DEBUG_ENABLED 0
