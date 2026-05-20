@@ -437,7 +437,7 @@ static void create_btc_day_screen(void)
         s_btc_day_chart_canvas = lv_canvas_create(s_btc_day_screen);
         lv_canvas_set_buffer(s_btc_day_chart_canvas, s_btc_day_chart_canvas_buf,
                              BTC_CHART_W, BTC_CHART_CANVAS_H, LV_COLOR_FORMAT_RGB565);
-        lv_obj_set_pos(s_btc_day_chart_canvas, 40, 142);
+        lv_obj_set_pos(s_btc_day_chart_canvas, BTC_CHART_X, BTC_CHART_Y);
         lv_obj_remove_flag(s_btc_day_chart_canvas, LV_OBJ_FLAG_SCROLLABLE);
         lv_canvas_fill_bg(s_btc_day_chart_canvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
     }

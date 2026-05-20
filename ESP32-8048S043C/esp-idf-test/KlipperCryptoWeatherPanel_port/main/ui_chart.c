@@ -141,8 +141,13 @@ void ui_chart_draw(void)
     app_unlock();
 
     if (!ready || source_count < 2) {
+        // Pixel-Operationen ohne Pro-Pixel-Invalidate; ein einziger Refresh am Ende.
+        lv_display_t *disp = lv_obj_get_display(canvas);
+        lv_display_enable_invalidation(disp, false);
         lv_canvas_fill_bg(canvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
         canvas_rect(canvas, 0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
+        lv_display_enable_invalidation(disp, true);
+
         lv_obj_add_flag(ui_get_btc_price_last_label(), LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(ui_get_btc_price_high_label(), "--");
         lv_label_set_text(ui_get_btc_price_low_label(), "--");
@@ -185,12 +190,18 @@ void ui_chart_draw(void)
 
     if (data_unchanged) {
         if (s_chart_cache.progress_width == progress_width) return;
+        lv_display_t *disp = lv_obj_get_display(canvas);
+        lv_display_enable_invalidation(disp, false);
         draw_progress_bar(canvas, progress_width);
+        lv_display_enable_invalidation(disp, true);
         s_chart_cache.progress_width = progress_width;
         lv_obj_invalidate(canvas);
         return;
     }
 
+    // Voll-Redraw: kompletten Pixel-Block in einen einzigen Refresh buendeln.
+    lv_display_t *disp = lv_obj_get_display(canvas);
+    lv_display_enable_invalidation(disp, false);
     lv_canvas_fill_bg(canvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
     canvas_rect(canvas, 0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
 
@@ -227,6 +238,11 @@ void ui_chart_draw(void)
     int y_last_close = price_to_chart_y(last_candle->close, low, high, 3, BTC_CHART_H - 6);
     canvas_dashed_hline(canvas, y_last_close, 1, BTC_CHART_W - 1, 6, 4, COLOR_BTC);
 
+    // Pixel-Block fertig: invalidation wieder einschalten, damit die folgenden
+    // Label-Updates/lv_obj_set_pos ihre eigenen Widget-Invalidates auch wirklich
+    // einreihen (sonst wuerden Texte/Position erst beim naechsten Trigger sichtbar).
+    lv_display_enable_invalidation(disp, true);
+
     char high_text[16], low_text[16], last_text[16];
     format_quote_compact(raw_high, high_text, sizeof(high_text));
     format_quote_compact(raw_low, low_text, sizeof(low_text));
@@ -236,8 +252,11 @@ void ui_chart_draw(void)
     lv_label_set_text(ui_get_btc_price_last_label(), last_text);
 
     lv_obj_t *last_label = ui_get_btc_price_last_label();
-    int chart_x = lv_obj_get_x(canvas);
-    int chart_y = lv_obj_get_y(canvas);
+    // Konstanten statt lv_obj_get_x/y(canvas): direkt nach Boot ist der Layout-Pass
+    // noch nicht gelaufen und die Getter liefern 0 -> Label klebt am oberen Rand,
+    // bis die naechste Screen-Rotation neu layoutet.
+    int chart_x = BTC_CHART_X;
+    int chart_y = BTC_CHART_Y;
     const int label_w = 96;
     const int label_h = 22;
     int label_x = chart_x + (BTC_CHART_W - label_w) / 2;
@@ -249,7 +268,9 @@ void ui_chart_draw(void)
     lv_obj_set_pos(last_label, label_x, label_y);
     lv_obj_remove_flag(last_label, LV_OBJ_FLAG_HIDDEN);
 
+    lv_display_enable_invalidation(disp, false);
     draw_progress_bar(canvas, progress_width);
+    lv_display_enable_invalidation(disp, true);
     lv_obj_invalidate(canvas);
 
     s_chart_cache.window_size    = window_size;

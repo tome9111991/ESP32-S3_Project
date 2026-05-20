@@ -487,6 +487,10 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_err);
     }
 
+    // Erst-Boot / Post-Factory-Reset: Compile-Time-Defaults aus config_private.h
+    // einmalig als Factory-Werte in NVS schreiben. No-op ohne config_private.h.
+    config_private_seed_nvs();
+
     s_rotate_180 = display_rotate_180_load();
     crypto_settings_load();
     screen_settings_load();

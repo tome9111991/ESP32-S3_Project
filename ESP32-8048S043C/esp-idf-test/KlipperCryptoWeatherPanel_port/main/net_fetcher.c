@@ -219,6 +219,53 @@ bool crypto_settings_save(void)
     return ok;
 }
 
+void config_private_seed_nvs(void)
+{
+#ifdef CONFIG_PRIVATE_PRESENT
+    nvs_handle_t h;
+
+    // Crypto: seed wenn 'base' fehlt (Indikator fuer leeren Namespace).
+    bool crypto_missing = true;
+    if (nvs_open(CRYPTO_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t sz = 0;
+        crypto_missing = (nvs_get_str(h, CRYPTO_NVS_BASE, NULL, &sz) != ESP_OK);
+        nvs_close(h);
+    }
+    if (crypto_missing) {
+        ESP_LOGI(TAG, "Seed crypto NVS aus config_private.h");
+        crypto_settings_init_defaults();
+        crypto_settings_save();
+    }
+
+    // Location: seed wenn Lat-Key fehlt.
+    bool location_missing = true;
+    if (nvs_open(LOCATION_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        uint32_t bits = 0;
+        location_missing = (nvs_get_u32(h, LOCATION_NVS_LAT, &bits) != ESP_OK);
+        nvs_close(h);
+    }
+    if (location_missing) {
+        ESP_LOGI(TAG, "Seed location NVS aus config_private.h (%.6f, %.6f)",
+                 (double)LOCATION_LATITUDE, (double)LOCATION_LONGITUDE);
+        location_settings_save((float)LOCATION_LATITUDE, (float)LOCATION_LONGITUDE);
+    }
+
+    // WLAN: nur seeden, wenn Compile-Time-SSID nicht leer und in NVS nichts steht.
+    if (WIFI_SSID[0] != '\0') {
+        bool wifi_missing = true;
+        if (nvs_open(WIFI_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+            size_t sz = 0;
+            wifi_missing = (nvs_get_str(h, WIFI_NVS_SSID, NULL, &sz) != ESP_OK);
+            nvs_close(h);
+        }
+        if (wifi_missing) {
+            ESP_LOGI(TAG, "Seed WLAN NVS aus config_private.h (SSID=\"%s\")", WIFI_SSID);
+            wifi_credentials_save(WIFI_SSID, WIFI_PASSWORD);
+        }
+    }
+#endif
+}
+
 // location_settings_load() laeuft vor init_app_state() (vgl. crypto_settings_load
 // in main.c), daher ist g_app.mutex noch nicht initialisiert. Wir muessen die
 // Locks bedingt nehmen wie crypto_snapshot.

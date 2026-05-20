@@ -74,6 +74,29 @@ static int clamp_minute_of_day(int m)
     return m;
 }
 
+static bool utc_offset_minutes_for_local_tm(const struct tm *local_tm, int *out_min)
+{
+    struct tm tmp = *local_tm;
+    const time_t epoch = mktime(&tmp);
+    if (epoch == (time_t)-1) return false;
+
+    struct tm utc_tm;
+    if (!gmtime_r(&epoch, &utc_tm)) return false;
+
+    int offset = ((tmp.tm_hour * 60) + tmp.tm_min) -
+                 ((utc_tm.tm_hour * 60) + utc_tm.tm_min);
+    if (tmp.tm_year > utc_tm.tm_year ||
+        (tmp.tm_year == utc_tm.tm_year && tmp.tm_yday > utc_tm.tm_yday)) {
+        offset += 24 * 60;
+    } else if (tmp.tm_year < utc_tm.tm_year ||
+               (tmp.tm_year == utc_tm.tm_year && tmp.tm_yday < utc_tm.tm_yday)) {
+        offset -= 24 * 60;
+    }
+
+    *out_min = offset;
+    return true;
+}
+
 // NVS -------------------------------------------------------------------------
 static bool nvs_load_day_brightness(uint8_t *out)
 {
@@ -184,7 +207,8 @@ bool calculate_sun_times(const struct tm *t, int *sunrise_min, int *sunset_min)
                             (tan(lat_rad) * tan(decl));
     if (hour_arg < -1.0 || hour_arg > 1.0) return false;
     const double hour_deg = acos(hour_arg) * rad_to_deg;
-    const int utc_off = (t->tm_isdst > 0) ? 120 : 60;
+    int utc_off = 0;
+    if (!utc_offset_minutes_for_local_tm(t, &utc_off)) return false;
     const double solar_noon = 720.0 - (4.0 * (double)lon_f) - eq_of_time + utc_off;
     *sunrise_min = clamp_minute_of_day((int)round(solar_noon - (4.0 * hour_deg)));
     *sunset_min  = clamp_minute_of_day((int)round(solar_noon + (4.0 * hour_deg)));

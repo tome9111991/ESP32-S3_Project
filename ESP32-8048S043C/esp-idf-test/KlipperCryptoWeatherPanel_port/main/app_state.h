@@ -69,6 +69,8 @@ typedef enum {
 #define BTC_CANDLE_CAPACITY     300
 #define BTC_DAY_CANDLE_COUNT    90
 #define BTC_CANDLE_SECONDS      86400U
+#define BTC_CHART_X             40
+#define BTC_CHART_Y             142
 #define BTC_CHART_W             720
 #define BTC_CHART_H             250
 #define BTC_CHART_CANVAS_H      264
@@ -198,6 +200,10 @@ static inline void app_unlock(void) { xSemaphoreGive(g_app.mutex); }
 // --- Configuration (compile-time WiFi/locations) ----------------------------
 #if __has_include("config_private.h")
   #include "config_private.h"
+  // Signal an config_private_seed_nvs(), dass eine echte private Config eingebunden
+  // wurde. Ohne diese Datei (z. B. GitHub-Actions-Build) wird NVS nicht geseedet,
+  // damit ein Factory-Reset dort einen sauber leeren Zustand hinterlaesst.
+  #define CONFIG_PRIVATE_PRESENT 1
 #endif
 #ifndef WIFI_SSID
   #define WIFI_SSID ""
@@ -344,6 +350,10 @@ bool ui_wifi_setup_is_open(void);
 // --- Network API (implemented in net_fetcher.c) -----------------------------
 void net_start(void);
 void net_pause_fetches(bool pause);  // pausiert normale API-Requests fuer OTA
+// Seedet leere NVS-Namespaces (WLAN, Crypto, Location) mit den Compile-Time-
+// Defaults aus config_private.h. Nur aktiv, wenn config_private.h beim Build
+// vorhanden war (CONFIG_PRIVATE_PRESENT). Muss nach nvs_flash_init() laufen.
+void config_private_seed_nvs(void);
 // WLAN-Credentials persistent in NVS (Fallback: Compile-Time WIFI_SSID/PASSWORD).
 // load schreibt SSID/Passwort in die Puffer und liefert true, wenn SSID nicht leer.
 bool wifi_credentials_load(char *ssid_out, size_t ssid_size,
