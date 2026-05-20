@@ -28,6 +28,9 @@ static const char *TAG = "ui";
 #define WEATHER_ICON_H        96
 #define WEATHER_ICON_Y        155
 #define SCREEN_TRANSITION_MS  180
+#define TOPBAR_CLOCK_W        160
+#define TOPBAR_CLOCK_H        32
+#define TOPBAR_CLOCK_Y        8
 
 // --- Screen handles ----------------------------------------------------------
 static lv_obj_t *s_time_screen, *s_crypto_screen, *s_btc_day_screen, *s_klipper_screen;
@@ -47,12 +50,14 @@ static int  s_last_time_second_progress = -1;
 // Crypto screen widgets
 static lv_obj_t *s_crypto_title_label, *s_crypto_price_label;
 static lv_obj_t *s_crypto_status_label, *s_crypto_change_label;
+static lv_obj_t *s_crypto_top_time_label;
 
 // BTC day widgets
 static lv_obj_t *s_btc_day_title_label, *s_btc_day_price_label, *s_btc_day_change_label;
 static lv_obj_t *s_btc_day_time_range_label, *s_btc_day_volume_label, *s_btc_day_candle_label;
 static lv_obj_t *s_btc_day_chart_canvas;
 static lv_obj_t *s_btc_day_price_high_label, *s_btc_day_price_low_label, *s_btc_day_price_last_label;
+static lv_obj_t *s_btc_day_top_time_label;
 static uint8_t  *s_btc_day_chart_canvas_buf = NULL;
 
 // Klipper widgets
@@ -64,6 +69,7 @@ static lv_obj_t *s_klipper_nozzle_title_label, *s_klipper_nozzle_label;
 static lv_obj_t *s_klipper_bed_title_label, *s_klipper_bed_label;
 static lv_obj_t *s_klipper_duration_label, *s_klipper_status_label;
 static lv_obj_t *s_klipper_mmu_label;
+static lv_obj_t *s_klipper_top_time_label;
 static lv_obj_t *s_klipper_mmu_gate_box[MMU_GATE_MAX];
 static lv_obj_t *s_klipper_mmu_gate_label[MMU_GATE_MAX];
 static lv_obj_t *s_klipper_mmu_gate_empty_line[MMU_GATE_MAX];
@@ -150,6 +156,15 @@ static lv_obj_t *create_divider(lv_obj_t *parent, int x, int y, int w, uint32_t 
     return create_divider_sized(parent, x, y, w, DIVIDER_H, color);
 }
 
+static lv_obj_t *create_topbar_clock(lv_obj_t *parent)
+{
+    lv_obj_t *label = create_label(parent, &lv_font_montserrat_24, COLOR_DIM, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_size(label, TOPBAR_CLOCK_W, TOPBAR_CLOCK_H);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, TOPBAR_CLOCK_Y);
+    lv_label_set_text(label, "--:--");
+    return label;
+}
+
 static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
 {
     lv_obj_remove_style_all(obj);
@@ -171,6 +186,22 @@ static const char *weekday_name(int weekday)
         case 6: return T(WEEKDAY_SAT);
         default: return "--";
     }
+}
+
+static void refresh_topbar_clock(lv_obj_t *label)
+{
+    if (!label) return;
+
+    // Kleine Uhr in den Dashboard-Kopfzeilen; Time-Screen hat seine grosse Uhr.
+    char time_buf[16];
+    time_t now = time(NULL);
+    struct tm tinfo;
+    if (now < 100000 || !localtime_r(&now, &tinfo)) {
+        snprintf(time_buf, sizeof(time_buf), "--:--");
+    } else {
+        strftime(time_buf, sizeof(time_buf), "%H:%M", &tinfo);
+    }
+    set_label_text_if_changed(label, time_buf);
 }
 
 // --- Weather icon / sun icon -------------------------------------------------
@@ -386,6 +417,7 @@ static void create_crypto_screen(void)
 {
     s_crypto_screen = create_screen();
     create_accent(s_crypto_screen, COLOR_BTC);
+    s_crypto_top_time_label = create_topbar_clock(s_crypto_screen);
 
     s_crypto_title_label = create_label(s_crypto_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_size(s_crypto_title_label, 460, 40);
@@ -412,6 +444,7 @@ static void create_btc_day_screen(void)
 {
     s_btc_day_screen = create_screen();
     create_accent(s_btc_day_screen, COLOR_BTC);
+    s_btc_day_top_time_label = create_topbar_clock(s_btc_day_screen);
 
     s_btc_day_title_label = create_label(s_btc_day_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_size(s_btc_day_title_label, 390, 40);
@@ -490,6 +523,7 @@ static void create_klipper_screen(void)
 {
     s_klipper_screen = create_screen();
     s_klipper_accent = create_accent(s_klipper_screen, COLOR_GREEN);
+    s_klipper_top_time_label = create_topbar_clock(s_klipper_screen);
 
     s_klipper_title_label = create_label(s_klipper_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_size(s_klipper_title_label, 420, 40);
@@ -717,6 +751,8 @@ static bool crypto_price_can_use_large_font(const char *price)
 
 static void refresh_crypto_ui(void)
 {
+    refresh_topbar_clock(s_crypto_top_time_label);
+
     char price[24], status[32];
     float open_price, live_price;
     bool open_ready;
@@ -792,6 +828,8 @@ static void crypto_chart_price_text(const char *fallback_price, float live_price
 
 static void refresh_btc_day_ui(void)
 {
+    refresh_topbar_clock(s_btc_day_top_time_label);
+
     char price[24], change[24], time_range[64], volume[40], candle[24];
     bool positive, ready;
     int  price_direction;
@@ -917,6 +955,8 @@ static int progress_percent_from_text(const char *text)
 
 static void refresh_klipper_ui(void)
 {
+    refresh_topbar_clock(s_klipper_top_time_label);
+
     bool available, host_available;
     bool mmu_available;
     int mmu_gate, mmu_gate_count;
