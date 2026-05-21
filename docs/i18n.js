@@ -3,7 +3,7 @@ const SUPPORTED_LANGS = ["de", "en"];
 
 const STRINGS = {
   de: {
-    "hint.browser": "Funktioniert nur in Chrome oder Edge (WebSerial). ESP32 per USB anschließen, dann den Schritten unten folgen.",
+    "hint.browser": "Funktioniert in Chrome, Edge oder Firefox 151.0.1+ (WebSerial). ESP32 per USB anschließen, dann den Schritten unten folgen.",
     "footer.source": "Quellcode & Firmware-Builds:",
 
     "step.board": "Board",
@@ -76,7 +76,7 @@ const STRINGS = {
     "lang.en": "English",
   },
   en: {
-    "hint.browser": "Works only in Chrome or Edge (WebSerial). Connect the ESP32 via USB, then follow the steps below.",
+    "hint.browser": "Works in Chrome, Edge, or Firefox 151.0.1+ (WebSerial). Connect the ESP32 via USB, then follow the steps below.",
     "footer.source": "Source code & firmware builds:",
 
     "step.board": "Board",

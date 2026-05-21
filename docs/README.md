@@ -1,9 +1,9 @@
 # ESP32 Web Flasher (GitHub Pages)
 
 Statische Seite, die per [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
-ESP32-Firmware direkt aus dem Browser auf das Board flashen kann (Chrome/Edge,
-WebSerial). Versionen und Sprachen werden zur Laufzeit aus den GitHub Releases
-gezogen.
+ESP32-Firmware direkt aus dem Browser auf das Board flashen kann (Chrome/Edge
+oder Firefox 151.0.1+, WebSerial). Versionen und Sprachen werden zur Laufzeit
+aus den GitHub Releases gezogen.
 
 ## Aktivieren
 
