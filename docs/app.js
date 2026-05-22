@@ -7,6 +7,7 @@ import {
 import { loadVersions } from "./releases.js";
 
 const wizardEl = document.getElementById("wizard");
+const projectLinkSlot = document.getElementById("project-link-slot");
 const installSlot = document.getElementById("install-slot");
 const statusBox = document.getElementById("status");
 
@@ -58,6 +59,22 @@ function getProject(boardId = state.board, projectId = state.project) {
 
 function getCurrentVersion(project) {
   return project._versions?.find((v) => v.tag === state.version) ?? null;
+}
+
+function getProjectDirectoryInfo(project) {
+  const source = project?.source ?? {};
+  const path = project?.projectPath ?? source.projectPath;
+  const owner = project?.owner ?? source.owner;
+  const repo = project?.repo ?? source.repo;
+  if (!path || !owner || !repo) return null;
+
+  const branch = project?.branch ?? source.branch ?? "main";
+  const safeBranch = encodeURIComponent(branch);
+  const safePath = path.split("/").map(encodeURIComponent).join("/");
+  return {
+    path,
+    url: `https://github.com/${owner}/${repo}/tree/${safeBranch}/${safePath}`,
+  };
 }
 
 function clearFrom(stepId) {
@@ -601,6 +618,33 @@ function installSlotHeading(text) {
   installSlot.appendChild(h);
 }
 
+function renderProjectDirectoryLink(project) {
+  projectLinkSlot.innerHTML = "";
+  const info = getProjectDirectoryInfo(project);
+  if (!info) {
+    projectLinkSlot.hidden = true;
+    return;
+  }
+
+  // Der Pfad bleibt in den Projektdaten, damit jedes Projekt eindeutig verlinkt.
+  const p = document.createElement("p");
+  p.className = "project-directory";
+
+  const label = document.createElement("span");
+  label.textContent = t("project.directory");
+  p.appendChild(label);
+
+  const a = document.createElement("a");
+  a.href = info.url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = info.path;
+  p.appendChild(a);
+
+  projectLinkSlot.appendChild(p);
+  projectLinkSlot.hidden = false;
+}
+
 function renderInstallRelease(project, version, lang) {
   const asset = version.langs.get(lang);
   if (!asset) return;
@@ -1075,6 +1119,7 @@ function render() {
     setStatus("");
   }
   clearInstallSlot();
+  renderProjectDirectoryLink(null);
 
   let stepNum = 0;
 
@@ -1123,6 +1168,7 @@ function render() {
 
   const project = getProject();
   if (!project) return;
+  renderProjectDirectoryLink(project);
 
   if (project.source.type === "github-release") {
     // 3: Version

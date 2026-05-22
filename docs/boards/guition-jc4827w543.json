@@ -14,6 +14,7 @@
         "type": "github-release",
         "owner": "tome9111991",
         "repo": "ESP32-S3_Project",
+        "projectPath": "Guition_JC4827W543/ESP-IDF/PowerDashboard",
         "tagPrefix": "PowerDashboard-",
         "assetTemplate": "PowerDashboard-Guition-JC4827W543.bin",
         "defaultLang": "FW"
@@ -29,6 +30,9 @@
       "chipFamily": "ESP32-S3",
       "source": {
         "type": "build-on-demand",
+        "owner": "tome9111991",
+        "repo": "ESP32-S3_Project",
+        "projectPath": "Guition_JC4827W543/KlipperCryptoWeatherPanel",
         "workerUrl": "https://kcwp-flasher.tommi91.workers.dev",
         "turnstileSiteKey": "0x4AAAAAADP5q4gyHbYdhLhr",
         "workflow": "build-guition-klippercrypto.yml",

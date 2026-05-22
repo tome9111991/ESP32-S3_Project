@@ -18,6 +18,7 @@ const STRINGS = {
     "step.empty": "Keine Einträge verfügbar.",
     "step.versions.loading": "Versionen werden geladen …",
     "step.config.summary": "{n} Werte gesetzt",
+    "project.directory": "Projektverzeichnis: ",
 
     "form.min": "Mindestens {n} muss aktiviert sein.",
     "form.required.missing": "Pflichtfeld fehlt: {label}",
@@ -91,6 +92,7 @@ const STRINGS = {
     "step.empty": "No entries available.",
     "step.versions.loading": "Loading versions …",
     "step.config.summary": "{n} values set",
+    "project.directory": "Project directory: ",
 
     "form.min": "At least {n} must be enabled.",
     "form.required.missing": "Required field missing: {label}",

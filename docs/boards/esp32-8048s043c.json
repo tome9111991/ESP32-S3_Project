@@ -14,6 +14,7 @@
         "type": "github-release",
         "owner": "tome9111991",
         "repo": "ESP32-S3_Project",
+        "projectPath": "ESP32-8048S043C/esp-idf-test/KlipperCryptoWeatherPanel_port",
         "tagPrefix": "KCWPv2-",
         "assetTemplate": "KCWPv2-ESP32-8048S043C-{lang}-full.bin"
       }
