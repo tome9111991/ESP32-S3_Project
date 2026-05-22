@@ -102,8 +102,9 @@ ESP-IDF-Komponenten automatisch. Das Display läuft über den lokalen
 
 ## Hinweise
 
-- `today_start_wh` lebt nur im RAM – nach Reboot fängt die Tageszählung beim
-  aktuellen Plug-Total wieder an. Plug-Gesamtcounter bleibt persistent.
+- `today_start_wh` wird pro Kalendertag im NVS gemerkt. Wenn das Dashboard
+  ueber Mitternacht lief, bleibt "Heute" nach einem Reboot am selben Tag
+  erhalten. War das Dashboard zu 00:00 aus, startet "Heute" beim ersten Poll.
 - `session_start_wh` wird beim ersten erfolgreichen Poll gesetzt.
 - Reset des Plug-Counters (Total springt zurück) wird erkannt und Referenzen
   werden neu gesetzt.

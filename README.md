@@ -30,7 +30,7 @@ A browser-based flasher lives on GitHub Pages:
 
 **<https://tome9111991.github.io/ESP32-S3_Project/>**
 
-It runs entirely client-side (no install) and uses WebSerial, so it works in **Chrome or Edge** only. A short wizard guides through Board → Project → Version/Configuration, then the firmware can be installed directly over USB or downloaded as a `.bin`.
+It runs entirely client-side (no install) and uses WebSerial, so it works in **Chrome, Edge, or Firefox 151.0.1+**. A short wizard guides through Board → Project → Version/Configuration, then the firmware can be installed directly over USB or downloaded as a `.bin`.
 
 | Project | Source of firmware |
 | --- | --- |

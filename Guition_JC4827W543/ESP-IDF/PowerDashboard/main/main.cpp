@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "mdns.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -287,6 +288,7 @@ struct PlugState {
     float current_a = 0.0f;
     float temp_c = 0.0f;
     double total_wh = 0.0;          // kumulativ vom Plug
+    double last_total_wh = -1.0;    // letzter gueltiger Plug-Zaehlerstand
     double session_start_wh = -1.0; // erster Messwert nach Boot
     double today_start_wh = -1.0;   // erster Messwert nach Tageswechsel
     int today_yday = -1;            // localtime tm_yday des letzten Updates
@@ -302,6 +304,54 @@ static SemaphoreHandle_t g_state_mutex = nullptr;
 
 static inline void state_lock()   { xSemaphoreTake(g_state_mutex, portMAX_DELAY); }
 static inline void state_unlock() { xSemaphoreGive(g_state_mutex); }
+
+// Tages-Startwert in NVS merken, damit "Heute" nach einem Reboot am selben Tag
+// nicht wieder bei "Seit Boot" anfaengt. Geschrieben wird nur bei Tageswechsel.
+static constexpr const char *COUNTER_NVS_NS = "powerdash";
+static constexpr const char *COUNTER_NVS_DATE_KEY = "td_date";
+static constexpr const char *COUNTER_NVS_START_KEY = "td_start";
+
+static int32_t today_date_key(const struct tm &lt)
+{
+    return (int32_t)(lt.tm_year + 1900) * 1000 + lt.tm_yday;
+}
+
+static bool load_today_start_from_nvs(int32_t date_key, double total_wh,
+                                      double &start_wh)
+{
+    nvs_handle_t h;
+    if (nvs_open(COUNTER_NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+
+    int32_t stored_date = 0;
+    double stored_start = 0.0;
+    size_t len = sizeof(stored_start);
+    esp_err_t err_date = nvs_get_i32(h, COUNTER_NVS_DATE_KEY, &stored_date);
+    esp_err_t err_start = nvs_get_blob(h, COUNTER_NVS_START_KEY,
+                                       &stored_start, &len);
+    nvs_close(h);
+
+    if (err_date != ESP_OK || err_start != ESP_OK ||
+        len != sizeof(stored_start) || stored_date != date_key) {
+        return false;
+    }
+
+    // Wenn der Shelly-Total inzwischen geloescht wurde, ist der alte Startwert
+    // unbrauchbar und wird beim naechsten Speichern ersetzt.
+    if (stored_start < 0.0 || stored_start > total_wh + 0.001) return false;
+
+    start_wh = stored_start;
+    return true;
+}
+
+static void save_today_start_to_nvs(int32_t date_key, double start_wh)
+{
+    nvs_handle_t h;
+    if (nvs_open(COUNTER_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i32(h, COUNTER_NVS_DATE_KEY, date_key);
+    nvs_set_blob(h, COUNTER_NVS_START_KEY, &start_wh, sizeof(start_wh));
+    nvs_commit(h);
+    nvs_close(h);
+}
 
 // =============================================================================
 // WiFi + SNTP
@@ -530,37 +580,82 @@ static void poll_task(void *arg)
         struct tm lt;
         localtime_r(&now, &lt);
         bool have_time = (now > 1700000000); // SNTP geliefert wenn Jahr >= 2023
+        int32_t date_key = have_time ? today_date_key(lt) : 0;
+        double stored_today_start_wh = 0.0;
+        bool have_stored_today_start = false;
+        bool need_stored_today_start = false;
+        if (have_time) {
+            state_lock();
+            need_stored_today_start = (g_state.today_yday < 0 ||
+                                       g_state.today_start_wh < 0);
+            state_unlock();
+        }
+        if (need_stored_today_start) {
+            have_stored_today_start = load_today_start_from_nvs(
+                date_key, total_wh, stored_today_start_wh);
+        }
 
         state_lock();
+        // Shelly-Total kann nach Reset/Loeschen kleiner werden. Dann beide
+        // lokalen Differenzzaehler am neuen Stand sauber neu starten.
+        bool total_counter_reset = (g_state.last_total_wh >= 0.0 &&
+                                    total_wh + 0.001 < g_state.last_total_wh);
         g_state.data_valid = true;
         g_state.power_w = power;
         g_state.voltage_v = voltage;
         g_state.current_a = current;
         g_state.temp_c = temp;
         g_state.total_wh = total_wh;
+        g_state.last_total_wh = total_wh;
         g_state.last_ok_us = esp_timer_get_time();
         g_state.sntp_ready = have_time;
 
         // Session-Referenz beim ersten gueltigen Wert setzen.
-        if (g_state.session_start_wh < 0 || total_wh < g_state.session_start_wh) {
+        if (g_state.session_start_wh < 0 || total_counter_reset) {
             g_state.session_start_wh = total_wh;
         }
         // Tages-Referenz bei Tageswechsel (oder erstem Lauf mit gueltiger Zeit)
-        // setzen. Vorher schon Wert merken, damit Tag 1 wenigstens "seit Boot"
-        // zaehlt.
+        // setzen. Vor SNTP zaehlen wir ab erstem Poll; beim ersten gueltigen
+        // Zeitstempel nur den Tag merken, nicht nochmal den Startwert kippen.
+        bool save_today_start = false;
+        double today_start_to_save = total_wh;
         if (have_time) {
-            if (g_state.today_yday != lt.tm_yday ||
-                g_state.today_start_wh < 0 ||
-                total_wh < g_state.today_start_wh) {
+            if (total_counter_reset) {
                 g_state.today_start_wh = total_wh;
                 g_state.today_yday = lt.tm_yday;
+                today_start_to_save = g_state.today_start_wh;
+                save_today_start = true;
+            } else if (g_state.today_yday < 0) {
+                if (have_stored_today_start) {
+                    g_state.today_start_wh = stored_today_start_wh;
+                } else if (g_state.today_start_wh < 0) {
+                    g_state.today_start_wh = total_wh;
+                }
+                g_state.today_yday = lt.tm_yday;
+                today_start_to_save = g_state.today_start_wh;
+                save_today_start = !have_stored_today_start;
+            } else if (g_state.today_yday != lt.tm_yday) {
+                g_state.today_start_wh = total_wh;
+                g_state.today_yday = lt.tm_yday;
+                today_start_to_save = g_state.today_start_wh;
+                save_today_start = true;
+            } else if (g_state.today_start_wh < 0) {
+                g_state.today_start_wh = have_stored_today_start
+                    ? stored_today_start_wh
+                    : total_wh;
+                today_start_to_save = g_state.today_start_wh;
+                save_today_start = !have_stored_today_start;
             }
         } else {
-            if (g_state.today_start_wh < 0) {
+            if (g_state.today_start_wh < 0 || total_counter_reset) {
                 g_state.today_start_wh = total_wh;
             }
         }
         state_unlock();
+
+        if (save_today_start) {
+            save_today_start_to_nvs(date_key, today_start_to_save);
+        }
 
         vTaskDelay(pdMS_TO_TICKS(g_poll_ms));
     }
