@@ -10,6 +10,7 @@
 #include <sys/time.h>
 
 #include "esp_event.h"
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
@@ -95,6 +96,8 @@ static uint32_t lv_tick_ms(void)
 }
 
 static volatile bool g_flush_pending = false;
+static volatile bool g_lvgl_flush_pending = false;
+static volatile bool g_lvgl_flush_done = false;
 
 static bool IRAM_ATTR lcd_trans_done_cb(esp_lcd_panel_io_handle_t io,
                                         esp_lcd_panel_io_event_data_t *edata,
@@ -104,23 +107,43 @@ static bool IRAM_ATTR lcd_trans_done_cb(esp_lcd_panel_io_handle_t io,
     (void)edata;
     (void)user_ctx;
     g_flush_pending = false;
-    if (lv_disp != nullptr) {
-        lv_display_flush_ready(lv_disp);
+    if (g_lvgl_flush_pending) {
+        // LVGL selbst laeuft im Main-Task; der ISR-Callback setzt nur ein Flag.
+        g_lvgl_flush_done = true;
     }
     return false;
 }
 
 static void lv_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    (void)disp;
     // esp_lcd_panel_draw_bitmap erwartet ein halb-offenes Intervall (x2/y2
-    // exklusiv). lv_display_flush_ready() laeuft aus lcd_trans_done_cb() im
-    // DMA-Done-Interrupt, sobald die QSPI-Transaktion durch ist.
+    // exklusiv). Der DMA-Done-Callback setzt nur ein Flag; LVGL wird danach im
+    // Main-Task wieder freigegeben.
     g_flush_pending = true;
-    esp_lcd_panel_draw_bitmap(lcd_panel_handle,
-                              area->x1, area->y1,
-                              area->x2 + 1, area->y2 + 1,
-                              px_map);
+    g_lvgl_flush_pending = true;
+    g_lvgl_flush_done = false;
+    esp_err_t err = esp_lcd_panel_draw_bitmap(lcd_panel_handle,
+                                              area->x1, area->y1,
+                                              area->x2 + 1, area->y2 + 1,
+                                              px_map);
+    if (err != ESP_OK) {
+        // Ohne flush_ready() wuerde LVGL nach einem SPI/Panel-Fehler dauerhaft
+        // auf den offenen Flush warten.
+        ESP_LOGE(TAG, "LCD flush fehlgeschlagen: %s", esp_err_to_name(err));
+        g_flush_pending = false;
+        g_lvgl_flush_pending = false;
+        g_lvgl_flush_done = false;
+        lv_display_flush_ready(disp);
+    }
+}
+
+static void lv_process_flush_ready(void)
+{
+    if (g_lvgl_flush_done && lv_disp != nullptr) {
+        g_lvgl_flush_done = false;
+        g_lvgl_flush_pending = false;
+        lv_display_flush_ready(lv_disp);
+    }
 }
 
 static void backlight_init(uint8_t duty)
@@ -161,7 +184,16 @@ static void clear_panel_to_black(void)
         return;
     }
     g_flush_pending = true;
-    esp_lcd_panel_draw_bitmap(lcd_panel_handle, 0, 0, LCD_H_RES, LCD_V_RES, black);
+    g_lvgl_flush_pending = false;
+    g_lvgl_flush_done = false;
+    esp_err_t err = esp_lcd_panel_draw_bitmap(lcd_panel_handle, 0, 0,
+                                              LCD_H_RES, LCD_V_RES, black);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Black-Frame Draw fehlgeschlagen: %s", esp_err_to_name(err));
+        g_flush_pending = false;
+        heap_caps_free(black);
+        return;
+    }
     // Auf DMA warten, bevor der Buffer freigegeben wird.
     TickType_t start = xTaskGetTickCount();
     while (g_flush_pending) {
@@ -550,7 +582,9 @@ static void poll_task(void *arg)
     sntp_init_once();
 
     while (true) {
+        state_lock();
         g_state.poll_count++;
+        state_unlock();
 
         wifi_ap_record_t ap;
         if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
@@ -673,8 +707,10 @@ static lv_obj_t *lbl_power;
 static lv_obj_t *lbl_power_unit;
 static lv_obj_t *lbl_voltage;
 static lv_obj_t *lbl_current;
+static lv_obj_t *lbl_today_reset;
 static lv_obj_t *lbl_today_kwh;
 static lv_obj_t *lbl_today_eur;
+static lv_obj_t *lbl_session_boot;
 static lv_obj_t *lbl_session_kwh;
 static lv_obj_t *lbl_session_eur;
 static lv_obj_t *lbl_tariff;
@@ -783,17 +819,23 @@ static void build_ui(void)
     lv_image_set_src(today_img, &icon_today);
     lv_obj_align(today_img, LV_ALIGN_TOP_RIGHT, 0, 0);
 
+    lbl_today_reset = lv_label_create(today_card);
+    lv_label_set_text(lbl_today_reset, "Reset --:--");
+    lv_obj_set_style_text_color(lbl_today_reset, lv_color_hex(0x7a8793), 0);
+    lv_obj_set_style_text_font(lbl_today_reset, &lv_font_montserrat_14, 0);
+    lv_obj_align(lbl_today_reset, LV_ALIGN_TOP_LEFT, 0, 17);
+
     lbl_today_kwh = lv_label_create(today_card);
     lv_label_set_text(lbl_today_kwh, "--- kWh");
     lv_obj_set_style_text_color(lbl_today_kwh, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(lbl_today_kwh, &lv_font_montserrat_28, 0);
-    lv_obj_align(lbl_today_kwh, LV_ALIGN_LEFT_MID, 0, -4);
+    lv_obj_align(lbl_today_kwh, LV_ALIGN_LEFT_MID, 0, 5);
 
     lbl_today_eur = lv_label_create(today_card);
     lv_label_set_text(lbl_today_eur, "--- EUR");
     lv_obj_set_style_text_color(lbl_today_eur, lv_color_hex(0xFFC857), 0);
     lv_obj_set_style_text_font(lbl_today_eur, &lv_font_montserrat_24, 0);
-    lv_obj_align(lbl_today_eur, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_align(lbl_today_eur, LV_ALIGN_BOTTOM_LEFT, 0, 4);
 
     // ---- Session ---------------------------------------------------------
     lv_obj_t *session_card = make_card(scr, 244, 140, 228, 96, "SEIT BOOT");
@@ -802,17 +844,23 @@ static void build_ui(void)
     lv_image_set_src(session_img, &icon_session);
     lv_obj_align(session_img, LV_ALIGN_TOP_RIGHT, 0, 0);
 
+    lbl_session_boot = lv_label_create(session_card);
+    lv_label_set_text(lbl_session_boot, "Boot --.-- --:--");
+    lv_obj_set_style_text_color(lbl_session_boot, lv_color_hex(0x7a8793), 0);
+    lv_obj_set_style_text_font(lbl_session_boot, &lv_font_montserrat_14, 0);
+    lv_obj_align(lbl_session_boot, LV_ALIGN_TOP_LEFT, 0, 17);
+
     lbl_session_kwh = lv_label_create(session_card);
     lv_label_set_text(lbl_session_kwh, "--- kWh");
     lv_obj_set_style_text_color(lbl_session_kwh, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(lbl_session_kwh, &lv_font_montserrat_28, 0);
-    lv_obj_align(lbl_session_kwh, LV_ALIGN_LEFT_MID, 0, -4);
+    lv_obj_align(lbl_session_kwh, LV_ALIGN_LEFT_MID, 0, 5);
 
     lbl_session_eur = lv_label_create(session_card);
     lv_label_set_text(lbl_session_eur, "--- EUR");
     lv_obj_set_style_text_color(lbl_session_eur, lv_color_hex(0xFFC857), 0);
     lv_obj_set_style_text_font(lbl_session_eur, &lv_font_montserrat_24, 0);
-    lv_obj_align(lbl_session_eur, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_align(lbl_session_eur, LV_ALIGN_BOTTOM_LEFT, 0, 4);
 
     // ---- Footer ----------------------------------------------------------
     lv_obj_t *euro_img = lv_image_create(scr);
@@ -865,13 +913,34 @@ static void ui_update_cb(lv_timer_t *t)
     time_t now = time(nullptr);
     struct tm lt;
     localtime_r(&now, &lt);
-    if (snap.sntp_ready) {
+    bool have_clock = (now > 1700000000); // SNTP geliefert wenn Jahr >= 2023
+    if (have_clock) {
         char tbuf[16];
         snprintf(tbuf, sizeof(tbuf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min,
                  lt.tm_sec);
         label_set_text_if_changed(lbl_clock, tbuf);
     } else {
         label_set_text_if_changed(lbl_clock, "sync...");
+    }
+
+    // Unterzeilen in den Verbrauchskarten: Tageszaehler startet um Mitternacht,
+    // Bootzeit wird aus aktueller Zeit minus Uptime rekonstruiert.
+    if (have_clock) {
+        label_set_text_if_changed(lbl_today_reset, "Reset 00:00");
+
+        int64_t uptime_s = esp_timer_get_time() / 1000000LL;
+        time_t boot_time = now - (time_t)uptime_s;
+        struct tm boot_lt;
+        localtime_r(&boot_time, &boot_lt);
+        // GCC kennt die Wertebereiche von struct tm nicht und warnt sonst bei -Werror.
+        char boot_buf[64];
+        snprintf(boot_buf, sizeof(boot_buf), "Boot %02d.%02d %02d:%02d",
+                 boot_lt.tm_mday, boot_lt.tm_mon + 1,
+                 boot_lt.tm_hour, boot_lt.tm_min);
+        label_set_text_if_changed(lbl_session_boot, boot_buf);
+    } else {
+        label_set_text_if_changed(lbl_today_reset, "Reset --:--");
+        label_set_text_if_changed(lbl_session_boot, "Boot --.-- --:--");
     }
 
     if (!snap.data_valid) {
@@ -958,7 +1027,9 @@ static void run_provisioning_mode(void)
 
     ESP_LOGI(TAG, "Provisioning aktiv - Browser auf 192.168.4.1");
     while (true) {
+        lv_process_flush_ready();
         lv_timer_handler();
+        lv_process_flush_ready();
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
@@ -984,6 +1055,10 @@ static void fallback_to_provisioning(void)
 extern "C" void app_main(void)
 {
     g_state_mutex = xSemaphoreCreateMutex();
+    if (g_state_mutex == nullptr) {
+        ESP_LOGE(TAG, "State-Mutex konnte nicht angelegt werden");
+        abort();
+    }
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -1036,7 +1111,9 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "PowerDashboard running");
     while (true) {
+        lv_process_flush_ready();
         lv_timer_handler();
+        lv_process_flush_ready();
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }

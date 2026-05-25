@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "esp_err.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -115,9 +116,18 @@ static esp_err_t api_settings_get(httpd_req_t *req)
     const setting_meta_t *list = settings_meta_list(&n);
 
     cJSON *arr = cJSON_CreateArray();
+    if (!arr) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+        return ESP_ERR_NO_MEM;
+    }
     for (size_t i = 0; i < n; ++i) {
         const setting_meta_t *m = &list[i];
         cJSON *o = cJSON_CreateObject();
+        if (!o) {
+            cJSON_Delete(arr);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json alloc");
+            return ESP_ERR_NO_MEM;
+        }
         cJSON_AddStringToObject(o, "key",   m->nvs_key);
         cJSON_AddStringToObject(o, "label", m->label);
         cJSON_AddStringToObject(o, "group", m->group ? m->group : "");
@@ -161,6 +171,10 @@ static esp_err_t api_settings_get(httpd_req_t *req)
     }
     char *txt = cJSON_PrintUnformatted(arr);
     cJSON_Delete(arr);
+    if (!txt) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "json print");
+        return ESP_ERR_NO_MEM;
+    }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, txt, HTTPD_RESP_USE_STRLEN);
     free(txt);
@@ -401,7 +415,11 @@ static void ssdp_send_response(int sock, const struct sockaddr_in *dst,
         "CONFIGID.UPNP.ORG: 1\r\n"
         "\r\n",
         s_ssdp_ip, st, usn);
-    sendto(sock, msg, n, 0, (const struct sockaddr *)dst, sizeof(*dst));
+    if (n > 0 && n < (int)sizeof(msg)) {
+        sendto(sock, msg, n, 0, (const struct sockaddr *)dst, sizeof(*dst));
+    } else {
+        ESP_LOGW(TAG, "SSDP response zu lang");
+    }
 }
 
 static void ssdp_send_notify(int sock, const char *nt)
@@ -432,7 +450,11 @@ static void ssdp_send_notify(int sock, const char *nt)
         "CONFIGID.UPNP.ORG: 1\r\n"
         "\r\n",
         s_ssdp_ip, nt, usn);
-    sendto(sock, msg, n, 0, (const struct sockaddr *)&dst, sizeof(dst));
+    if (n > 0 && n < (int)sizeof(msg)) {
+        sendto(sock, msg, n, 0, (const struct sockaddr *)&dst, sizeof(dst));
+    } else {
+        ESP_LOGW(TAG, "SSDP notify zu lang");
+    }
 }
 
 static void ssdp_advertise(int sock)
@@ -601,7 +623,10 @@ static void dns_hijack_task(void *arg)
 
 static void start_dns_hijack(void)
 {
-    xTaskCreate(dns_hijack_task, "dns_hijack", 3072, nullptr, 4, nullptr);
+    if (xTaskCreate(dns_hijack_task, "dns_hijack", 3072,
+                    nullptr, 4, nullptr) != pdPASS) {
+        ESP_LOGE(TAG, "DNS-Hijack-Task konnte nicht starten");
+    }
 }
 
 static void configure_ap_captive_dhcp(esp_netif_t *ap_netif)
