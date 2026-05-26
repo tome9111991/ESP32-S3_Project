@@ -59,8 +59,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # --- USB (Native USB des S3 - praktisch für CDC-Konsole/JTAG) -----------------
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
 
-# --- Brownout etwas toleranter (Display zieht Strompeaks) ---------------------
-CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+# --- Brownout toleranter (Display/WLAN koennen kurze Strompeaks ziehen) -------
+# Level 7 ist am empfindlichsten; Level 4 vermeidet unnoetige Resets bei
+# kurzen Peaks, ohne die Brownout-Erkennung komplett abzuschalten.
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_4=y
 
 # --- LWIP / WiFi (Polling-Last gering, Defaults reichen) ---------------------
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5760

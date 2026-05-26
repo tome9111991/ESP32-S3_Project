@@ -181,6 +181,20 @@ static esp_err_t api_settings_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+// GET /api/diag -> kompakte Laufzeit-/Reset-Diagnose ohne serielle Konsole
+static esp_err_t api_diag_get(httpd_req_t *req)
+{
+    char body[512];
+    int n = powerdash_diag_json(body, sizeof(body));
+    if (n <= 0) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "diag");
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, body, n);
+    return ESP_OK;
+}
+
 static esp_err_t read_json_body(httpd_req_t *req, cJSON **out)
 {
     *out = nullptr;
@@ -331,6 +345,9 @@ static void register_handlers(httpd_handle_t s)
 
     u.handler = api_settings_get;
     u.uri = "/api/settings";          httpd_register_uri_handler(s, &u);
+
+    u.handler = api_diag_get;
+    u.uri = "/api/diag";              httpd_register_uri_handler(s, &u);
 
     u.method  = HTTP_POST;
     u.handler = api_settings_post;

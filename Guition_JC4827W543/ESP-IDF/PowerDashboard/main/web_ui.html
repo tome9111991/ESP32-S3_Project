@@ -29,6 +29,13 @@
   .row { display: flex; gap: 12px; }
   .row > div { flex: 1; }
   .hint { font-size: 12px; color: #5b6773; margin-top: 2px; }
+  .diag {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px; font-size: 13px;
+  }
+  .diag div { min-width: 0; }
+  .diag span { display: block; color: #7a8793; font-size: 12px; }
+  .diag b { color: #e6edf3; font-weight: 600; overflow-wrap: anywhere; }
   .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
   button {
     padding: 10px 18px; border-radius: 6px; border: 0; cursor: pointer;
@@ -48,6 +55,13 @@
 <body>
   <h1>PowerDashboard</h1>
   <p class="sub">Einstellungen - werden im Flash gespeichert.</p>
+
+  <fieldset>
+    <legend>Diagnose</legend>
+    <div id="diag" class="diag">
+      <div><span>Reset</span><b>lade...</b></div>
+    </div>
+  </fieldset>
 
   <form id="cfgForm">
     <div id="groups"></div>
@@ -123,6 +137,36 @@
     setTimeout(() => t.classList.remove('show'), 2500);
   }
 
+  function fmtDuration(seconds) {
+    seconds = Number(seconds || 0);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+    if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+    return `${s}s`;
+  }
+
+  async function loadDiag() {
+    try {
+      const r = await fetch('/api/diag');
+      const d = await r.json();
+      document.getElementById('diag').innerHTML = `
+        <div><span>Letzter Reset</span><b>${esc(d.reset_reason)} (${d.reset_code})</b></div>
+        <div><span>Laufzeit jetzt</span><b>${esc(fmtDuration(d.uptime_s))}</b></div>
+        <div><span>Laufzeit davor</span><b>${esc(fmtDuration(d.prev_uptime_s))}</b></div>
+        <div><span>Boots</span><b>${esc(d.boot_count)}</b></div>
+        <div><span>Shelly Polls</span><b>${esc(d.polls)} / Fehler ${esc(d.fails)}</b></div>
+        <div><span>WLAN</span><b>${d.wifi ? 'verbunden' : 'offline'} ${esc(d.rssi)} dBm</b></div>
+        <div><span>Heap intern</span><b>${esc(d.heap_int_free)} B frei, min ${esc(d.heap_int_min)}</b></div>
+        <div><span>PSRAM</span><b>${esc(d.psram_free)} B frei, min ${esc(d.psram_min)}</b></div>
+      `;
+    } catch (e) {
+      document.getElementById('diag').innerHTML =
+        '<div><span>Diagnose</span><b>nicht verfuegbar</b></div>';
+    }
+  }
+
   async function loadSchema() {
     try {
       const r = await fetch('/api/settings');
@@ -179,6 +223,8 @@
     saveAll();
   });
   document.getElementById('saveBtn').addEventListener('click', saveAll);
+  loadDiag();
+  setInterval(loadDiag, 10000);
   loadSchema();
 </script>
 </body>

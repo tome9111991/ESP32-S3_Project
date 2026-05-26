@@ -11,11 +11,13 @@
 
 #include "esp_event.h"
 #include "esp_err.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_sntp.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "mdns.h"
@@ -333,9 +335,174 @@ struct PlugState {
 
 static PlugState g_state;
 static SemaphoreHandle_t g_state_mutex = nullptr;
+static TaskHandle_t g_main_task_handle = nullptr;
+static int64_t g_last_diag_us = 0;
+static int64_t g_last_rtc_diag_us = 0;
+
+struct RtcDiag {
+    uint32_t magic;
+    uint32_t boot_count;
+    uint32_t last_uptime_s;
+    uint32_t last_poll_count;
+    uint32_t last_fail_count;
+};
+
+static constexpr uint32_t RTC_DIAG_MAGIC = 0x50445731; // "PDW1"
+RTC_NOINIT_ATTR static RtcDiag g_rtc_diag;
+static RtcDiag g_prev_rtc_diag = {};
+static esp_reset_reason_t g_boot_reset_reason = ESP_RST_UNKNOWN;
 
 static inline void state_lock()   { xSemaphoreTake(g_state_mutex, portMAX_DELAY); }
 static inline void state_unlock() { xSemaphoreGive(g_state_mutex); }
+
+static const char *reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_EXT:       return "EXT";
+    case ESP_RST_SW:        return "SW";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "WDT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "UNKNOWN";
+    }
+}
+
+static void log_reset_reason(void)
+{
+    esp_reset_reason_t reason = g_boot_reset_reason;
+    ESP_LOGW(TAG, "Letzter Reset-Grund: %s (%d)",
+             reset_reason_name(reason), (int)reason);
+}
+
+static void init_rtc_diag(void)
+{
+    g_boot_reset_reason = esp_reset_reason();
+    if (g_rtc_diag.magic == RTC_DIAG_MAGIC) {
+        g_prev_rtc_diag = g_rtc_diag;
+    } else {
+        memset(&g_prev_rtc_diag, 0, sizeof(g_prev_rtc_diag));
+        memset(&g_rtc_diag, 0, sizeof(g_rtc_diag));
+        g_rtc_diag.magic = RTC_DIAG_MAGIC;
+    }
+    g_rtc_diag.boot_count = g_prev_rtc_diag.boot_count + 1;
+    g_rtc_diag.last_uptime_s = 0;
+    g_rtc_diag.last_poll_count = 0;
+    g_rtc_diag.last_fail_count = 0;
+}
+
+static void update_rtc_diag_periodic(void)
+{
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - g_last_rtc_diag_us < 5LL * 1000 * 1000) return;
+    g_last_rtc_diag_us = now_us;
+
+    state_lock();
+    g_rtc_diag.last_poll_count = g_state.poll_count;
+    g_rtc_diag.last_fail_count = g_state.fail_count;
+    state_unlock();
+    // RTC-RAM, kein Flash: gibt nach einem Reset einen groben "wie lange lief
+    // es vorher?"-Wert, ohne NVS durch regelmaessige Writes zu belasten.
+    g_rtc_diag.last_uptime_s = (uint32_t)(now_us / 1000000ULL);
+}
+
+static void log_runtime_diag(const char *source)
+{
+    PlugState snap;
+    state_lock();
+    snap = g_state;
+    state_unlock();
+
+    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    uint32_t int_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t int_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t int_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    uint32_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    uint32_t psram_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+    uint32_t psram_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    UBaseType_t main_stack = g_main_task_handle
+        ? uxTaskGetStackHighWaterMark(g_main_task_handle)
+        : 0;
+    UBaseType_t this_stack = uxTaskGetStackHighWaterMark(nullptr);
+
+    // Diagnose fuer Langzeittest: Resetgrund + Heap/Stack zeigen Brownout,
+    // WDT, Stackdruck oder Heap-Fragmentierung nach dem Nachtlauf schneller.
+    ESP_LOGI(TAG,
+             "Diag[%s] up=%luh%02lum polls=%lu fails=%lu wifi=%d rssi=%d "
+             "heap_int=%lu/%lu min=%lu psram=%lu/%lu min=%lu "
+             "stack_main=%lu stack_this=%lu",
+             source,
+             (unsigned long)(uptime_s / 3600),
+             (unsigned long)((uptime_s / 60) % 60),
+             (unsigned long)snap.poll_count,
+             (unsigned long)snap.fail_count,
+             snap.wifi_connected ? 1 : 0,
+             (int)snap.wifi_rssi,
+             (unsigned long)int_free,
+             (unsigned long)int_largest,
+             (unsigned long)int_min,
+             (unsigned long)psram_free,
+             (unsigned long)psram_largest,
+             (unsigned long)psram_min,
+             (unsigned long)main_stack,
+             (unsigned long)this_stack);
+}
+
+static void log_runtime_diag_periodic(const char *source)
+{
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - g_last_diag_us < 60LL * 1000 * 1000) return;
+    g_last_diag_us = now_us;
+    log_runtime_diag(source);
+}
+
+extern "C" int powerdash_diag_json(char *out, size_t out_size)
+{
+    if (out == nullptr || out_size == 0) return 0;
+
+    PlugState snap;
+    state_lock();
+    snap = g_state;
+    state_unlock();
+
+    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    uint32_t int_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t int_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    uint32_t psram_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+    UBaseType_t main_stack = g_main_task_handle
+        ? uxTaskGetStackHighWaterMark(g_main_task_handle)
+        : 0;
+
+    int n = snprintf(out, out_size,
+        "{\"reset_reason\":\"%s\",\"reset_code\":%d,"
+        "\"uptime_s\":%lu,\"prev_uptime_s\":%lu,\"boot_count\":%lu,"
+        "\"polls\":%lu,\"fails\":%lu,\"prev_polls\":%lu,\"prev_fails\":%lu,"
+        "\"wifi\":%s,\"rssi\":%d,"
+        "\"heap_int_free\":%lu,\"heap_int_min\":%lu,"
+        "\"psram_free\":%lu,\"psram_min\":%lu,\"stack_main\":%lu}",
+        reset_reason_name(g_boot_reset_reason), (int)g_boot_reset_reason,
+        (unsigned long)uptime_s,
+        (unsigned long)g_prev_rtc_diag.last_uptime_s,
+        (unsigned long)g_rtc_diag.boot_count,
+        (unsigned long)snap.poll_count,
+        (unsigned long)snap.fail_count,
+        (unsigned long)g_prev_rtc_diag.last_poll_count,
+        (unsigned long)g_prev_rtc_diag.last_fail_count,
+        snap.wifi_connected ? "true" : "false",
+        (int)snap.wifi_rssi,
+        (unsigned long)int_free,
+        (unsigned long)int_min,
+        (unsigned long)psram_free,
+        (unsigned long)psram_min,
+        (unsigned long)main_stack);
+    if (n < 0 || n >= (int)out_size) return 0;
+    return n;
+}
 
 // Tages-Startwert in NVS merken, damit "Heute" nach einem Reboot am selben Tag
 // nicht wieder bei "Seit Boot" anfaengt. Geschrieben wird nur bei Tageswechsel.
@@ -450,6 +617,9 @@ static void wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
+    // Dashboard laeuft stationaer; Powersave kann Polling und Reconnects
+    // unnoetig jitterig machen.
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_ps(WIFI_PS_NONE));
 }
 
 static void sntp_init_once(void)
@@ -495,13 +665,18 @@ struct HttpBuf {
     char *data;
     int len;
     int cap;
+    bool overflow;
 };
 
 static esp_err_t http_event_cb(esp_http_client_event_t *evt)
 {
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
         HttpBuf *buf = (HttpBuf *)evt->user_data;
-        if (buf->len + evt->data_len + 1 > buf->cap) return ESP_OK;
+        if (buf == nullptr || evt->data == nullptr) return ESP_FAIL;
+        if (buf->len + evt->data_len + 1 > buf->cap) {
+            buf->overflow = true;
+            return ESP_FAIL;
+        }
         memcpy(buf->data + buf->len, evt->data, evt->data_len);
         buf->len += evt->data_len;
         buf->data[buf->len] = '\0';
@@ -511,7 +686,7 @@ static esp_err_t http_event_cb(esp_http_client_event_t *evt)
 
 static bool fetch_shelly_status(char *body, int cap)
 {
-    HttpBuf buf = { body, 0, cap };
+    HttpBuf buf = { body, 0, cap, false };
     body[0] = '\0';
 
     char url[128];
@@ -531,8 +706,9 @@ static bool fetch_shelly_status(char *body, int cap)
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
 
-    if (err != ESP_OK || status != 200) {
-        ESP_LOGW(TAG, "Shelly HTTP err=%d status=%d", err, status);
+    if (err != ESP_OK || status != 200 || buf.overflow) {
+        ESP_LOGW(TAG, "Shelly HTTP err=%d status=%d overflow=%d",
+                 err, status, buf.overflow ? 1 : 0);
         return false;
     }
     return buf.len > 0;
@@ -582,6 +758,8 @@ static void poll_task(void *arg)
     sntp_init_once();
 
     while (true) {
+        log_runtime_diag_periodic("poll");
+
         state_lock();
         g_state.poll_count++;
         state_unlock();
@@ -1054,11 +1232,15 @@ static void fallback_to_provisioning(void)
 
 extern "C" void app_main(void)
 {
+    g_main_task_handle = xTaskGetCurrentTaskHandle();
+    init_rtc_diag();
+
     g_state_mutex = xSemaphoreCreateMutex();
     if (g_state_mutex == nullptr) {
         ESP_LOGE(TAG, "State-Mutex konnte nicht angelegt werden");
         abort();
     }
+    log_reset_reason();
 
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -1110,7 +1292,9 @@ extern "C" void app_main(void)
     lv_timer_create(ui_update_cb, 500, nullptr);
 
     ESP_LOGI(TAG, "PowerDashboard running");
+    log_runtime_diag("boot");
     while (true) {
+        update_rtc_diag_periodic();
         lv_process_flush_ready();
         lv_timer_handler();
         lv_process_flush_ready();

@@ -22,6 +22,9 @@ void provisioning_start_ssdp(const char *ip_addr);
 
 void provisioning_stop(void);
 
+// Diagnose-JSON kommt aus main.cpp, der HTTP-Server reicht es nur weiter.
+int powerdash_diag_json(char *out, size_t out_size);
+
 #ifdef __cplusplus
 }
 #endif
