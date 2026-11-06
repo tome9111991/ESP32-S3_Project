@@ -147,14 +147,22 @@
     return `${s}s`;
   }
 
+  function diagSourceLabel(source) {
+    if (source === 'rtc') return 'RTC';
+    if (source === 'flash') return 'Flash';
+    return '--';
+  }
+
   async function loadDiag() {
     try {
       const r = await fetch('/api/diag');
       const d = await r.json();
+      const prevSource = diagSourceLabel(d.prev_source);
+      const prevSuffix = prevSource === '--' ? '' : ` (${prevSource})`;
       document.getElementById('diag').innerHTML = `
         <div><span>Letzter Reset</span><b>${esc(d.reset_reason)} (${d.reset_code})</b></div>
         <div><span>Laufzeit jetzt</span><b>${esc(fmtDuration(d.uptime_s))}</b></div>
-        <div><span>Laufzeit davor</span><b>${esc(fmtDuration(d.prev_uptime_s))}</b></div>
+        <div><span>Laufzeit davor</span><b>${esc(fmtDuration(d.prev_uptime_s))}${esc(prevSuffix)}</b></div>
         <div><span>Boots</span><b>${esc(d.boot_count)}</b></div>
         <div><span>Shelly Polls</span><b>${esc(d.polls)} / Fehler ${esc(d.fails)}</b></div>
         <div><span>WLAN</span><b>${d.wifi ? 'verbunden' : 'offline'} ${esc(d.rssi)} dBm</b></div>

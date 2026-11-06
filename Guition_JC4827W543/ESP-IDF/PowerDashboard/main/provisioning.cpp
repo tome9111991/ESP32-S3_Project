@@ -184,7 +184,7 @@ static esp_err_t api_settings_get(httpd_req_t *req)
 // GET /api/diag -> kompakte Laufzeit-/Reset-Diagnose ohne serielle Konsole
 static esp_err_t api_diag_get(httpd_req_t *req)
 {
-    char body[512];
+    char body[768];
     int n = powerdash_diag_json(body, sizeof(body));
     if (n <= 0) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "diag");

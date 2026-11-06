@@ -338,6 +338,7 @@ static SemaphoreHandle_t g_state_mutex = nullptr;
 static TaskHandle_t g_main_task_handle = nullptr;
 static int64_t g_last_diag_us = 0;
 static int64_t g_last_rtc_diag_us = 0;
+static int64_t g_last_flash_diag_us = 0;
 
 struct RtcDiag {
     uint32_t magic;
@@ -348,8 +349,31 @@ struct RtcDiag {
 };
 
 static constexpr uint32_t RTC_DIAG_MAGIC = 0x50445731; // "PDW1"
+static constexpr uint32_t FLASH_DIAG_MAGIC = 0x50444631; // "PDF1"
+static constexpr int64_t FLASH_DIAG_INTERVAL_US = 10LL * 60 * 1000 * 1000;
+static constexpr int64_t FLASH_DIAG_FIRST_WRITE_US = 60LL * 1000 * 1000;
+static constexpr const char *POWERDASH_NVS_NS = "powerdash";
+static constexpr const char *FLASH_DIAG_MAGIC_KEY = "diag_magic";
+static constexpr const char *FLASH_DIAG_BOOT_KEY = "diag_boots";
+static constexpr const char *FLASH_DIAG_UPTIME_KEY = "diag_up_s";
+static constexpr const char *FLASH_DIAG_POLLS_KEY = "diag_polls";
+static constexpr const char *FLASH_DIAG_FAILS_KEY = "diag_fails";
+static constexpr const char *FLASH_DIAG_REASON_KEY = "diag_reason";
+
+struct FlashDiag {
+    bool valid;
+    uint32_t boot_count;
+    uint32_t last_uptime_s;
+    uint32_t last_poll_count;
+    uint32_t last_fail_count;
+    uint32_t last_reset_reason;
+};
+
 RTC_NOINIT_ATTR static RtcDiag g_rtc_diag;
 static RtcDiag g_prev_rtc_diag = {};
+static FlashDiag g_prev_flash_diag = {};
+static uint32_t g_flash_boot_count = 1;
+static bool g_flash_diag_ready = false;
 static esp_reset_reason_t g_boot_reset_reason = ESP_RST_UNKNOWN;
 
 static inline void state_lock()   { xSemaphoreTake(g_state_mutex, portMAX_DELAY); }
@@ -408,6 +432,108 @@ static void update_rtc_diag_periodic(void)
     // RTC-RAM, kein Flash: gibt nach einem Reset einen groben "wie lange lief
     // es vorher?"-Wert, ohne NVS durch regelmaessige Writes zu belasten.
     g_rtc_diag.last_uptime_s = (uint32_t)(now_us / 1000000ULL);
+}
+
+static void init_flash_diag(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(POWERDASH_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Flash-Diag NVS nicht offen: %s", esp_err_to_name(err));
+        return;
+    }
+
+    uint32_t magic = 0;
+    nvs_get_u32(h, FLASH_DIAG_MAGIC_KEY, &magic);
+    if (magic == FLASH_DIAG_MAGIC) {
+        g_prev_flash_diag.valid = true;
+        nvs_get_u32(h, FLASH_DIAG_BOOT_KEY, &g_prev_flash_diag.boot_count);
+        nvs_get_u32(h, FLASH_DIAG_UPTIME_KEY, &g_prev_flash_diag.last_uptime_s);
+        nvs_get_u32(h, FLASH_DIAG_POLLS_KEY, &g_prev_flash_diag.last_poll_count);
+        nvs_get_u32(h, FLASH_DIAG_FAILS_KEY, &g_prev_flash_diag.last_fail_count);
+        nvs_get_u32(h, FLASH_DIAG_REASON_KEY, &g_prev_flash_diag.last_reset_reason);
+    }
+
+    g_flash_boot_count = g_prev_flash_diag.valid
+        ? g_prev_flash_diag.boot_count + 1
+        : 1;
+
+    // Boot-Zaehlung sofort sichern, Laufzeit/Polls aber bis zum ersten
+    // Heartbeat stehen lassen. So bleibt die Vorlaufzeit nach Power-On sichtbar.
+    nvs_set_u32(h, FLASH_DIAG_MAGIC_KEY, FLASH_DIAG_MAGIC);
+    nvs_set_u32(h, FLASH_DIAG_BOOT_KEY, g_flash_boot_count);
+    nvs_set_u32(h, FLASH_DIAG_REASON_KEY, (uint32_t)g_boot_reset_reason);
+    err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Flash-Diag Boot-Marker nicht gespeichert: %s",
+                 esp_err_to_name(err));
+        return;
+    }
+
+    g_flash_diag_ready = true;
+    g_last_flash_diag_us = esp_timer_get_time()
+        - FLASH_DIAG_INTERVAL_US + FLASH_DIAG_FIRST_WRITE_US;
+    if (g_prev_flash_diag.valid) {
+        ESP_LOGW(TAG,
+                 "Flash-Diag vorher: up=%luh%02lum boots=%lu polls=%lu fails=%lu",
+                 (unsigned long)(g_prev_flash_diag.last_uptime_s / 3600),
+                 (unsigned long)((g_prev_flash_diag.last_uptime_s / 60) % 60),
+                 (unsigned long)g_prev_flash_diag.boot_count,
+                 (unsigned long)g_prev_flash_diag.last_poll_count,
+                 (unsigned long)g_prev_flash_diag.last_fail_count);
+    }
+}
+
+static void update_flash_diag_periodic(void)
+{
+    if (!g_flash_diag_ready) return;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - g_last_flash_diag_us < FLASH_DIAG_INTERVAL_US) return;
+    g_last_flash_diag_us = now_us;
+
+    PlugState snap;
+    state_lock();
+    snap = g_state;
+    state_unlock();
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(POWERDASH_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) return;
+    nvs_set_u32(h, FLASH_DIAG_MAGIC_KEY, FLASH_DIAG_MAGIC);
+    nvs_set_u32(h, FLASH_DIAG_BOOT_KEY, g_flash_boot_count);
+    nvs_set_u32(h, FLASH_DIAG_UPTIME_KEY, (uint32_t)(now_us / 1000000ULL));
+    nvs_set_u32(h, FLASH_DIAG_POLLS_KEY, snap.poll_count);
+    nvs_set_u32(h, FLASH_DIAG_FAILS_KEY, snap.fail_count);
+    nvs_set_u32(h, FLASH_DIAG_REASON_KEY, (uint32_t)g_boot_reset_reason);
+    err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Flash-Diag Heartbeat nicht gespeichert: %s",
+                 esp_err_to_name(err));
+    }
+}
+
+static const char *previous_diag_source(uint32_t *uptime_s,
+                                        uint32_t *poll_count,
+                                        uint32_t *fail_count)
+{
+    if (g_prev_rtc_diag.last_uptime_s > 0) {
+        *uptime_s = g_prev_rtc_diag.last_uptime_s;
+        *poll_count = g_prev_rtc_diag.last_poll_count;
+        *fail_count = g_prev_rtc_diag.last_fail_count;
+        return "rtc";
+    }
+    if (g_prev_flash_diag.valid) {
+        *uptime_s = g_prev_flash_diag.last_uptime_s;
+        *poll_count = g_prev_flash_diag.last_poll_count;
+        *fail_count = g_prev_flash_diag.last_fail_count;
+        return "flash";
+    }
+    *uptime_s = 0;
+    *poll_count = 0;
+    *fail_count = 0;
+    return "none";
 }
 
 static void log_runtime_diag(const char *source)
@@ -477,22 +603,34 @@ extern "C" int powerdash_diag_json(char *out, size_t out_size)
     UBaseType_t main_stack = g_main_task_handle
         ? uxTaskGetStackHighWaterMark(g_main_task_handle)
         : 0;
+    uint32_t prev_uptime_s = 0;
+    uint32_t prev_polls = 0;
+    uint32_t prev_fails = 0;
+    const char *prev_source = previous_diag_source(&prev_uptime_s,
+                                                   &prev_polls,
+                                                   &prev_fails);
 
     int n = snprintf(out, out_size,
         "{\"reset_reason\":\"%s\",\"reset_code\":%d,"
-        "\"uptime_s\":%lu,\"prev_uptime_s\":%lu,\"boot_count\":%lu,"
+        "\"uptime_s\":%lu,\"prev_uptime_s\":%lu,\"prev_source\":\"%s\","
+        "\"boot_count\":%lu,\"rtc_boot_count\":%lu,"
         "\"polls\":%lu,\"fails\":%lu,\"prev_polls\":%lu,\"prev_fails\":%lu,"
+        "\"flash_prev_uptime_s\":%lu,\"flash_boot_count\":%lu,"
         "\"wifi\":%s,\"rssi\":%d,"
         "\"heap_int_free\":%lu,\"heap_int_min\":%lu,"
         "\"psram_free\":%lu,\"psram_min\":%lu,\"stack_main\":%lu}",
         reset_reason_name(g_boot_reset_reason), (int)g_boot_reset_reason,
         (unsigned long)uptime_s,
-        (unsigned long)g_prev_rtc_diag.last_uptime_s,
+        (unsigned long)prev_uptime_s,
+        prev_source,
+        (unsigned long)g_flash_boot_count,
         (unsigned long)g_rtc_diag.boot_count,
         (unsigned long)snap.poll_count,
         (unsigned long)snap.fail_count,
-        (unsigned long)g_prev_rtc_diag.last_poll_count,
-        (unsigned long)g_prev_rtc_diag.last_fail_count,
+        (unsigned long)prev_polls,
+        (unsigned long)prev_fails,
+        (unsigned long)g_prev_flash_diag.last_uptime_s,
+        (unsigned long)g_prev_flash_diag.boot_count,
         snap.wifi_connected ? "true" : "false",
         (int)snap.wifi_rssi,
         (unsigned long)int_free,
@@ -506,7 +644,6 @@ extern "C" int powerdash_diag_json(char *out, size_t out_size)
 
 // Tages-Startwert in NVS merken, damit "Heute" nach einem Reboot am selben Tag
 // nicht wieder bei "Seit Boot" anfaengt. Geschrieben wird nur bei Tageswechsel.
-static constexpr const char *COUNTER_NVS_NS = "powerdash";
 static constexpr const char *COUNTER_NVS_DATE_KEY = "td_date";
 static constexpr const char *COUNTER_NVS_START_KEY = "td_start";
 
@@ -519,7 +656,7 @@ static bool load_today_start_from_nvs(int32_t date_key, double total_wh,
                                       double &start_wh)
 {
     nvs_handle_t h;
-    if (nvs_open(COUNTER_NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    if (nvs_open(POWERDASH_NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
 
     int32_t stored_date = 0;
     double stored_start = 0.0;
@@ -545,7 +682,7 @@ static bool load_today_start_from_nvs(int32_t date_key, double total_wh,
 static void save_today_start_to_nvs(int32_t date_key, double start_wh)
 {
     nvs_handle_t h;
-    if (nvs_open(COUNTER_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_open(POWERDASH_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
     nvs_set_i32(h, COUNTER_NVS_DATE_KEY, date_key);
     nvs_set_blob(h, COUNTER_NVS_START_KEY, &start_wh, sizeof(start_wh));
     nvs_commit(h);
@@ -1248,6 +1385,7 @@ extern "C" void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
+    init_flash_diag();
     settings_init();
 
     if (settings_force_provisioning_enabled()) {
@@ -1295,6 +1433,7 @@ extern "C" void app_main(void)
     log_runtime_diag("boot");
     while (true) {
         update_rtc_diag_periodic();
+        update_flash_diag_periodic();
         lv_process_flush_ready();
         lv_timer_handler();
         lv_process_flush_ready();
