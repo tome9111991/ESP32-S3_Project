@@ -4,9 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ESP32 Web Flasher</title>
-  <!-- esp-web-tools fest auf 10.2.1 (esptool-js 0.5.7) gepinnt: ab 10.3.0 (esptool-js 0.6)
-       scheitert Firefox mit CH340-Boards (ESP32-8048S043C) an "Failed to initialize". -->
-  <script type="module" src="https://unpkg.com/esp-web-tools@10.2.1/dist/web/install-button.js?module"></script>
+  <!-- esp-web-tools ohne Versionsangabe: unpkg liefert immer die neueste Version (npm "latest").
+       Hinweis: Ab 10.3.0 (esptool-js 0.6) gab es in Firefox mit CH340-Boards (ESP32-8048S043C)
+       "Failed to initialize". Falls das wieder auftritt, hier auf esp-web-tools@10.2.1 zurueckpinnen. -->
+  <script type="module" src="https://unpkg.com/esp-web-tools/dist/web/install-button.js?module"></script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
   <link rel="stylesheet" href="style.css" />
 </head>
