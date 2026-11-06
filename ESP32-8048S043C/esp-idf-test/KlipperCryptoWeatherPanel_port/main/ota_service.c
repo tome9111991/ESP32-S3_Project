@@ -41,7 +41,9 @@ static const char *TAG = "ota";
 #define OTA_API_RELEASES_FMT   "https://api.github.com/repos/%s/%s/releases?per_page=20"
 #define OTA_API_LATEST_FMT     "https://api.github.com/repos/%s/%s/releases/latest"
 #define OTA_ASSET_URL_MAX      384
-#define OTA_PERFORM_DELAY_MS   80
+// Nur noch kurze Pause fuer andere Tasks (LVGL/Touch). Die fruehere 80-ms-Bremse
+// gegen Bildfehler ist dank XIP_FROM_PSRAM + LCD_RGB_ISR_IRAM_SAFE unnoetig.
+#define OTA_PERFORM_DELAY_MS   5
 
 typedef struct {
     char *data;
@@ -432,8 +434,7 @@ static void ota_install_task(void *arg)
                 update_visual = true;
             }
         }
-        // Kurze Luft zwischen HTTP/Flash-Chunks: reduziert RGB/PSRAM-Artefakte,
-        // ohne den OTA-Download komplett zu verstecken.
+        // Kurz yielden, damit gleich priorisierte Tasks (LVGL, Touch) drankommen.
         vTaskDelay(pdMS_TO_TICKS(OTA_PERFORM_DELAY_MS));
         if (update_visual) {
             ui_firmware_info_ota_progress(last_progress);

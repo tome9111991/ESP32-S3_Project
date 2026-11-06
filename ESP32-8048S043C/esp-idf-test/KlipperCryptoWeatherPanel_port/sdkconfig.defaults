@@ -25,11 +25,13 @@ CONFIG_SPIRAM_BOOT_INIT=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
-# XIP aus PSRAM AUS: Code/rodata aus PSRAM zu fetchen erzeugt Bus-Contention
-# mit dem LCD-DMA → Shake/Tearing bei UI-Events. Internes Flash-XIP ist hier
-# besser für RGB-Stabilitaet.
-# CONFIG_SPIRAM_FETCH_INSTRUCTIONS is not set
-# CONFIG_SPIRAM_RODATA is not set
+# XIP aus PSRAM AN: Code/rodata laufen aus PSRAM. Dadurch muss der Cache bei
+# Flash-Write/Erase (OTA, NVS) nicht abgeschaltet werden, PSRAM bleibt lesbar
+# und die Bounce-Buffer-ISR kann den LCD weiter fuettern.
+# NICHT ausschalten: ohne XIP_FROM_PSRAM zerschiesst jedes OTA das Bild, und
+# LCD_RGB_ISR_IRAM_SAFE (unten) crasht dann beim Lesen des PSRAM-Framebuffers.
+# Dank Bounce-Buffer kein sichtbarer Shake mehr durch PSRAM-Bus-Contention.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 
 # --- FreeRTOS (1 kHz Tick - flüssiger für LVGL/Touch) -------------------------
 CONFIG_FREERTOS_HZ=1000
@@ -64,12 +66,12 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
 CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
 
 # --- RGB-LCD ISR Konfiguration ------------------------------------------------
-# IRAM_SAFE bewusst AUS: nicht nur weil esp_lvgl_port's VSYNC-Callback nicht in
-# IRAM liegt, sondern weil fb_in_psram=true die ganze Architektur fuer
-# IRAM_SAFE inkompatibel macht. Cache-Disable (SPI-Flash-Read) gated auch das
-# PSRAM mit; lcd_rgb_panel_fill_bounce_buffer crasht dann beim Lesen aus dem
-# PSRAM-Framebuffer (memcpy in ROM, EXCVADDR=0). Ein FB im internen SRAM ist
-# fuer 800x480x16bpp nicht moeglich.
+# IRAM_SAFE AN: RGB-ISR + Bounce-Buffer-Refill laufen auch waehrend
+# Flash-Operationen (OTA, NVS) weiter -> kein Bildversatz beim Update.
+# Funktioniert nur zusammen mit SPIRAM_XIP_FROM_PSRAM (oben), sonst sperrt der
+# Cache-Disable das PSRAM mit dem Framebuffer. esp_lvgl_port's VSYNC-Callback
+# ist LVGL_PORT_IRAM und damit IRAM-safe.
+CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 
 # --- LVGL ---------------------------------------------------------------------
