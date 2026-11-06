@@ -90,9 +90,9 @@ static bool wifi_is_connected(void)
 static void set_hidden(lv_obj_t *obj, bool hidden)
 {
     if (!obj) return;
-    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == hidden) return;
-    if (hidden) lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-    else        lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    if (lv_obj_is_hidden(obj) == hidden) return;
+    if (hidden) lv_obj_set_hidden(obj, true);
+    else        lv_obj_set_hidden(obj, false);
 }
 
 static bool set_label_text_if_changed(lv_obj_t *label, const char *text)
@@ -161,7 +161,7 @@ static lv_obj_t *create_screen(void)
     lv_obj_remove_style_all(screen);
     lv_obj_set_style_bg_color(screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(screen, false);
     return screen;
 }
 
@@ -198,7 +198,7 @@ static lv_obj_t *create_divider_sized(lv_obj_t *parent, int x, int y, int w, int
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(divider, 2, 0);
     lv_obj_set_pos(divider, x, y);
-    lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(divider, false);
     return divider;
 }
 
@@ -222,7 +222,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static const char *weekday_name(int weekday)
@@ -421,7 +421,7 @@ static void create_time_screen(void)
     lv_obj_set_pos(s_sun_icon, 708, 34);
     lv_image_set_pivot(s_sun_icon, 35, 35);
     lv_image_set_scale(s_sun_icon, 220);
-    lv_obj_remove_flag(s_sun_icon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_sun_icon, false);
     lv_image_set_src(s_sun_icon, &icon_status_day_line);
 
     s_time_location_label = create_label(s_time_screen, &lv_font_montserrat_30, COLOR_DIM, LV_TEXT_ALIGN_LEFT);
@@ -435,7 +435,7 @@ static void create_time_screen(void)
 
     s_weather_image = lv_image_create(s_time_screen);
     place_weather_image(NULL);
-    lv_obj_remove_flag(s_weather_image, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_weather_image, false);
     s_weather_icon_root = s_weather_image;
     update_weather_image(g_app.weather_code);
 
@@ -522,7 +522,7 @@ static void create_btc_day_screen(void)
         lv_canvas_set_buffer(s_btc_day_chart_canvas, s_btc_day_chart_canvas_buf,
                              BTC_CHART_W, BTC_CHART_CANVAS_H, LV_COLOR_FORMAT_RGB565);
         lv_obj_set_pos(s_btc_day_chart_canvas, BTC_CHART_X, BTC_CHART_Y);
-        lv_obj_remove_flag(s_btc_day_chart_canvas, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollable(s_btc_day_chart_canvas, false);
         lv_canvas_fill_bg(s_btc_day_chart_canvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
     }
 
@@ -567,7 +567,7 @@ static void create_btc_day_screen(void)
     lv_obj_set_style_pad_ver(s_btc_day_price_last_label, 1, 0);
     lv_obj_set_style_radius(s_btc_day_price_last_label, 3, 0);
     lv_label_set_text(s_btc_day_price_last_label, "--");
-    lv_obj_add_flag(s_btc_day_price_last_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_btc_day_price_last_label, true);
 }
 
 static void create_klipper_screen(void)
@@ -593,7 +593,7 @@ static void create_klipper_screen(void)
     lv_arc_set_range(s_klipper_progress_arc, 0, 100);
     lv_arc_set_value(s_klipper_progress_arc, 0);
     lv_obj_remove_style(s_klipper_progress_arc, NULL, LV_PART_KNOB);
-    lv_obj_remove_flag(s_klipper_progress_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_klipper_progress_arc, false);
     lv_obj_set_style_bg_opa(s_klipper_progress_arc, LV_OPA_TRANSP, 0);
     lv_obj_set_style_arc_width(s_klipper_progress_arc, 10, LV_PART_MAIN);
     lv_obj_set_style_arc_width(s_klipper_progress_arc, 10, LV_PART_INDICATOR);
@@ -611,7 +611,7 @@ static void create_klipper_screen(void)
     lv_image_set_src(s_klipper_offline_icon, &icon_status_offline);
     lv_obj_set_size(s_klipper_offline_icon, 147, 147);
     lv_obj_set_pos(s_klipper_offline_icon, 94, 119);
-    lv_obj_remove_flag(s_klipper_offline_icon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_klipper_offline_icon, false);
     set_hidden(s_klipper_offline_icon, true);
 
     s_klipper_offline_ring = lv_obj_create(s_klipper_screen);
@@ -622,7 +622,7 @@ static void create_klipper_screen(void)
     lv_obj_set_style_border_width(s_klipper_offline_ring, 8, 0);
     lv_obj_set_style_border_color(s_klipper_offline_ring, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_radius(s_klipper_offline_ring, 59, 0);
-    lv_obj_remove_flag(s_klipper_offline_ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_klipper_offline_ring, false);
     set_hidden(s_klipper_offline_ring, true);
 
     s_klipper_offline_stem = lv_obj_create(s_klipper_screen);
@@ -1228,7 +1228,7 @@ bool ui_time_weather_hitbox_contains(int x, int y)
 {
     if (s_current_screen != SCREEN_TIME) return false;
     if (!s_weather_image) return false;
-    if (lv_obj_has_flag(s_weather_image, LV_OBJ_FLAG_HIDDEN)) return false;
+    if (lv_obj_is_hidden(s_weather_image)) return false;
     int ix = lv_obj_get_x(s_weather_image);
     int iy = lv_obj_get_y(s_weather_image);
     int iw = lv_obj_get_width(s_weather_image);

@@ -49,7 +49,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -204,14 +204,14 @@ static lv_obj_t *make_back_button(lv_obj_t *parent)
     lv_obj_set_style_border_width(btn, 2, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(btn, 0, 0);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(btn, true);
     lv_obj_add_event_cb(btn, on_back_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *label = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
                                  LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52, LV_SYMBOL_LEFT);
     lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(label);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(label, true);
     return btn;
 }
 
@@ -231,12 +231,12 @@ static lv_obj_t *make_option(lv_obj_t *parent, int x, int y, int w, const char *
     lv_obj_set_style_border_width(btn, 2, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(btn, 0, 0);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(btn, true);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, index_data);
 
     lv_obj_t *label = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
                                  LV_TEXT_ALIGN_CENTER, 0, 9, w, 34, text);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(label, true);
     return btn;
 }
 
@@ -266,7 +266,7 @@ void ui_crypto_settings_open(void)
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_screen, false);
 
     lv_obj_t *accent = lv_obj_create(s_screen);
     style_filled_rect(accent, COLOR_SETTINGS, 2);

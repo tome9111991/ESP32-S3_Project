@@ -34,7 +34,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -234,7 +234,7 @@ void ui_display_settings_open(void)
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_screen, false);
 
     // Accent + Titel
     lv_obj_t *accent = lv_obj_create(s_screen);
@@ -252,14 +252,14 @@ void ui_display_settings_open(void)
     lv_obj_set_pos(back, LCD_H_RES - 52 - 24, 30);
     lv_obj_set_style_border_width(back, 2, 0);
     lv_obj_set_style_border_color(back, lv_color_hex(COLOR_DIM), 0);
-    lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(back, true);
     lv_obj_add_event_cb(back, on_back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_label = make_label(back, &lv_font_montserrat_24, COLOR_TEXT,
                                       LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52,
                                       LV_SYMBOL_LEFT);
     lv_obj_set_size(back_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(back_label);
-    lv_obj_add_flag(back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(back_label, true);
 
     // Section-Header + aktueller Wert
     make_label(s_screen, &lv_font_montserrat_30, COLOR_TEXT, LV_TEXT_ALIGN_LEFT,
@@ -293,8 +293,8 @@ void ui_display_settings_open(void)
     lv_obj_set_style_border_width(night_row, 2, 0);
     lv_obj_set_style_border_color(night_row, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(night_row, 0, 0);
-    lv_obj_add_flag(night_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(night_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(night_row, true);
+    lv_obj_set_scrollable(night_row, false);
     lv_obj_add_event_cb(night_row, on_night_row_clicked, LV_EVENT_CLICKED, NULL);
 
     s_night_switch = lv_switch_create(night_row);
@@ -312,11 +312,11 @@ void ui_display_settings_open(void)
     lv_obj_t *night_title = make_label(night_row, &lv_font_montserrat_30, COLOR_TEXT,
                                        LV_TEXT_ALIGN_LEFT, 128, 8, 460, 36,
                                        T(DISPLAY_NIGHT_MODE));
-    lv_obj_add_flag(night_title, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(night_title, true);
 
     s_night_hint = make_label(night_row, &lv_font_montserrat_24, COLOR_MUTED,
                               LV_TEXT_ALIGN_LEFT, 128, 44, 460, 32, "");
-    lv_obj_add_flag(s_night_hint, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(s_night_hint, true);
 
     // Rotate-180 Toggle-Row (klickbarer Container mit LVGL-Switch)
     lv_obj_t *row = lv_obj_create(s_screen);
@@ -326,8 +326,8 @@ void ui_display_settings_open(void)
     lv_obj_set_style_border_width(row, 2, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(row, 0, 0);
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(row, true);
+    lv_obj_set_scrollable(row, false);
     lv_obj_add_event_cb(row, on_rotate_row_clicked, LV_EVENT_CLICKED, NULL);
 
     s_rotate_switch = lv_switch_create(row);
@@ -345,11 +345,11 @@ void ui_display_settings_open(void)
     lv_obj_t *title = make_label(row, &lv_font_montserrat_30, COLOR_TEXT,
                                  LV_TEXT_ALIGN_LEFT, 128, 8, 460, 36,
                                  T(DISPLAY_ROTATE_180));
-    lv_obj_add_flag(title, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(title, true);
 
     s_rotate_hint = make_label(row, &lv_font_montserrat_24, COLOR_MUTED,
                                LV_TEXT_ALIGN_LEFT, 128, 44, 460, 32, "");
-    lv_obj_add_flag(s_rotate_hint, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(s_rotate_hint, true);
 
     update_night_visuals();
     update_rotate_visuals();

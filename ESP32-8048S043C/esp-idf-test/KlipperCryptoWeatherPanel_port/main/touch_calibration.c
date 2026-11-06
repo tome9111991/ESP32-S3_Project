@@ -200,7 +200,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -240,12 +240,12 @@ static void update_abort_bar(int64_t held_ms)
 {
     if (!s_abort_bar || !s_abort_fill) return;
     if (held_ms < TOUCH_CAL_BAR_DELAY_MS) {
-        lv_obj_add_flag(s_abort_bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(s_abort_bar, true);
         lv_obj_set_width(s_abort_fill, 0);
         return;
     }
     if (held_ms > TOUCH_CAL_ABORT_MS) held_ms = TOUCH_CAL_ABORT_MS;
-    lv_obj_remove_flag(s_abort_bar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_abort_bar, false);
     const int64_t span = TOUCH_CAL_ABORT_MS - TOUCH_CAL_BAR_DELAY_MS;
     const int64_t progress = held_ms - TOUCH_CAL_BAR_DELAY_MS;
     const int width = (int)((progress * (TOUCH_CAL_BAR_W - 4)) / span);
@@ -256,11 +256,11 @@ static void set_target_visible(int step)
 {
     if (!s_target_marker) return;
     if (step < 0 || step >= TOUCH_CAL_TARGET_COUNT) {
-        lv_obj_add_flag(s_target_marker, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(s_target_marker, true);
         return;
     }
     const int marker_size = 50;
-    lv_obj_remove_flag(s_target_marker, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_target_marker, false);
     lv_obj_set_pos(s_target_marker,
                    s_targets[step].x - marker_size / 2,
                    s_targets[step].y - marker_size / 2);
@@ -289,7 +289,7 @@ static void create_screen(void)
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_screen, false);
 
     make_label(s_screen, &lv_font_montserrat_40, COLOR_TEXT, LV_TEXT_ALIGN_CENTER,
                0, 140, LCD_H_RES, 52, T(TOUCH_TITLE));
@@ -310,8 +310,8 @@ static void create_screen(void)
     lv_obj_set_style_border_color(s_abort_bar, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_border_width(s_abort_bar, 2, 0);
     lv_obj_set_style_pad_all(s_abort_bar, 0, 0);
-    lv_obj_remove_flag(s_abort_bar, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_abort_bar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_clickable(s_abort_bar, false);
+    lv_obj_set_hidden(s_abort_bar, true);
 
     s_abort_fill = lv_obj_create(s_abort_bar);
     style_filled_rect(s_abort_fill, COLOR_LOSS, (TOUCH_CAL_BAR_H - 4) / 2);
@@ -319,7 +319,7 @@ static void create_screen(void)
     lv_obj_set_pos(s_abort_fill, 0, 0);
     lv_obj_set_style_border_width(s_abort_fill, 0, 0);
     lv_obj_set_style_pad_all(s_abort_fill, 0, 0);
-    lv_obj_remove_flag(s_abort_fill, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_abort_fill, false);
 
     s_target_marker = lv_obj_create(s_screen);
     style_filled_rect(s_target_marker, COLOR_CYAN, LV_RADIUS_CIRCLE);
@@ -327,7 +327,7 @@ static void create_screen(void)
     lv_obj_set_style_border_color(s_target_marker, lv_color_hex(COLOR_TEXT), 0);
     lv_obj_set_style_border_width(s_target_marker, 3, 0);
     lv_obj_set_style_pad_all(s_target_marker, 0, 0);
-    lv_obj_remove_flag(s_target_marker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_target_marker, false);
 
     lv_obj_t *dot = lv_obj_create(s_target_marker);
     style_filled_rect(dot, COLOR_BG, LV_RADIUS_CIRCLE);
@@ -335,7 +335,7 @@ static void create_screen(void)
     lv_obj_set_style_border_width(dot, 0, 0);
     lv_obj_set_style_pad_all(dot, 0, 0);
     lv_obj_center(dot);
-    lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(dot, false);
 }
 
 static void reset_state(void)

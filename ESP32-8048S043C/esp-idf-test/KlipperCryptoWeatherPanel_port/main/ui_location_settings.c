@@ -37,7 +37,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -195,7 +195,7 @@ void ui_location_settings_open(void)
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_screen, false);
 
     // Accent + Titel
     lv_obj_t *accent = lv_obj_create(s_screen);
@@ -213,13 +213,13 @@ void ui_location_settings_open(void)
     lv_obj_set_pos(back, LCD_H_RES - 52 - 24, 30);
     lv_obj_set_style_border_width(back, 2, 0);
     lv_obj_set_style_border_color(back, lv_color_hex(COLOR_DIM), 0);
-    lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(back, true);
     lv_obj_add_event_cb(back, on_back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_label = make_label(back, &lv_font_montserrat_24, COLOR_TEXT,
                                       LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52, LV_SYMBOL_LEFT);
     lv_obj_set_size(back_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(back_label);
-    lv_obj_add_flag(back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(back_label, true);
 
     // Felder
     make_label(s_screen, &lv_font_montserrat_24, COLOR_MUTED, LV_TEXT_ALIGN_LEFT,
@@ -244,11 +244,11 @@ void ui_location_settings_open(void)
     style_filled_rect(save, COLOR_CYAN, 10);
     lv_obj_set_size(save, 360, 64);
     lv_obj_set_pos(save, (LCD_H_RES - 360) / 2, 380);
-    lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(save, true);
     lv_obj_add_event_cb(save, on_save_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *save_lbl = make_label(save, &lv_font_montserrat_30, COLOR_BG,
                                     LV_TEXT_ALIGN_CENTER, 0, 14, 360, 50, T(COMMON_SAVE));
-    lv_obj_add_flag(save_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(save_lbl, true);
 
     // Vorbelegen mit aktuellem Wert.
     float lat_f = 0.0f, lon_f = 0.0f;

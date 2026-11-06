@@ -124,7 +124,7 @@ void ui_keyboard_open(lv_obj_t *target_ta,
     lv_obj_remove_style_all(s_kb_screen);
     lv_obj_set_style_bg_color(s_kb_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_kb_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_kb_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_kb_screen, false);
 
     // Header: Titel links, Fertig-Button rechts.
     lv_obj_t *title_lbl = lv_label_create(s_kb_screen);
@@ -141,10 +141,10 @@ void ui_keyboard_open(lv_obj_t *target_ta,
     lv_obj_set_style_bg_color(done, lv_color_hex(COLOR_CYAN), 0);
     lv_obj_set_style_bg_opa(done, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(done, 8, 0);
-    lv_obj_remove_flag(done, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(done, false);
     lv_obj_set_size(done, 130, 36);
     lv_obj_set_pos(done, LCD_H_RES - 130 - 16, 10);
-    lv_obj_add_flag(done, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(done, true);
     lv_obj_add_event_cb(done, on_kb_done_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *done_lbl = lv_label_create(done);
@@ -155,7 +155,7 @@ void ui_keyboard_open(lv_obj_t *target_ta,
     lv_obj_set_size(done_lbl, 130, 32);
     lv_obj_set_pos(done_lbl, 0, 4);
     lv_label_set_text(done_lbl, T(KEYBOARD_DONE));
-    lv_obj_add_flag(done_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(done_lbl, true);
 
     // Live-Editor unter dem Header.
     s_kb_screen_ta = lv_textarea_create(s_kb_screen);
@@ -201,7 +201,7 @@ void ui_keyboard_open(lv_obj_t *target_ta,
     lv_obj_set_style_pad_right(s_kb_widget, 2, 0);
     lv_obj_set_style_pad_row(s_kb_widget, 1, 0);
     lv_obj_set_style_pad_column(s_kb_widget, 2, 0);
-    lv_obj_remove_flag(s_kb_widget, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_kb_widget, false);
     lv_obj_set_style_text_font(s_kb_widget, &lv_font_montserrat_30, LV_PART_ITEMS);
     lv_obj_set_style_bg_color(s_kb_widget, lv_color_hex(0x18202b), LV_PART_ITEMS);
     lv_obj_set_style_bg_opa(s_kb_widget, LV_OPA_COVER, LV_PART_ITEMS);

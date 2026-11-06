@@ -154,7 +154,7 @@ void ui_chart_draw(void)
         canvas_rect(canvas, 0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
         lv_display_enable_invalidation(disp, true);
 
-        lv_obj_add_flag(ui_get_btc_price_last_label(), LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ui_get_btc_price_last_label(), true);
         lv_label_set_text(ui_get_btc_price_high_label(), "--");
         lv_label_set_text(ui_get_btc_price_low_label(), "--");
         lv_obj_invalidate(canvas);
@@ -273,7 +273,7 @@ void ui_chart_draw(void)
     if (label_y < min_y) label_y = min_y;
     if (label_y > max_y) label_y = max_y;
     lv_obj_set_pos(last_label, label_x, label_y);
-    lv_obj_remove_flag(last_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(last_label, false);
 
     lv_display_enable_invalidation(disp, false);
     draw_progress_bar(canvas, progress_width);

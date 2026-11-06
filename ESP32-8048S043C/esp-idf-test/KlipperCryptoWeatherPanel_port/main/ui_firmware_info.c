@@ -33,7 +33,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -150,8 +150,8 @@ static void status_timer_cb(lv_timer_t *t)
     // Install-Button nur sichtbar wenn ein Update bereitsteht.
     bool show_install = (st.state == OTA_STATE_UPDATE_AVAILABLE);
     if (s_install_btn) {
-        if (show_install) lv_obj_remove_flag(s_install_btn, LV_OBJ_FLAG_HIDDEN);
-        else              lv_obj_add_flag(s_install_btn,   LV_OBJ_FLAG_HIDDEN);
+        if (show_install) lv_obj_set_hidden(s_install_btn, false);
+        else              lv_obj_set_hidden(s_install_btn, true);
     }
 
     // Check-Button waehrend laufender Aktion deaktivieren.
@@ -175,13 +175,13 @@ static lv_obj_t *make_action_button(lv_obj_t *parent, int x, int y, int w, int h
     lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x101820), LV_STATE_DISABLED);
     lv_obj_set_style_text_color(btn, lv_color_hex(COLOR_DIM), LV_STATE_DISABLED);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(btn, true);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
                                LV_TEXT_ALIGN_CENTER, 0, 0, w, h, text);
     lv_obj_set_size(lbl, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(lbl);
-    lv_obj_add_flag(lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(lbl, true);
     return btn;
 }
 
@@ -222,7 +222,7 @@ void ui_firmware_info_enter_ota_mode(void)
         lv_obj_remove_style_all(s_ota_screen);
         lv_obj_set_style_bg_color(s_ota_screen, lv_color_hex(0x05070a), 0);
         lv_obj_set_style_bg_opa(s_ota_screen, LV_OPA_COVER, 0);
-        lv_obj_remove_flag(s_ota_screen, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollable(s_ota_screen, false);
 
         make_label(s_ota_screen, &lv_font_montserrat_40, COLOR_TEXT,
                    LV_TEXT_ALIGN_CENTER, 0, 170, LCD_H_RES, 54,
@@ -303,7 +303,7 @@ void ui_firmware_info_open(void)
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_screen, false);
 
     // Accent + Titel (gleicher Pattern wie die anderen Sub-Screens)
     lv_obj_t *accent = lv_obj_create(s_screen);
@@ -321,14 +321,14 @@ void ui_firmware_info_open(void)
     lv_obj_set_pos(back, LCD_H_RES - 52 - 24, 30);
     lv_obj_set_style_border_width(back, 2, 0);
     lv_obj_set_style_border_color(back, lv_color_hex(COLOR_DIM), 0);
-    lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(back, true);
     lv_obj_add_event_cb(back, on_back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_label = make_label(back, &lv_font_montserrat_24, COLOR_TEXT,
                                       LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52,
                                       LV_SYMBOL_LEFT);
     lv_obj_set_size(back_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(back_label);
-    lv_obj_add_flag(back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(back_label, true);
 
     // Info-Karte mit allen Versions-Daten
     const struct { const char *label; const char *value; } rows[4] = {
@@ -378,7 +378,7 @@ void ui_firmware_info_open(void)
     s_install_btn = make_action_button(s_screen, 100 + btn_w + 40, btn_y, btn_w, btn_h,
                                        0x1f3a2a, T(OTA_INSTALL), on_install_clicked);
     lv_obj_set_style_border_color(s_install_btn, lv_color_hex(COLOR_GREEN), 0);
-    lv_obj_add_flag(s_install_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(s_install_btn, true);
 
     // Status-Polling 4 Hz - reicht fuer Progress, ist billig.
     s_status_timer = lv_timer_create(status_timer_cb, 250, NULL);

@@ -36,7 +36,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -127,8 +127,8 @@ static void open_factory_confirm(void)
     lv_obj_set_pos(s_confirm_back, 0, 0);
     lv_obj_set_style_bg_color(s_confirm_back, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_confirm_back, 200, 0);
-    lv_obj_remove_flag(s_confirm_back, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_confirm_back, LV_OBJ_FLAG_CLICKABLE);  // schluckt Klicks Richtung Popup darunter
+    lv_obj_set_scrollable(s_confirm_back, false);
+    lv_obj_set_clickable(s_confirm_back, true);  // schluckt Klicks Richtung Popup darunter
 
     s_confirm_panel = lv_obj_create(s_confirm_back);
     style_filled_rect(s_confirm_panel, 0x171d26, 10);
@@ -152,7 +152,7 @@ static void open_factory_confirm(void)
     lv_obj_set_pos(cancel, 32, btn_y);
     lv_obj_set_style_border_width(cancel, 2, 0);
     lv_obj_set_style_border_color(cancel, lv_color_hex(COLOR_DIM), 0);
-    lv_obj_add_flag(cancel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(cancel, true);
     lv_obj_add_event_cb(cancel, on_factory_cancel_clicked, LV_EVENT_CLICKED, NULL);
     make_label(cancel, &lv_font_montserrat_30, COLOR_TEXT, LV_TEXT_ALIGN_CENTER,
                0, 14, CONFIRM_BTN_W, CONFIRM_BTN_H - 14, T(COMMON_CANCEL));
@@ -161,7 +161,7 @@ static void open_factory_confirm(void)
     style_filled_rect(ok, COLOR_LOSS, 8);
     lv_obj_set_size(ok, CONFIRM_BTN_W, CONFIRM_BTN_H);
     lv_obj_set_pos(ok, CONFIRM_PANEL_W - CONFIRM_BTN_W - 32, btn_y);
-    lv_obj_add_flag(ok, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(ok, true);
     lv_obj_add_event_cb(ok, on_factory_confirm_clicked, LV_EVENT_CLICKED, NULL);
     make_label(ok, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
                0, 14, CONFIRM_BTN_W, CONFIRM_BTN_H - 14, T(COMMON_RESET));
@@ -185,8 +185,8 @@ void ui_popup_open(void)
     lv_obj_set_pos(s_backdrop, 0, 0);
     lv_obj_set_style_bg_color(s_backdrop, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_backdrop, 150, 0);
-    lv_obj_remove_flag(s_backdrop, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(s_backdrop, false);
+    lv_obj_set_clickable(s_backdrop, true);
     lv_obj_add_event_cb(s_backdrop, on_backdrop_clicked, LV_EVENT_CLICKED, NULL);
 
     s_panel = lv_obj_create(s_backdrop);
@@ -197,7 +197,7 @@ void ui_popup_open(void)
     lv_obj_set_style_border_color(s_panel, lv_color_hex(COLOR_DIM), 0);
     // Klicks im Panel-Hintergrund (zwischen den Buttons) absorbieren, damit sie
     // nicht zum Backdrop durchschlagen und das Popup schliessen.
-    lv_obj_add_flag(s_panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_panel, true);
 
     int btn_x = (POPUP_MENU_W - POPUP_BUTTON_W) / 2;
     int settings_y = POPUP_BUTTONS_TOP_PAD;
@@ -210,15 +210,15 @@ void ui_popup_open(void)
     style_filled_rect(settings, COLOR_CYAN, 8);
     lv_obj_set_size(settings, POPUP_BUTTON_W, POPUP_BUTTON_H);
     lv_obj_set_pos(settings, btn_x, settings_y);
-    lv_obj_add_flag(settings, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(settings, true);
     lv_obj_add_event_cb(settings, on_settings_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *icon = lv_image_create(settings);
     lv_image_set_src(icon, &icon_settings);
     lv_obj_set_size(icon, 48, 48);
     lv_obj_set_pos(icon, 30, 8);
-    lv_obj_remove_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(icon, false);
+    lv_obj_set_clickable(icon, false);
 
     make_label(settings, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
                86, 12, 130, POPUP_BUTTON_H - 12, "Settings");
@@ -228,7 +228,7 @@ void ui_popup_open(void)
     style_filled_rect(reboot, COLOR_ORANGE, 8);
     lv_obj_set_size(reboot, POPUP_BUTTON_W, POPUP_BUTTON_H);
     lv_obj_set_pos(reboot, btn_x, reboot_y);
-    lv_obj_add_flag(reboot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(reboot, true);
     lv_obj_add_event_cb(reboot, on_reboot_clicked, LV_EVENT_CLICKED, NULL);
     make_label(reboot, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
                0, 14, POPUP_BUTTON_W, POPUP_BUTTON_H - 14, "Reboot");
@@ -238,7 +238,7 @@ void ui_popup_open(void)
     style_filled_rect(firmware, COLOR_SETTINGS, 8);
     lv_obj_set_size(firmware, POPUP_BUTTON_W, POPUP_BUTTON_H);
     lv_obj_set_pos(firmware, btn_x, firmware_y);
-    lv_obj_add_flag(firmware, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(firmware, true);
     lv_obj_add_event_cb(firmware, on_firmware_clicked, LV_EVENT_CLICKED, NULL);
     make_label(firmware, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
                0, 14, POPUP_BUTTON_W, POPUP_BUTTON_H - 14, T(POPUP_FIRMWARE));
@@ -248,7 +248,7 @@ void ui_popup_open(void)
     style_filled_rect(reset, COLOR_LOSS, 8);
     lv_obj_set_size(reset, POPUP_BUTTON_W, POPUP_BUTTON_H);
     lv_obj_set_pos(reset, btn_x, reset_y);
-    lv_obj_add_flag(reset, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(reset, true);
     lv_obj_add_event_cb(reset, on_factory_reset_clicked, LV_EVENT_CLICKED, NULL);
     make_label(reset, &lv_font_montserrat_30, COLOR_BG, LV_TEXT_ALIGN_CENTER,
                0, 14, POPUP_BUTTON_W, POPUP_BUTTON_H - 14, "Factory Reset");

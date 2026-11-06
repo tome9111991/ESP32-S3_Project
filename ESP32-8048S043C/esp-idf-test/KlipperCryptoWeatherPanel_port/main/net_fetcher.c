@@ -718,31 +718,34 @@ static bool time_due(uint32_t now, uint32_t target)
     return (int32_t)(now - target) >= 0;
 }
 
-// Reverse-Geocoding via BigDataCloud (kein API-Key, kein User-Agent-Zwang).
-// Wird einmalig pro Boot vor dem ersten Wetter-Fetch versucht, Ergebnis lebt
-// in g_app.weather_location. Bei Misserfolg bleibt WEATHER_LOCATION_NAME stehen.
-static bool resolve_location_name(char *out, size_t out_size)
-{
-    float lat_f = 0.0f, lon_f = 0.0f;
-    location_snapshot(&lat_f, &lon_f);
-    // Ortsname in der Build-Sprache (Kconfig App Localization), nicht fest "de".
+// Ortsname in der Build-Sprache (Kconfig App Localization), nicht fest "de".
 #if defined(CONFIG_APP_LANG_EN)
-    const char *geo_lang = "en";
+#define GEO_LANG "en"
 #else
-    const char *geo_lang = "de";
+#define GEO_LANG "de"
 #endif
+
+// Nominatim verlangt einen eindeutigen User-Agent (OSM Usage Policy).
+#define GEO_NOMINATIM_USER_AGENT "KlipperCryptoWeatherPanel/1.0 (ESP32-S3)"
+
+// Variante 1: BigDataCloud (kein API-Key, kein User-Agent-Zwang).
+static bool resolve_location_bigdatacloud(float lat, float lon, char *out, size_t out_size)
+{
     char url[224];
     snprintf(url, sizeof(url),
              "https://api.bigdatacloud.net/data/reverse-geocode-client"
-             "?latitude=%.6f&longitude=%.6f&localityLanguage=%s",
-             (double)lat_f, (double)lon_f, geo_lang);
+             "?latitude=%.6f&longitude=%.6f&localityLanguage=" GEO_LANG,
+             (double)lat, (double)lon);
 
     char *payload = NULL;
     if (!http_get(url, true, NULL, NULL, &payload)) return false;
 
     cJSON *root = cJSON_Parse(payload);
     free(payload);
-    if (!root) return false;
+    if (!root) {
+        ESP_LOGW(TAG, "BigDataCloud: JSON ungueltig");
+        return false;
+    }
 
     // city ist der lesbare Stadt-/Ortsname; locality ist der Stadtteil und
     // fuer ein Wetter-Display meist zu granular.
@@ -752,8 +755,62 @@ static bool resolve_location_name(char *out, size_t out_size)
 
     bool ok = (city[0] != '\0');
     if (ok) app_set_str(out, out_size, city);
+    else ESP_LOGW(TAG, "BigDataCloud: kein Ortsname in Antwort");
     cJSON_Delete(root);
     return ok;
+}
+
+// Variante 2 (Fallback): OpenStreetMap Nominatim. zoom=10 = Stadt-Ebene,
+// liefert address.city/town/village. Nur 1 Request pro Aufloesung -> Policy ok.
+static bool resolve_location_nominatim(float lat, float lon, char *out, size_t out_size)
+{
+    char url[224];
+    snprintf(url, sizeof(url),
+             "https://nominatim.openstreetmap.org/reverse"
+             "?format=jsonv2&lat=%.6f&lon=%.6f&zoom=10&addressdetails=1"
+             "&accept-language=" GEO_LANG,
+             (double)lat, (double)lon);
+
+    char *payload = NULL;
+    if (!http_get(url, true, GEO_NOMINATIM_USER_AGENT, NULL, &payload)) return false;
+
+    cJSON *root = cJSON_Parse(payload);
+    free(payload);
+    if (!root) {
+        ESP_LOGW(TAG, "Nominatim: JSON ungueltig");
+        return false;
+    }
+
+    // Reihenfolge: groesste sinnvolle Ortseinheit zuerst.
+    const cJSON *addr = json_obj(root, "address");
+    static const char * const keys[] = {
+        "city", "town", "village", "municipality", "suburb", "county", "state",
+    };
+    const char *city = "";
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]) && !city[0]; i++) {
+        city = json_str(json_obj(addr, keys[i]), "");
+    }
+    // Letzter Versuch: Top-Level "name" des gefundenen Objekts.
+    if (!city[0]) city = json_str(json_obj(root, "name"), "");
+
+    bool ok = (city[0] != '\0');
+    if (ok) app_set_str(out, out_size, city);
+    else ESP_LOGW(TAG, "Nominatim: kein Ortsname in Antwort");
+    cJSON_Delete(root);
+    return ok;
+}
+
+// Reverse-Geocoding: wird vor dem Wetter-Fetch versucht, bis es einmal klappt.
+// Ergebnis lebt in g_app.weather_location. Scheitern beide Dienste, zeigt die
+// UI den Fallback-Text "Standort" und es wird beim naechsten Refresh erneut probiert.
+static bool resolve_location_name(char *out, size_t out_size)
+{
+    float lat_f = 0.0f, lon_f = 0.0f;
+    location_snapshot(&lat_f, &lon_f);
+
+    if (resolve_location_bigdatacloud(lat_f, lon_f, out, out_size)) return true;
+    ESP_LOGW(TAG, "BigDataCloud fehlgeschlagen, versuche Nominatim");
+    return resolve_location_nominatim(lat_f, lon_f, out, out_size);
 }
 
 static bool fetch_weather(void)

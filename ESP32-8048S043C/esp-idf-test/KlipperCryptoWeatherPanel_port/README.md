@@ -37,7 +37,7 @@ RGB-panel + GT911 + LVGL scaffold.
   computed sun position (full brightness from sunrise+90 min, night value
   after sunset; night dimming can be disabled in Display settings)
 - Fetches weather from Open-Meteo, reverse-geocoded location names from
-  BigDataCloud, crypto from Coinbase (spot, 24h stats, candles),
+  BigDataCloud (fallback: OpenStreetMap Nominatim), crypto from Coinbase (spot, 24h stats, candles),
   and printer data from Moonraker (`/server/info`, `/printer/info`,
   `/printer/objects/query`, `/server/files/metadata`,
   `/server/database/item`) using native ESP-IDF HTTP + cJSON; MMU tool / gate /
@@ -343,5 +343,6 @@ new complexity.
 - Open-Meteo forecast API: https://open-meteo.com/en/docs
 - BigDataCloud Reverse Geocoding API:
   https://www.bigdatacloud.com/free-api/free-reverse-geocode-to-city-api
+- Nominatim Reverse Geocoding (fallback): https://nominatim.org/release-docs/latest/api/Reverse/
 - Coinbase Exchange API: https://docs.cdp.coinbase.com/exchange/docs/welcome
 - Moonraker API: https://moonraker.readthedocs.io/

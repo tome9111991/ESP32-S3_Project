@@ -9292,18 +9292,23 @@ const void* getGlyphBitmap(lv_font_glyph_dsc_t* dsc, lv_draw_buf_t*) {
 
 }  // namespace
 
+// Designated Initializer: unabhaengig von der Feld-Reihenfolge in lv_font_t
+// (LVGL 9.6 hat dsc/fallback/user_data nach vorne verschoben).
+// Reihenfolge muss trotzdem der Deklaration entsprechen (C++20-Regel).
 const lv_font_t ui_font_time_digits_160 = {
-  getGlyphDsc,
-  getGlyphBitmap,
-  nullptr,
-  166,
-  6,
-  LV_FONT_SUBPX_NONE,
-  LV_FONT_KERNING_NONE,
-  1,
-  -4,
-  2,
-  nullptr,
-  nullptr,
-  nullptr
+  .dsc = nullptr,
+  .fallback = nullptr,
+  .user_data = nullptr,
+  .get_glyph_dsc = getGlyphDsc,
+  .get_glyph_bitmap = getGlyphBitmap,
+  .release_glyph = nullptr,
+  .line_height = 166,
+  .base_line = 6,
+  .cap_height = 0,  // neu in 9.6, 0 = nicht gesetzt
+  .x_height = 0,    // neu in 9.6, 0 = nicht gesetzt
+  .subpx = LV_FONT_SUBPX_NONE,
+  .kerning = LV_FONT_KERNING_NONE,
+  .static_bitmap = 1,  // Bitmaps liegen statisch im Flash
+  .underline_position = -4,
+  .underline_thickness = 2,
 };

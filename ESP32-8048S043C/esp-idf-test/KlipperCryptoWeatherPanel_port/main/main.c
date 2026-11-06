@@ -221,8 +221,8 @@ static void create_lp_feedback(int16_t x, int16_t y)
     lv_obj_set_style_border_width(s_lp_root, 2, 0);
     lv_obj_set_style_border_color(s_lp_root, lv_color_hex(0xb8bec8), 0);
     lv_obj_set_style_border_opa(s_lp_root, 110, 0);
-    lv_obj_remove_flag(s_lp_root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(s_lp_root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(s_lp_root, false);
+    lv_obj_set_clickable(s_lp_root, false);
 
     s_lp_arc = lv_arc_create(s_lp_root);
     lv_obj_set_size(s_lp_arc, LP_FEEDBACK_ARC_SIZE, LP_FEEDBACK_ARC_SIZE);
@@ -232,7 +232,7 @@ static void create_lp_feedback(int16_t x, int16_t y)
     lv_arc_set_range(s_lp_arc, 0, 100);
     lv_arc_set_value(s_lp_arc, 0);
     lv_obj_remove_style(s_lp_arc, NULL, LV_PART_KNOB);
-    lv_obj_remove_flag(s_lp_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_lp_arc, false);
     lv_obj_set_style_bg_opa(s_lp_arc, LV_OPA_TRANSP, 0);
     lv_obj_set_style_arc_width(s_lp_arc, 10, LV_PART_MAIN);
     lv_obj_set_style_arc_width(s_lp_arc, 10, LV_PART_INDICATOR);

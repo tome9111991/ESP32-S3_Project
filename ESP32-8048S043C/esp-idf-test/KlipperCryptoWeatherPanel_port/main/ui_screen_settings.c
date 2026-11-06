@@ -262,7 +262,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -356,7 +356,7 @@ static void open_tile_detail(uint8_t index)
     lv_obj_remove_style_all(s_detail_screen);
     lv_obj_set_style_bg_color(s_detail_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_detail_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_detail_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_detail_screen, false);
 
     lv_obj_t *accent = lv_obj_create(s_detail_screen);
     style_filled_rect(accent, color_for_index(index), 2);
@@ -377,14 +377,14 @@ static void open_tile_detail(uint8_t index)
     lv_obj_set_style_border_width(btn, 2, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(btn, 0, 0);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(btn, true);
     lv_obj_add_event_cb(btn, on_detail_back_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_label = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
                                       LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52,
                                       LV_SYMBOL_LEFT);
     lv_obj_set_size(back_label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(back_label);
-    lv_obj_add_flag(back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(back_label, true);
 
     // Anzeigedauer-Slider (5-120 s) mit Live-Label.
     const uint32_t accent_color = color_for_index(index);
@@ -532,7 +532,7 @@ static lv_obj_t *make_back_button(lv_obj_t *parent)
     lv_obj_set_style_border_width(btn, 2, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(btn, 0, 0);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(btn, true);
     lv_obj_add_event_cb(btn, on_back_clicked, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *label = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
@@ -540,7 +540,7 @@ static lv_obj_t *make_back_button(lv_obj_t *parent)
                                  LV_SYMBOL_LEFT);
     lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(label);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(label, true);
     return btn;
 }
 
@@ -554,27 +554,27 @@ static void make_tile(lv_obj_t *parent, uint8_t index, int x, int y)
     lv_obj_set_style_border_width(tile, 2, 0);
     lv_obj_set_style_border_color(tile, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(tile, 0, 0);
-    lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(tile, true);
     lv_obj_add_event_cb(tile, on_tile_clicked, LV_EVENT_CLICKED, &s_tile_data[index]);
 
     s_title_label[index] = make_label(tile, &lv_font_montserrat_30, COLOR_TEXT,
                                       LV_TEXT_ALIGN_CENTER, 20, 20,
                                       TILE_W - 40, 38, title_for_index(index));
-    lv_obj_add_flag(s_title_label[index], LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(s_title_label[index], true);
 
     s_underline[index] = make_divider(tile, (TILE_W - 160) / 2, 64, 160,
                                       color_for_index(index));
-    lv_obj_add_flag(s_underline[index], LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(s_underline[index], true);
 
     lv_obj_t *hint = make_label(tile, &lv_font_montserrat_24, COLOR_MUTED,
                                 LV_TEXT_ALIGN_LEFT, 28, 82, 160, 28,
                                 hint_for_index(index));
-    lv_obj_add_flag(hint, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(hint, true);
 
     s_state_label[index] = make_label(tile, &lv_font_montserrat_24, COLOR_CYAN,
                                       LV_TEXT_ALIGN_RIGHT, TILE_W - 110, 82,
                                       82, 28, "");
-    lv_obj_add_flag(s_state_label[index], LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(s_state_label[index], true);
 
     // Schraubenschluessel-Icon-Button oben rechts. Eigener Click-Handler;
     // ohne EVENT_BUBBLE, damit der Tile-Toggle nicht mitausgeloest wird.
@@ -589,8 +589,8 @@ static void make_tile(lv_obj_t *parent, uint8_t index, int x, int y)
     lv_obj_set_style_pad_all(gear, 0, 0);
     lv_obj_set_size(gear, 34, 34);
     lv_obj_set_pos(gear, TILE_W - 34 - 8, 8);
-    lv_obj_remove_flag(gear, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(gear, false);
+    lv_obj_set_clickable(gear, true);
     lv_obj_add_event_cb(gear, on_tile_settings_clicked, LV_EVENT_CLICKED,
                         &s_tile_data[index]);
 
@@ -598,8 +598,8 @@ static void make_tile(lv_obj_t *parent, uint8_t index, int x, int y)
     lv_obj_t *gear_icon = lv_image_create(gear);
     lv_image_set_src(gear_icon, &icon_tile_settings);
     lv_obj_center(gear_icon);
-    lv_obj_remove_flag(gear_icon, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(gear_icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(gear_icon, false);
+    lv_obj_set_clickable(gear_icon, false);
 
     update_tile(index);
 }
@@ -632,7 +632,7 @@ void ui_screen_settings_open(void)
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_screen, false);
 
     lv_obj_t *accent = lv_obj_create(s_screen);
     style_filled_rect(accent, COLOR_SETTINGS, 2);

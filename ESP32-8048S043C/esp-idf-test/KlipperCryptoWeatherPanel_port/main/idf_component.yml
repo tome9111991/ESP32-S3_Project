@@ -1,10 +1,16 @@
 ## ESP-IDF Component Manager Manifest
 ## Wird beim naechsten `idf.py build` automatisch von components.espressif.com geladen.
+## Versionen auf neuesten Stand ziehen + Lock neu schreiben: `idf.py update-dependencies`
+## Danach dependencies.lock committen (= Versionen gelockt).
 
 dependencies:
   idf:
     version: ">=6.0.1"
-  espressif/esp_lvgl_port: "^2.7.0"
-  espressif/esp_lcd_touch_gt911: "^1.1.0"
-  espressif/cjson: "*"
-  lvgl/lvgl: "9.5.0"
+  # Stand 2026-11-06: neueste Registry-Versionen als Mindestversion
+  espressif/esp_lvgl_port: "^2.9.0"
+  espressif/esp_lcd_touch_gt911: "^1.2.1"
+  # cjson: statt "*" auf Major 1 begrenzen, damit kein Breaking-Update reinrutscht
+  espressif/cjson: "^1.7.19"
+  # LVGL bewusst exakt gepinnt (Minor-Updates koennen Config/API aendern)
+  # ~1 = Packaging-Revision der Registry fuer 9.6.0
+  lvgl/lvgl: "9.6.0~1"

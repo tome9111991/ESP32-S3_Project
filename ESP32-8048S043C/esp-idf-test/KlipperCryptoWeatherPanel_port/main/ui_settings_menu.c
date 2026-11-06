@@ -41,7 +41,7 @@ static void style_filled_rect(lv_obj_t *obj, uint32_t color, int radius)
     lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(obj, false);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color,
@@ -69,15 +69,15 @@ static lv_obj_t *make_back_button(lv_obj_t *parent, lv_event_cb_t cb)
     lv_obj_set_style_border_width(btn, 2, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(COLOR_DIM), 0);
     lv_obj_set_style_pad_all(btn, 0, 0);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(btn, true);
+    lv_obj_set_scrollable(btn, false);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *label = make_label(btn, &lv_font_montserrat_24, COLOR_TEXT,
                                  LV_TEXT_ALIGN_CENTER, 0, 0, 52, 52, LV_SYMBOL_LEFT);
     lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_center(label);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(label, true);
     return btn;
 }
 
@@ -102,8 +102,8 @@ static void make_tile(lv_obj_t *parent, int col, int row,
     style_filled_rect(tile, COLOR_CYAN, 12);
     lv_obj_set_size(tile, TILE_W, TILE_H);
     lv_obj_set_pos(tile, x, y);
-    lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_clickable(tile, true);
+    lv_obj_set_scrollable(tile, false);
     lv_obj_set_style_pad_all(tile, 0, 0);
     lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, NULL);
 
@@ -111,14 +111,14 @@ static void make_tile(lv_obj_t *parent, int col, int row,
     lv_image_set_src(icon, icon_src);
     lv_obj_set_size(icon, 48, 48);
     lv_obj_set_pos(icon, (TILE_W - 48) / 2, TILE_ICON_Y);
-    lv_obj_remove_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(icon, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_scrollable(icon, false);
+    lv_obj_set_event_bubble(icon, true);
 
     // Label darunter, zentriert.
     lv_obj_t *label = make_label(tile, &lv_font_montserrat_28, COLOR_BG,
                                  LV_TEXT_ALIGN_CENTER, 0, TILE_LABEL_Y, TILE_W, 36,
                                  label_text);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(label, true);
 }
 
 // --- Item-Callbacks ----------------------------------------------------------
@@ -196,7 +196,7 @@ static void open_settings_menu_screen(bool fresh)
     lv_obj_remove_style_all(s_menu_screen);
     lv_obj_set_style_bg_color(s_menu_screen, lv_color_hex(COLOR_BG), 0);
     lv_obj_set_style_bg_opa(s_menu_screen, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(s_menu_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(s_menu_screen, false);
 
     make_accent(s_menu_screen, COLOR_SETTINGS);
     make_label(s_menu_screen, &lv_font_montserrat_40, COLOR_TEXT,

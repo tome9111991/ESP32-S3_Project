@@ -77,6 +77,9 @@ CONFIG_LV_COLOR_DEPTH_16=y
 # LVGL-Demos/Examples bleiben aus, damit nur die App-UI gebaut wird.
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
+# Style-Cache (LVGL 9.6 Default): 2x32-Bit-Merker pro Objekt, ungesetzte
+# Style-Properties werden ohne Durchlaufen der Style-Liste aufgeloest.
+CONFIG_LV_OBJ_STYLE_CACHE=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_18=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
