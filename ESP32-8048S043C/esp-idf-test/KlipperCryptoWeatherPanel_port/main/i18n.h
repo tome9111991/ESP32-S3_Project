@@ -36,7 +36,13 @@ extern "C" {
     X(WIFI_HINT_EDIT_FIELD,           "Tippe auf ein Feld, um es zu bearbeiten", "Tap a field to edit it") \
     X(WIFI_MISSING_SSID,              "SSID fehlt",                            "SSID missing")   \
     X(WIFI_NO_DATA_SAVED,             "Keine WLAN-Daten gespeichert",          "No Wi-Fi data saved") \
-    X(WIFI_CONNECTING,                "WLAN verbindet",                        "Wi-Fi connecting") \
+    X(WIFI_SCAN_TITLE,                "Netzwerke",                             "Networks")       \
+    X(WIFI_SCANNING,                  "Suche Netzwerke...",                    "Scanning networks...") \
+    X(WIFI_SCAN_NONE,                 "Keine Netzwerke gefunden",              "No networks found") \
+    X(WIFI_SCAN_FAILED,               "Scan fehlgeschlagen",                   "Scan failed")    \
+    X(WIFI_SCAN_PICK,                 "Netzwerk antippen zum Uebernehmen",     "Tap a network to select it") \
+    X(WIFI_SCAN_OPEN,                 "offen",                                 "open")           \
+    X(WIFI_CONNECTING,               "WLAN verbindet",                        "Wi-Fi connecting") \
     X(WIFI_NOT_CONFIGURED,            "WLAN nicht konfiguriert",               "Wi-Fi not configured") \
     X(WIFI_MISSING,                   "WLAN fehlt",                            "Wi-Fi missing")  \
     X(WIFI_WAITING,                   "WLAN WARTET",                           "WI-FI WAITING")  \

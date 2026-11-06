@@ -359,6 +359,27 @@ void config_private_seed_nvs(void);
 bool wifi_credentials_load(char *ssid_out, size_t ssid_size,
                            char *pass_out, size_t pass_size);
 bool wifi_credentials_save(const char *ssid, const char *pass);
+
+// WLAN-Scan (asynchron, fuer die SSID-Auswahl im WLAN-Setup).
+// wifi_scan_start() startet einen Scan (initialisiert den WiFi-Treiber bei
+// Bedarf auch ohne gespeicherte Credentials). wifi_scan_poll() liefert den
+// Zustand; bei WIFI_SCAN_DONE werden die Ergebnisse (nach RSSI sortiert,
+// doppelte SSIDs zusammengefasst, versteckte Netze ausgelassen) kopiert.
+#define WIFI_SCAN_MAX_RESULTS 16
+typedef struct {
+    char   ssid[33];
+    int8_t rssi;
+    bool   secured;   // false = offenes Netz
+} wifi_scan_entry_t;
+typedef enum {
+    WIFI_SCAN_IDLE = 0,
+    WIFI_SCAN_RUNNING,
+    WIFI_SCAN_DONE,
+    WIFI_SCAN_FAILED,
+} wifi_scan_state_t;
+bool wifi_scan_start(void);
+wifi_scan_state_t wifi_scan_poll(wifi_scan_entry_t *out, int max, int *count_out);
+
 void crypto_settings_init_defaults(void);
 bool crypto_settings_load(void);
 bool crypto_settings_save(void);

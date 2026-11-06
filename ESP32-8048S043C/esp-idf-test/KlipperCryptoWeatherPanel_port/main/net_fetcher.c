@@ -1,6 +1,7 @@
 #include "app_state.h"
 #include "i18n.h"
 #include "cJSON.h"
+#include "esp_check.h"
 #include "esp_crt_bundle.h"
 #include "esp_event.h"
 #include "esp_http_client.h"
@@ -1921,18 +1922,216 @@ static void start_sntp(void)
     ESP_LOGI(TAG, "SNTP started after GOT_IP");
 }
 
+// --- WiFi-Treiber + Scan -----------------------------------------------------
+
+static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data);
+
+static bool s_net_start_done   = false;  // net_start() ist durchgelaufen (mit/ohne Creds)
+static bool s_wifi_driver_ready = false; // netif/event loop/esp_wifi_init erledigt
+static bool s_wifi_started     = false;  // esp_wifi_start() aufgerufen
+static bool s_wifi_autoconnect = false;  // nur mit Credentials: Connect-/Reconnect-Loop
+
+// Scan-Zustand. Ergebnisse schreibt nur der Event-Task, solange RUNNING;
+// gelesen wird nur bei DONE -> kein Ueberlappen. Mux nur fuer den State.
+static portMUX_TYPE        s_scan_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile wifi_scan_state_t s_scan_state = WIFI_SCAN_IDLE;
+static volatile bool       s_reconnect_after_scan = false;
+static wifi_scan_entry_t   s_scan_results[WIFI_SCAN_MAX_RESULTS];
+static int                 s_scan_count = 0;
+
+static void scan_set_state(wifi_scan_state_t st)
+{
+    portENTER_CRITICAL(&s_scan_mux);
+    s_scan_state = st;
+    portEXIT_CRITICAL(&s_scan_mux);
+}
+
+// Einmalige Treiber-Initialisierung; von net_start() und (ohne Creds) vom Scan genutzt.
+static esp_err_t wifi_driver_init_once(void)
+{
+    if (s_wifi_driver_ready) return ESP_OK;
+
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "nvs erase");
+        err = nvs_flash_init();
+    }
+    ESP_RETURN_ON_ERROR(err, TAG, "nvs init");
+    ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init");
+    ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "event loop");
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_RETURN_ON_ERROR(esp_wifi_init(&cfg), TAG, "wifi init");
+    ESP_RETURN_ON_ERROR(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL), TAG, "wifi evt");
+    ESP_RETURN_ON_ERROR(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL), TAG, "ip evt");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_storage(WIFI_STORAGE_RAM), TAG, "storage");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "mode");
+
+    s_wifi_driver_ready = true;
+    return ESP_OK;
+}
+
+// Laeuft im Event-Task: Scan-Liste abholen, Duplikate zusammenfassen, sortieren.
+static void wifi_scan_collect_results(bool success)
+{
+    if (s_scan_state != WIFI_SCAN_RUNNING) {
+        esp_wifi_clear_ap_list();   // fremder Scan -> Speicher trotzdem freigeben
+        return;
+    }
+
+    s_scan_count = 0;
+    uint16_t n = 0;
+    if (success) esp_wifi_scan_get_ap_num(&n);
+    if (n > 40) n = 40;  // Obergrenze fuer den temporaeren Puffer
+
+    wifi_ap_record_t *recs = (n > 0) ? calloc(n, sizeof(*recs)) : NULL;
+    if (!recs) {
+        esp_wifi_clear_ap_list();
+        scan_set_state(success && n == 0 ? WIFI_SCAN_DONE : WIFI_SCAN_FAILED);
+        return;
+    }
+    // Holt die Records und gibt die interne AP-Liste frei.
+    if (esp_wifi_scan_get_ap_records(&n, recs) != ESP_OK) n = 0;
+
+    for (uint16_t i = 0; i < n; ++i) {
+        const char *ssid = (const char *)recs[i].ssid;
+        if (!ssid[0]) continue;  // verstecktes Netz -> nicht auswaehlbar
+
+        // Gleiche SSID (mehrere APs/Mesh) nur einmal, staerkstes Signal behalten.
+        int found = -1;
+        for (int k = 0; k < s_scan_count; ++k) {
+            if (strncmp(s_scan_results[k].ssid, ssid, 32) == 0) { found = k; break; }
+        }
+        if (found >= 0) {
+            if (recs[i].rssi > s_scan_results[found].rssi) s_scan_results[found].rssi = recs[i].rssi;
+            continue;
+        }
+
+        int slot = s_scan_count;
+        if (slot >= WIFI_SCAN_MAX_RESULTS) {
+            // Liste voll: schwaechsten Eintrag ersetzen, falls neuer staerker.
+            int weakest = 0;
+            for (int k = 1; k < s_scan_count; ++k) {
+                if (s_scan_results[k].rssi < s_scan_results[weakest].rssi) weakest = k;
+            }
+            if (recs[i].rssi <= s_scan_results[weakest].rssi) continue;
+            slot = weakest;
+        } else {
+            s_scan_count++;
+        }
+        memset(&s_scan_results[slot], 0, sizeof(s_scan_results[slot]));
+        memcpy(s_scan_results[slot].ssid, ssid, strnlen(ssid, 32));
+        s_scan_results[slot].rssi    = recs[i].rssi;
+        s_scan_results[slot].secured = (recs[i].authmode != WIFI_AUTH_OPEN);
+    }
+    free(recs);
+
+    // Insertion-Sort nach RSSI absteigend (max. 16 Eintraege).
+    for (int i = 1; i < s_scan_count; ++i) {
+        wifi_scan_entry_t tmp = s_scan_results[i];
+        int j = i - 1;
+        while (j >= 0 && s_scan_results[j].rssi < tmp.rssi) {
+            s_scan_results[j + 1] = s_scan_results[j];
+            --j;
+        }
+        s_scan_results[j + 1] = tmp;
+    }
+
+    ESP_LOGI(TAG, "WLAN-Scan fertig: %d Netze", s_scan_count);
+    scan_set_state(WIFI_SCAN_DONE);
+}
+
+bool wifi_scan_start(void)
+{
+    // Vor Ende von net_start() nicht anfassen (Treiber-Init koennte parallel laufen).
+    if (!s_net_start_done) return false;
+    if (s_scan_state == WIFI_SCAN_RUNNING) return true;
+
+    // Ohne Credentials hat net_start() den Treiber nicht gestartet -> nur fuer Scan hochfahren.
+    if (wifi_driver_init_once() != ESP_OK) {
+        scan_set_state(WIFI_SCAN_FAILED);
+        return false;
+    }
+    if (!s_wifi_started) {
+        if (esp_wifi_start() != ESP_OK) {
+            scan_set_state(WIFI_SCAN_FAILED);
+            return false;
+        }
+        s_wifi_started = true;
+    }
+
+    // State vor dem Start setzen, damit ein evtl. DISCONNECT keinen Reconnect ausloest.
+    s_reconnect_after_scan = false;
+    scan_set_state(WIFI_SCAN_RUNNING);
+
+    wifi_scan_config_t scan_cfg = {
+        .show_hidden = false,
+        .scan_type   = WIFI_SCAN_TYPE_ACTIVE,
+    };
+    esp_err_t err = esp_wifi_scan_start(&scan_cfg, false);
+    if (err == ESP_ERR_WIFI_STATE) {
+        // STA haengt gerade im Verbindungsaufbau (z.B. falsches Passwort) ->
+        // Connect abbrechen, nach dem Scan wird wieder verbunden.
+        if (s_wifi_autoconnect) s_reconnect_after_scan = true;
+        esp_wifi_disconnect();
+        for (int i = 0; i < 10 && err == ESP_ERR_WIFI_STATE; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            err = esp_wifi_scan_start(&scan_cfg, false);
+        }
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "WLAN-Scan Start fehlgeschlagen: %s", esp_err_to_name(err));
+        scan_set_state(WIFI_SCAN_FAILED);
+        if (s_reconnect_after_scan) {
+            s_reconnect_after_scan = false;
+            esp_wifi_connect();
+        }
+        return false;
+    }
+    return true;
+}
+
+wifi_scan_state_t wifi_scan_poll(wifi_scan_entry_t *out, int max, int *count_out)
+{
+    wifi_scan_state_t st;
+    portENTER_CRITICAL(&s_scan_mux);
+    st = s_scan_state;
+    portEXIT_CRITICAL(&s_scan_mux);
+
+    if (count_out) *count_out = 0;
+    if (st == WIFI_SCAN_DONE && out && max > 0) {
+        int n = (s_scan_count < max) ? s_scan_count : max;
+        memcpy(out, s_scan_results, (size_t)n * sizeof(*out));
+        if (count_out) *count_out = n;
+    }
+    return st;
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
-    (void)data;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        // Ohne Credentials (nur Scan-Betrieb) nicht verbinden.
+        if (s_wifi_autoconnect) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         app_lock();
         g_app.wifi_connected = false;
         g_app.internet_available = false;
         app_unlock();
-        esp_wifi_connect();
+        if (s_scan_state == WIFI_SCAN_RUNNING) {
+            // Waehrend Scan nicht reconnecten (blockiert sonst den Scan); danach nachholen.
+            if (s_wifi_autoconnect) s_reconnect_after_scan = true;
+        } else if (s_wifi_autoconnect) {
+            esp_wifi_connect();
+        }
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
+        const wifi_event_sta_scan_done_t *ev = (const wifi_event_sta_scan_done_t *)data;
+        wifi_scan_collect_results(ev ? ev->status == 0 : true);
+        if (s_reconnect_after_scan) {
+            s_reconnect_after_scan = false;
+            esp_wifi_connect();
+        }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         app_lock();
         g_app.wifi_connected = true;
@@ -2149,24 +2348,14 @@ void net_start(void)
         app_set_str(g_app.crypto_status, sizeof(g_app.crypto_status), T(WIFI_MISSING));
         app_unlock();
         ESP_LOGW(TAG, "Keine WLAN-Credentials; Settings -> WLAN oeffnen");
+        // Treiber bleibt aus; ein WLAN-Scan im Setup faehrt ihn bei Bedarf hoch.
+        s_net_start_done = true;
         return;
     }
 
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
-    } else {
-        ESP_ERROR_CHECK(err);
-    }
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL));
+    // Treiber-Init (NVS, netif, Event-Loop, esp_wifi_init, Handler, STA-Mode).
+    ESP_ERROR_CHECK(wifi_driver_init_once());
+    s_wifi_autoconnect = true;  // vor esp_wifi_start(): STA_START soll verbinden
 
     wifi_config_t wifi_cfg = {0};
     // memcpy statt snprintf: SSID darf volle 32 Byte, ein Hex-PSK volle 64 Byte
@@ -2177,11 +2366,10 @@ void net_start(void)
     wifi_cfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     wifi_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
+    s_wifi_started = true;
     // start_sntp() laeuft jetzt im GOT_IP-Handler, sobald die Verbindung steht.
 
     if (!s_fetch_task) {
@@ -2189,4 +2377,5 @@ void net_start(void)
                                 FETCH_TASK_PRIO, &s_fetch_task, 1);
     }
     ESP_LOGI(TAG, "WiFi/API services started");
+    s_net_start_done = true;  // ab hier darf das WLAN-Setup scannen
 }
