@@ -104,6 +104,57 @@ static bool set_label_text_if_changed(lv_obj_t *label, const char *text)
     return true;
 }
 
+// LVGL 9 invalidiert bei jedem lv_obj_set_style_*() das Objekt (Font sogar mit
+// Relayout), auch wenn der Wert gleich bleibt. Die Refresh-Timer laufen jede
+// Sekunde -> Styles nur bei echter Aenderung setzen, spart Redraws/PSRAM-Bus.
+static void set_text_color_if_changed(lv_obj_t *obj, uint32_t hex)
+{
+    if (!obj) return;
+    lv_color_t color = lv_color_hex(hex);
+    lv_style_value_t cur;
+    if (lv_obj_get_local_style_prop(obj, LV_STYLE_TEXT_COLOR, &cur, 0) == LV_STYLE_RES_FOUND &&
+        lv_color_eq(cur.color, color)) return;
+    lv_obj_set_style_text_color(obj, color, 0);
+}
+
+static void set_bg_color_if_changed(lv_obj_t *obj, uint32_t hex)
+{
+    if (!obj) return;
+    lv_color_t color = lv_color_hex(hex);
+    lv_style_value_t cur;
+    if (lv_obj_get_local_style_prop(obj, LV_STYLE_BG_COLOR, &cur, 0) == LV_STYLE_RES_FOUND &&
+        lv_color_eq(cur.color, color)) return;
+    lv_obj_set_style_bg_color(obj, color, 0);
+}
+
+static void set_arc_color_if_changed(lv_obj_t *obj, uint32_t hex, lv_style_selector_t selector)
+{
+    if (!obj) return;
+    lv_color_t color = lv_color_hex(hex);
+    lv_style_value_t cur;
+    if (lv_obj_get_local_style_prop(obj, LV_STYLE_ARC_COLOR, &cur, selector) == LV_STYLE_RES_FOUND &&
+        lv_color_eq(cur.color, color)) return;
+    lv_obj_set_style_arc_color(obj, color, selector);
+}
+
+static void set_text_font_if_changed(lv_obj_t *obj, const lv_font_t *font)
+{
+    if (!obj || !font) return;
+    lv_style_value_t cur;
+    if (lv_obj_get_local_style_prop(obj, LV_STYLE_TEXT_FONT, &cur, 0) == LV_STYLE_RES_FOUND &&
+        cur.ptr == font) return;
+    lv_obj_set_style_text_font(obj, font, 0);
+}
+
+static void set_outline_width_if_changed(lv_obj_t *obj, int32_t width)
+{
+    if (!obj) return;
+    lv_style_value_t cur;
+    if (lv_obj_get_local_style_prop(obj, LV_STYLE_OUTLINE_WIDTH, &cur, 0) == LV_STYLE_RES_FOUND &&
+        cur.num == width) return;
+    lv_obj_set_style_outline_width(obj, width, 0);
+}
+
 static lv_obj_t *create_screen(void)
 {
     lv_obj_t *screen = lv_obj_create(NULL);
@@ -660,7 +711,7 @@ static void refresh_time_ui(void)
         set_time_normal_visible(false);
         update_time_second_progress(-1);
         set_hidden(s_sun_icon, true);
-        lv_obj_set_style_text_color(s_time_status_title, lv_color_hex(COLOR_RED), 0);
+        set_text_color_if_changed(s_time_status_title, COLOR_RED);
         set_label_text_if_changed(s_time_status_title, T(WIFI_CONNECTING));
         set_label_text_if_changed(s_time_status_detail, T(COMMON_WAIT));
         return;
@@ -769,7 +820,7 @@ static void refresh_crypto_ui(void)
 
     const lv_font_t *font = crypto_price_can_use_large_font(price) ?
         &ui_font_price_digits_80 : &lv_font_montserrat_48;
-    lv_obj_set_style_text_font(s_crypto_price_label, font, 0);
+    set_text_font_if_changed(s_crypto_price_label, font);
     set_label_text_if_changed(s_crypto_price_label, price);
 
     char change_text[40];
@@ -786,12 +837,11 @@ static void refresh_crypto_ui(void)
         change_color = COLOR_DIM;
     }
     set_label_text_if_changed(s_crypto_change_label, change_text);
-    lv_obj_set_style_text_color(s_crypto_change_label, lv_color_hex(change_color), 0);
+    set_text_color_if_changed(s_crypto_change_label, change_color);
 
     set_label_text_if_changed(s_crypto_status_label, status);
     bool service_ok = strncmp(status, g_crypto.service, strlen(g_crypto.service)) == 0;
-    lv_obj_set_style_text_color(s_crypto_status_label,
-        lv_color_hex(service_ok ? COLOR_MUTED : COLOR_RED), 0);
+    set_text_color_if_changed(s_crypto_status_label, service_ok ? COLOR_MUTED : COLOR_RED);
 }
 
 static void format_btc_candle_countdown(uint32_t candle_time, char *out, size_t out_size)
@@ -867,15 +917,27 @@ static void refresh_btc_day_ui(void)
     set_label_text_if_changed(s_btc_day_time_range_label, time_range);
     set_label_text_if_changed(s_btc_day_volume_label, volume);
     set_label_text_if_changed(s_btc_day_candle_label, candle);
-    lv_obj_set_style_text_color(s_btc_day_price_label,
-        lv_color_hex(price_direction > 0 ? COLOR_GREEN : (price_direction < 0 ? COLOR_LOSS : COLOR_TEXT)), 0);
-    lv_obj_set_style_text_color(s_btc_day_change_label,
-        lv_color_hex(!ready ? COLOR_MUTED : (positive ? COLOR_GREEN : COLOR_LOSS)), 0);
+    set_text_color_if_changed(s_btc_day_price_label,
+        price_direction > 0 ? COLOR_GREEN : (price_direction < 0 ? COLOR_LOSS : COLOR_TEXT));
+    set_text_color_if_changed(s_btc_day_change_label,
+        !ready ? COLOR_MUTED : (positive ? COLOR_GREEN : COLOR_LOSS));
 }
+
+// Merkt sich das zuletzt gesetzte Klipper-Layout. align()/long_mode()/size()
+// sollen nur beim Online/Offline-Wechsel laufen, nicht in jedem 1-s-Refresh.
+typedef enum {
+    KLIPPER_LAYOUT_NONE = 0,
+    KLIPPER_LAYOUT_OFFLINE,
+    KLIPPER_LAYOUT_ONLINE,
+} klipper_layout_t;
+static klipper_layout_t s_klipper_layout = KLIPPER_LAYOUT_NONE;
 
 static void set_klipper_offline_layout(uint32_t state_color)
 {
-    lv_obj_set_style_bg_color(s_klipper_accent, lv_color_hex(state_color), 0);
+    // Akzentfarbe haengt vom Zustand ab -> immer pruefen, Rest nur beim Wechsel.
+    set_bg_color_if_changed(s_klipper_accent, state_color);
+    if (s_klipper_layout == KLIPPER_LAYOUT_OFFLINE) return;
+    s_klipper_layout = KLIPPER_LAYOUT_OFFLINE;
     set_hidden(s_klipper_progress_arc, true);
     set_hidden(s_klipper_divider, true);
     set_hidden(s_klipper_offline_ring, true);
@@ -904,7 +966,9 @@ static void set_klipper_offline_layout(uint32_t state_color)
 
 static void set_klipper_online_layout(void)
 {
-    lv_obj_set_style_bg_color(s_klipper_accent, lv_color_hex(COLOR_GREEN), 0);
+    set_bg_color_if_changed(s_klipper_accent, COLOR_GREEN);
+    if (s_klipper_layout == KLIPPER_LAYOUT_ONLINE) return;
+    s_klipper_layout = KLIPPER_LAYOUT_ONLINE;
     set_hidden(s_klipper_progress_arc, false);
     lv_obj_set_size(s_klipper_progress_arc, 154, 154);
     lv_obj_align(s_klipper_progress_arc, LV_ALIGN_TOP_MID, 0, 88);
@@ -1005,9 +1069,9 @@ static void refresh_klipper_ui(void)
         set_label_text_if_changed(s_klipper_file_label, detail_text);
         set_label_text_if_changed(s_klipper_mmu_label,
                                   host_available ? T(KLIPPER_POWER_ON_PRINTER) : T(KLIPPER_WAITING_MAINSAIL));
-        lv_obj_set_style_text_color(s_klipper_state_label, lv_color_hex(state_color), 0);
-        lv_obj_set_style_text_color(s_klipper_file_label, lv_color_hex(COLOR_TEXT), 0);
-        lv_obj_set_style_text_color(s_klipper_mmu_label, lv_color_hex(COLOR_MUTED), 0);
+        set_text_color_if_changed(s_klipper_state_label, state_color);
+        set_text_color_if_changed(s_klipper_file_label, COLOR_TEXT);
+        set_text_color_if_changed(s_klipper_mmu_label, COLOR_MUTED);
         return;
     }
 
@@ -1027,18 +1091,18 @@ static void refresh_klipper_ui(void)
     else if (strcmp(state, T(PRINT_STATE_ERROR)) == 0) state_color = COLOR_LOSS;
     else if (strcmp(state, T(PRINT_STATE_READY)) == 0 || strcmp(state, "STANDBY") == 0) state_color = COLOR_MUTED;
 
-    lv_obj_set_style_text_color(s_klipper_state_label, lv_color_hex(state_color), 0);
-    lv_obj_set_style_text_color(s_klipper_progress_label, lv_color_hex(state_color), 0);
+    set_text_color_if_changed(s_klipper_state_label, state_color);
+    set_text_color_if_changed(s_klipper_progress_label, state_color);
     int pct = progress_percent_from_text(progress);
     set_hidden(s_klipper_progress_arc, pct < 0);
     if (pct >= 0) {
         lv_arc_set_value(s_klipper_progress_arc, pct);
-        lv_obj_set_style_arc_color(s_klipper_progress_arc, lv_color_hex(COLOR_DIM), LV_PART_MAIN);
-        lv_obj_set_style_arc_color(s_klipper_progress_arc, lv_color_hex(state_color), LV_PART_INDICATOR);
+        set_arc_color_if_changed(s_klipper_progress_arc, COLOR_DIM, LV_PART_MAIN);
+        set_arc_color_if_changed(s_klipper_progress_arc, state_color, LV_PART_INDICATOR);
     }
-    lv_obj_set_style_text_color(s_klipper_nozzle_label, lv_color_hex(COLOR_CYAN), 0);
-    lv_obj_set_style_text_color(s_klipper_bed_label, lv_color_hex(COLOR_CYAN), 0);
-    lv_obj_set_style_text_color(s_klipper_status_label, lv_color_hex(display_msg[0] ? COLOR_CYAN : COLOR_DIM), 0);
+    set_text_color_if_changed(s_klipper_nozzle_label, COLOR_CYAN);
+    set_text_color_if_changed(s_klipper_bed_label, COLOR_CYAN);
+    set_text_color_if_changed(s_klipper_status_label, display_msg[0] ? COLOR_CYAN : COLOR_DIM);
 
     for (int i = 0; i < MMU_GATE_MAX; i++) {
         bool gate_visible = mmu_available && i < mmu_gate_count;
@@ -1050,15 +1114,15 @@ static void refresh_klipper_ui(void)
 
         bool gate_empty = mmu_gate_status[i] == 0;
         uint32_t gate_color = gate_empty ? COLOR_DIM : mmu_gate_colors[i];
-        lv_obj_set_style_bg_color(s_klipper_mmu_gate_box[i], lv_color_hex(gate_color), 0);
-        lv_obj_set_style_outline_width(s_klipper_mmu_gate_box[i], i == mmu_gate ? 3 : 0, 0);
+        set_bg_color_if_changed(s_klipper_mmu_gate_box[i], gate_color);
+        set_outline_width_if_changed(s_klipper_mmu_gate_box[i], i == mmu_gate ? 3 : 0);
         set_hidden(s_klipper_mmu_gate_empty_line[i], !gate_empty);
 
         uint8_t r = (gate_color >> 16) & 0xff;
         uint8_t g = (gate_color >> 8) & 0xff;
         uint8_t b = gate_color & 0xff;
         uint32_t label_color = ((uint16_t)r + (uint16_t)g + (uint16_t)b) > 380 ? COLOR_BG : COLOR_TEXT;
-        lv_obj_set_style_text_color(s_klipper_mmu_gate_label[i], lv_color_hex(label_color), 0);
+        set_text_color_if_changed(s_klipper_mmu_gate_label[i], label_color);
     }
 }
 

@@ -21,11 +21,13 @@ static struct {
     float    raw_high;
     int      progress_width;
     bool     valid;
+    bool     empty_drawn;   // Platzhalter (keine Daten) ist bereits gezeichnet
 } s_chart_cache;
 
 void ui_chart_invalidate(void)
 {
     s_chart_cache.valid = false;
+    s_chart_cache.empty_drawn = false;
 }
 
 static int maxi(int a, int b) { return a > b ? a : b; }
@@ -141,6 +143,10 @@ void ui_chart_draw(void)
     app_unlock();
 
     if (!ready || source_count < 2) {
+        // Platzhalter nur einmal zeichnen. Sonst wird bei dauerhaft fehlenden
+        // Candles (z. B. HTTP-Fehler) jede Sekunde der ganze Canvas neu gefuellt.
+        if (s_chart_cache.empty_drawn) return;
+        s_chart_cache.empty_drawn = true;
         // Pixel-Operationen ohne Pro-Pixel-Invalidate; ein einziger Refresh am Ende.
         lv_display_t *disp = lv_obj_get_display(canvas);
         lv_display_enable_invalidation(disp, false);
@@ -200,6 +206,7 @@ void ui_chart_draw(void)
     }
 
     // Voll-Redraw: kompletten Pixel-Block in einen einzigen Refresh buendeln.
+    s_chart_cache.empty_drawn = false;  // naechster Datenverlust zeichnet Platzhalter neu
     lv_display_t *disp = lv_obj_get_display(canvas);
     lv_display_enable_invalidation(disp, false);
     lv_canvas_fill_bg(canvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);

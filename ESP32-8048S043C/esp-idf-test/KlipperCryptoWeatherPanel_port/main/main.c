@@ -169,6 +169,10 @@ static esp_lcd_touch_handle_t touch_init(i2c_master_bus_handle_t bus)
 // ---------- Dashboard runtime ----------------------------------------------
 
 static esp_lcd_touch_handle_t s_tp;
+// LVGL-Indev des GT911. Der Touch-Poll liest dessen Zustand statt selbst per
+// I2C zu lesen (der GT911-Treiber loescht das "neue Daten"-Flag beim Lesen,
+// zwei Leser sehen sonst sporadisch "losgelassen").
+static lv_indev_t *s_touch_indev = NULL;
 static int64_t s_last_touch_switch_us = 0;
 static int64_t s_last_auto_switch_us = 0;
 static bool s_touch_was_down = false;
@@ -338,10 +342,28 @@ static void touch_poll_timer_cb(lv_timer_t *t)
         return;
     }
 
-    esp_lcd_touch_point_data_t pts[1];
-    uint8_t count = 0;
-    esp_lcd_touch_read_data(s_tp);
-    bool down = esp_lcd_touch_get_data(s_tp, pts, &count, 1) == ESP_OK && count > 0;
+    // Touch-Zustand aus dem LVGL-Indev uebernehmen (wird alle LV_DEF_REFR_PERIOD
+    // vom esp_lvgl_port gelesen). Kein zweiter I2C-Read mehr: der hat das
+    // GT911-Statusflag fuer LVGL weggeloescht -> Phantom-Releases/Doppelklicks.
+    bool down = false;
+    lv_point_t pt = {0};
+    if (s_touch_indev) {
+        down = lv_indev_get_state(s_touch_indev) == LV_INDEV_STATE_PRESSED;
+        // act_point ist bereits durch lv_display_rotate_point im User-Space.
+        lv_indev_get_point(s_touch_indev, &pt);
+    } else {
+        // Fallback, falls lvgl_port_add_touch fehlgeschlagen ist.
+        esp_lcd_touch_point_data_t pts[1] = {0};
+        uint8_t count = 0;
+        esp_lcd_touch_read_data(s_tp);
+        down = esp_lcd_touch_get_data(s_tp, pts, &count, 1) == ESP_OK && count > 0;
+        pt.x = pts[0].x;
+        pt.y = pts[0].y;
+        if (s_rotate_180 && down) {
+            pt.x = (LCD_H_RES - 1) - pt.x;
+            pt.y = (LCD_V_RES - 1) - pt.y;
+        }
+    }
     int64_t now_us = esp_timer_get_time();
 
     // Wenn Popup offen ist: Routing uebernimmt LVGL ueber lvgl_port_add_touch.
@@ -357,15 +379,9 @@ static void touch_poll_timer_cb(lv_timer_t *t)
         return;
     }
 
-    // pts[0] kommt aus touch_process_coords im Panel-Pixel-Raum (ohne 180-Invert).
-    // Fuer Feedback-Arc und Screen-Switch brauchen wir User-Space. LVGL selber
-    // bekommt die Roh-Koordinaten und macht die Rotation intern (lv_indev.c).
-    int16_t ux = (int16_t)pts[0].x;
-    int16_t uy = (int16_t)pts[0].y;
-    if (s_rotate_180 && down) {
-        ux = (int16_t)((LCD_H_RES - 1) - ux);
-        uy = (int16_t)((LCD_V_RES - 1) - uy);
-    }
+    // Feedback-Arc und Screen-Switch arbeiten im User-Space (nach 180-Rotation).
+    int16_t ux = (int16_t)pt.x;
+    int16_t uy = (int16_t)pt.y;
 
     if (down) {
         if (!s_touch_was_down) {
@@ -558,7 +574,10 @@ void app_main(void)
         .disp   = disp,
         .handle = s_tp,
     };
-    lvgl_port_add_touch(&touch_cfg);
+    s_touch_indev = lvgl_port_add_touch(&touch_cfg);
+    if (!s_touch_indev) {
+        ESP_LOGW(TAG, "lvgl_port_add_touch fehlgeschlagen, Touch-Poll liest GT911 direkt");
+    }
 
     ESP_LOGI(TAG, "Init app state");
     init_app_state();
@@ -589,7 +608,7 @@ void app_main(void)
     s_last_auto_switch_us = esp_timer_get_time();
 
     ESP_LOGI(TAG, "Running.");
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
-    }
+    // app_main darf zurueckkehren: alles laeuft in LVGL-/Netz-/OTA-Tasks weiter.
+    // Der Main-Task wird dann geloescht und gibt seinen 8-KB-Stack im internen
+    // SRAM frei (hilft TLS/OTA, die internen Heap brauchen).
 }

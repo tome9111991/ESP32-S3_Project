@@ -37,7 +37,8 @@ static const char * const kb_map_uc[] = {
     "1#", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", LV_SYMBOL_BACKSPACE, "\n",
     "abc", "A", "S", "D", "F", "G", "H", "J", "K", "L", LV_SYMBOL_OK, "\n",
     "_", "-", "Z", "X", "C", "V", "B", "N", "M", ".", ",", ":", "\n",
-    LV_SYMBOL_CLOSE, " ", LV_SYMBOL_CLOSE, ""
+    // Links wie in den anderen Maps das Tastatur-Symbol (war doppeltes X).
+    LV_SYMBOL_KEYBOARD, " ", LV_SYMBOL_CLOSE, ""
 };
 
 static const lv_buttonmatrix_ctrl_t kb_ctrl_uc[] = {

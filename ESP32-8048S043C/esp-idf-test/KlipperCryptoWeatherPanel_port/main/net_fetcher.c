@@ -88,6 +88,10 @@ static volatile bool s_weather_refresh_requested;
 // Reverse-Geocoding nur einmal pro Boot; bei Location-Wechsel zuruecksetzen,
 // damit der City-Name neu aufgeloest wird.
 static volatile bool s_location_name_resolved;
+// Wird bei jedem Crypto-Paar-/Timeframe-Wechsel erhoeht (unter app_lock).
+// Fetches, die noch fuer das alte Paar unterwegs waren, verwerfen ihr Ergebnis,
+// statt z. B. BTC-Candles/24h-Open unter dem neuen ETH-Titel abzulegen.
+static uint32_t s_crypto_generation;
 
 static void update_live_candle_from_price(float price);
 
@@ -97,7 +101,12 @@ static void app_set_str(char *dst, size_t dst_size, const char *src)
     if (!src) src = "";
     // Bewusst begrenzt kopieren; vermeidet GCC format-truncation bei kleinen UI-Puffern.
     size_t n = strlen(src);
-    if (n >= dst_size) n = dst_size - 1;
+    if (n >= dst_size) {
+        n = dst_size - 1;
+        // Nicht mitten in einem UTF-8-Zeichen abschneiden (Umlaute in Ortsnamen,
+        // Klipper-Dateinamen...), sonst zeigt LVGL ein kaputtes Glyph am Ende.
+        while (n > 0 && ((unsigned char)src[n] & 0xC0) == 0x80) n--;
+    }
     memcpy(dst, src, n);
     dst[n] = '\0';
 }
@@ -113,6 +122,25 @@ static void crypto_snapshot(crypto_config_t *out)
     if (g_app.mutex) app_lock();
     *out = g_crypto;
     if (g_app.mutex) app_unlock();
+}
+
+// Snapshot inkl. Generation; die Fetches vergleichen sie spaeter unter app_lock.
+static uint32_t crypto_snapshot_gen(crypto_config_t *out)
+{
+    uint32_t gen;
+    app_lock();
+    if (out) *out = g_crypto;
+    gen = s_crypto_generation;
+    app_unlock();
+    return gen;
+}
+
+static bool crypto_gen_is_current(uint32_t gen)
+{
+    app_lock();
+    bool current = (gen == s_crypto_generation);
+    app_unlock();
+    return current;
 }
 
 static bool crypto_option_allowed(const char *value, const char * const *options, size_t count)
@@ -426,6 +454,7 @@ void crypto_settings_apply(const char *base, const char *quote, const char *time
     crypto_copy_setting(g_crypto.quote, sizeof(g_crypto.quote), quote);
     crypto_copy_setting(g_crypto.timeframe, sizeof(g_crypto.timeframe), timeframe);
     g_crypto.price_prefix[0] = '\0';
+    s_crypto_generation++;  // laufende Fetches fuer das alte Paar ungueltig machen
     app_unlock();
 
     crypto_reset_data_state(crypto_ok_status());
@@ -696,11 +725,17 @@ static bool resolve_location_name(char *out, size_t out_size)
 {
     float lat_f = 0.0f, lon_f = 0.0f;
     location_snapshot(&lat_f, &lon_f);
+    // Ortsname in der Build-Sprache (Kconfig App Localization), nicht fest "de".
+#if defined(CONFIG_APP_LANG_EN)
+    const char *geo_lang = "en";
+#else
+    const char *geo_lang = "de";
+#endif
     char url[224];
     snprintf(url, sizeof(url),
              "https://api.bigdatacloud.net/data/reverse-geocode-client"
-             "?latitude=%.6f&longitude=%.6f&localityLanguage=de",
-             (double)lat_f, (double)lon_f);
+             "?latitude=%.6f&longitude=%.6f&localityLanguage=%s",
+             (double)lat_f, (double)lon_f, geo_lang);
 
     char *payload = NULL;
     if (!http_get(url, true, NULL, NULL, &payload)) return false;
@@ -923,13 +958,19 @@ static bool fetch_weather(void)
 static bool fetch_price(void)
 {
     crypto_config_t cfg;
-    crypto_snapshot(&cfg);
+    const uint32_t gen = crypto_snapshot_gen(&cfg);
     char url[128];
     snprintf(url, sizeof(url), "https://api.coinbase.com/v2/prices/%s-%s/spot",
              cfg.base, cfg.quote);
     char *payload = NULL;
     int http_status = 0;
-    if (!http_get(url, false, CRYPTO_HTTP_USER_AGENT, &http_status, &payload)) {
+    bool http_ok = http_get(url, false, CRYPTO_HTTP_USER_AGENT, &http_status, &payload);
+    // Paar wurde waehrend des Requests gewechselt -> Ergebnis verwerfen.
+    if (!crypto_gen_is_current(gen)) {
+        free(payload);
+        return false;
+    }
+    if (!http_ok) {
         char status_text[32];
         if (http_status > 0) {
             snprintf(status_text, sizeof(status_text), "%s HTTP %d", cfg.base, http_status);
@@ -962,6 +1003,12 @@ static bool fetch_price(void)
     format_quote_full_from_amount(amount, price, sizeof(price));
 
     app_lock();
+    if (gen != s_crypto_generation) {
+        // Wechsel zwischen Parse und Schreiben: nichts uebernehmen.
+        app_unlock();
+        cJSON_Delete(root);
+        return false;
+    }
     if (g_app.crypto_live_price > 0.0f) {
         if (live > g_app.crypto_live_price) g_app.crypto_price_direction = 1;
         else if (live < g_app.crypto_live_price) g_app.crypto_price_direction = -1;
@@ -1083,7 +1130,7 @@ static void update_live_candle_from_price(float price)
 static bool fetch_candles(void)
 {
     crypto_config_t cfg;
-    crypto_snapshot(&cfg);
+    const uint32_t gen = crypto_snapshot_gen(&cfg);
     if (!g_app.candles) {
         btc_set_candle_status("CANDLE RAM");
         return false;
@@ -1111,7 +1158,13 @@ static bool fetch_candles(void)
 
     char *payload = NULL;
     int http_status = 0;
-    if (!http_get(url, false, CRYPTO_HTTP_USER_AGENT, &http_status, &payload)) {
+    bool http_ok = http_get(url, false, CRYPTO_HTTP_USER_AGENT, &http_status, &payload);
+    if (!crypto_gen_is_current(gen)) {
+        // Candles gehoeren zum alten Paar/Timeframe -> verwerfen.
+        free(payload);
+        return false;
+    }
+    if (!http_ok) {
         char status_text[24];
         if (http_status > 0) {
             snprintf(status_text, sizeof(status_text), "CANDLE HTTP %d", http_status);
@@ -1154,6 +1207,10 @@ static bool fetch_candles(void)
     qsort(parsed, count, sizeof(parsed[0]), candle_cmp);
 
     app_lock();
+    if (gen != s_crypto_generation) {
+        app_unlock();
+        return false;
+    }
     memcpy(g_app.candles, parsed, sizeof(btc_candle_t) * count);
     g_app.candle_count = count;
     update_btc_stats_locked();
@@ -1164,7 +1221,7 @@ static bool fetch_candles(void)
 static bool fetch_stats(void)
 {
     crypto_config_t cfg;
-    crypto_snapshot(&cfg);
+    const uint32_t gen = crypto_snapshot_gen(&cfg);
     char url[128];
     snprintf(url, sizeof(url), "https://api.exchange.coinbase.com/products/%s-%s/stats",
              cfg.base, cfg.quote);
@@ -1192,6 +1249,11 @@ static bool fetch_stats(void)
     if (open_price <= 0.0f) return false;
 
     app_lock();
+    if (gen != s_crypto_generation) {
+        // 24h-Open des alten Paares wuerde die %-Anzeige des neuen verfaelschen.
+        app_unlock();
+        return false;
+    }
     g_app.crypto_24h_open = open_price;
     g_app.crypto_24h_ready = true;
     app_unlock();
@@ -2050,9 +2112,12 @@ void net_start(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL));
 
     wifi_config_t wifi_cfg = {0};
-    snprintf((char *)wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), "%s", ssid);
-    snprintf((char *)wifi_cfg.sta.password, sizeof(wifi_cfg.sta.password), "%s", pass);
-    wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    // memcpy statt snprintf: SSID darf volle 32 Byte, ein Hex-PSK volle 64 Byte
+    // lang sein - ohne Null-Terminator. snprintf haette das letzte Zeichen gekappt.
+    memcpy(wifi_cfg.sta.ssid, ssid, strnlen(ssid, sizeof(wifi_cfg.sta.ssid)));
+    memcpy(wifi_cfg.sta.password, pass, strnlen(pass, sizeof(wifi_cfg.sta.password)));
+    // Leeres Passwort = offenes Netz; WPA2-Schwelle wuerde das sonst blockieren.
+    wifi_cfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     wifi_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
