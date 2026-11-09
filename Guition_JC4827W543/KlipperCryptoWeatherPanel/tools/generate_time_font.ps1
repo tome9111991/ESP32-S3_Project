@@ -180,23 +180,29 @@ const void* getGlyphBitmap(lv_font_glyph_dsc_t* dsc, lv_draw_buf_t*) {
   return glyphBitmap + glyph.bitmapIndex;
 }
 
+// Font per Feldname befuellen statt positionell: LVGL 9.6 hat die
+// Reihenfolge in lv_font_t geaendert (dsc/fallback/user_data jetzt vorne,
+// cap_height/x_height neu). So bleibt es versionsunabhaengig.
+lv_font_t makeTimeFont() {
+  lv_font_t font;
+  memset(&font, 0, sizeof(font));  // alle nicht gesetzten Felder = 0/nullptr
+  font.get_glyph_dsc = getGlyphDsc;
+  font.get_glyph_bitmap = getGlyphBitmap;
+  font.release_glyph = nullptr;     // statische Bitmaps, nichts freizugeben
+  font.line_height = $lineHeight;
+  font.base_line = $baseLine;
+  font.subpx = LV_FONT_SUBPX_NONE;
+  font.kerning = LV_FONT_KERNING_NONE;
+  font.static_bitmap = 1;           // Bitmap liegt fest im Flash
+  font.underline_position = -4;
+  font.underline_thickness = 2;
+  return font;
+}
+
 }  // namespace
 
-const lv_font_t ui_font_time_digits_96 = {
-  getGlyphDsc,
-  getGlyphBitmap,
-  nullptr,
-  $lineHeight,
-  $baseLine,
-  LV_FONT_SUBPX_NONE,
-  LV_FONT_KERNING_NONE,
-  1,
-  -4,
-  2,
-  nullptr,
-  nullptr,
-  nullptr
-};
+// Wird bei der statischen Initialisierung (vor setup()) gebaut
+const lv_font_t ui_font_time_digits_96 = makeTimeFont();
 "@
 
 Set-Content -Path $headerPath -Value $header -Encoding ASCII
