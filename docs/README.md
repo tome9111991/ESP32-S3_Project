@@ -20,6 +20,9 @@ docs/
 ├── index.html              UI (Board/Projekt/Version/Sprache + Buttons)
 ├── style.css
 ├── app.js                  Releases laden, Manifest dynamisch erzeugen
+├── config-header.js        config_private.h aus Formularwerten erzeugen
+├── location-fields.js      Formularfelder "location-search" (Stadt-Suche) und "timezone"
+├── tz-zones.js             IANA-Zeitzone -> POSIX-String (posix_tz_db, MIT)
 ├── projects.json           Index: globale Settings + Liste der Board-Dateien
 ├── boards/                 Eine JSON-Datei pro Board (Projekte, Form-Felder, …)
 └── manifests/              Statische Manifeste fuer Projekte ohne Release
@@ -86,6 +89,25 @@ ESP-Web-Tools-Manifest unter `docs/manifests/` abgelegt und in der jeweiligen
 
 Manifest-Format: <https://esphome.github.io/esp-web-tools/#manifest>. Bei einem
 gemergten Binary ist `offset: 0`.
+
+## Formularfelder fuer Build-on-Demand
+
+Felder stehen in `source.groups[].fields` der Board-Datei. Neben `string`,
+`password`, `float`, `boolean` und `select` gibt es zwei Sonderfelder:
+
+- `"type": "location-search"` mit `"virtual": true`: Stadt-Suche ueber die
+  Open-Meteo Geocoding API (kein Key, CORS offen). Ein Klick auf einen Treffer
+  fuellt die in `targets` genannten Felder (`latitude`, `longitude`,
+  `timezone`). Virtuelle Felder erzeugen kein `#define`.
+- `"type": "timezone"`: Suchliste mit IANA-Namen (`Europe/Berlin`). Ausgegeben
+  wird der POSIX-String aus `tz-zones.js`. Ohne gespeicherten Wert wird die
+  Browser-Zeitzone vorausgewaehlt. Ein eigener POSIX-String kann direkt
+  eingetippt werden. Namen in spitzen Klammern (`<-03>3`) werden zu `STD3`
+  umgeschrieben, damit newlib `tzset()` sie sicher versteht.
+
+`tz-zones.js` aktualisieren: `zones.json` aus
+https://github.com/nayarsystems/posix_tz_db laden und als
+`export const POSIX_ZONES = { ... };` neu schreiben.
 
 ## TODO
 

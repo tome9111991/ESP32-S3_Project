@@ -427,6 +427,67 @@ h3 { margin: 0.25rem 0 0.5rem; font-size: 1rem; }
   grid-column: 2 / -1;
 }
 
+/* Stadt-Suche + Zeitzone (location-fields.js) */
+.field-hint.error {
+  color: var(--error);
+}
+
+.field-hint.ok {
+  color: var(--success);
+}
+
+.loc-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.loc-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.loc-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.loc-results li + li {
+  border-top: 1px solid var(--border);
+}
+
+.loc-result {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.loc-result:hover,
+.loc-result:focus-visible {
+  background: var(--card-hover);
+  outline: none;
+}
+
+.loc-result-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.loc-result-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .group-hint {
   font-size: 0.78rem;
   color: var(--muted);

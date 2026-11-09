@@ -83,6 +83,39 @@
                 }
               },
               {
+                "key": "DATE_FORMAT",
+                "label": { "de": "Datumsformat", "en": "Date format" },
+                "type": "select",
+                "default": "DATE_FORMAT_DMY_DOT",
+                "rawValue": true,
+                "options": [
+                  { "value": "DATE_FORMAT_DMY_DOT", "label": { "de": "TT.MM.JJJJ (09.11.2026)", "en": "DD.MM.YYYY (09.11.2026)" } },
+                  { "value": "DATE_FORMAT_DMY_SLASH", "label": { "de": "TT/MM/JJJJ (09/11/2026)", "en": "DD/MM/YYYY (09/11/2026)" } },
+                  { "value": "DATE_FORMAT_MDY_SLASH", "label": { "de": "MM/TT/JJJJ (11/09/2026, USA)", "en": "MM/DD/YYYY (11/09/2026, US)" } },
+                  { "value": "DATE_FORMAT_YMD_ISO", "label": { "de": "JJJJ-MM-TT (2026-11-09, ISO)", "en": "YYYY-MM-DD (2026-11-09, ISO)" } }
+                ]
+              },
+              {
+                "key": "TIME_FORMAT_12H",
+                "label": { "de": "12-Stunden-Uhr (AM/PM)", "en": "12-hour clock (AM/PM)" },
+                "type": "boolean",
+                "default": false,
+                "hint": {
+                  "de": "Aus = 24h (23:05). An = 12h (11:05 PM).",
+                  "en": "Off = 24h (23:05). On = 12h (11:05 PM)."
+                }
+              },
+              {
+                "key": "TEMPERATURE_FAHRENHEIT",
+                "label": { "de": "Wetter in °F", "en": "Weather in °F" },
+                "type": "boolean",
+                "default": false,
+                "hint": {
+                  "de": "Aus = °C. Klipper-Temperaturen bleiben immer °C.",
+                  "en": "Off = °C. Klipper temperatures always stay in °C."
+                }
+              },
+              {
                 "key": "DISPLAY_ROTATION",
                 "label": { "de": "Display um 180° drehen", "en": "Rotate display by 180°" },
                 "type": "boolean",
@@ -134,6 +167,21 @@
             "label": { "de": "Standort & Zeit", "en": "Location & time" },
             "fields": [
               {
+                "key": "LOCATION_SEARCH",
+                "label": { "de": "Stadt suchen", "en": "Search city" },
+                "type": "location-search",
+                "virtual": true,
+                "targets": {
+                  "latitude": "LOCATION_LATITUDE",
+                  "longitude": "LOCATION_LONGITUDE",
+                  "timezone": "TIMEZONE_POSIX"
+                },
+                "hint": {
+                  "de": "Füllt Breitengrad, Längengrad und Zeitzone automatisch aus (Suche über Open-Meteo).",
+                  "en": "Fills in latitude, longitude and timezone automatically (search via Open-Meteo)."
+                }
+              },
+              {
                 "key": "LOCATION_LATITUDE",
                 "label": { "de": "Breitengrad", "en": "Latitude" },
                 "type": "float",
@@ -151,13 +199,13 @@
               },
               {
                 "key": "TIMEZONE_POSIX",
-                "label": { "de": "POSIX-Zeitzone", "en": "POSIX timezone" },
-                "type": "string",
+                "label": { "de": "Zeitzone", "en": "Timezone" },
+                "type": "timezone",
                 "default": "CET-1CEST,M3.5.0,M10.5.0/3",
                 "required": true,
                 "hint": {
-                  "de": "Deutschland: CET-1CEST,M3.5.0,M10.5.0/3",
-                  "en": "Germany: CET-1CEST,M3.5.0,M10.5.0/3"
+                  "de": "Wird mit der Zeitzone deines Browsers vorbelegt. Sommerzeit stellt das Display selbst um. Fortgeschrittene können auch direkt einen POSIX-String eintippen.",
+                  "en": "Pre-filled with your browser's timezone. The display handles daylight saving time by itself. Advanced users can also type a POSIX string directly."
                 }
               }
             ]
@@ -175,7 +223,11 @@
                 "key": "CRYPTO_QUOTE_SYMBOL",
                 "label": { "de": "Quote-Symbol", "en": "Quote symbol" },
                 "type": "string",
-                "default": "USD"
+                "default": "USD",
+                "hint": {
+                  "de": "Chart-Kerzen gibt es nur für Coinbase-Exchange-Paare (z.B. USD, EUR, GBP, USDC, USDT). Andere Währungen zeigen evtl. nur den Preis.",
+                  "en": "Chart candles only exist for Coinbase Exchange pairs (e.g. USD, EUR, GBP, USDC, USDT). Other currencies may only show the price."
+                }
               },
               {
                 "key": "CRYPTO_PRICE_PREFIX",
@@ -183,8 +235,8 @@
                 "type": "string",
                 "default": "",
                 "hint": {
-                  "de": "Leer = automatisch ($ für USD, sonst Quote-Symbol)",
-                  "en": "Empty = automatic ($ for USD, otherwise quote symbol)"
+                  "de": "Leer = automatisch ($ für USD, sonst Quote-Symbol). Nur ASCII-Zeichen, € oder £ kann das Display nicht darstellen.",
+                  "en": "Empty = automatic ($ for USD, otherwise quote symbol). ASCII only, the display cannot render € or £."
                 }
               },
               {

@@ -24,6 +24,7 @@ export function generateConfigHeader(project, values) {
       : (group.label?.de ?? group.label?.en ?? "");
     lines.push(`// ${groupLabel}`);
     for (const f of group.fields) {
+      if (f.virtual) continue; // z.B. Stadt-Suche: nur Eingabehilfe, kein #define
       const raw = values[f.key];
       let val;
       if (f.type === "float") {

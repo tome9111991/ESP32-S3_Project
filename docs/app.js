@@ -5,6 +5,11 @@ import {
   encodeBase64Utf8,
 } from "./config-header.js";
 import { loadVersions } from "./releases.js";
+import {
+  initTimezoneValues,
+  renderTimezoneField,
+  renderLocationSearchField,
+} from "./location-fields.js";
 
 const wizardEl = document.getElementById("wizard");
 const projectLinkSlot = document.getElementById("project-link-slot");
@@ -219,9 +224,22 @@ function initialFormValues(project) {
   for (const group of project.source.groups ?? []) {
     for (const f of group.fields) {
       out[f.key] = cached[f.key] ?? f.default ?? "";
+      // Zeitzone: Browser-Zone vorauswaehlen + gemerkten IANA-Namen mitnehmen.
+      if (f.type === "timezone") initTimezoneValues(f, cached, out);
     }
   }
   return out;
+}
+
+// Anzahl echter Config-Werte (ohne virtuelle Felder wie die Stadt-Suche).
+function configValueCount(project) {
+  let n = 0;
+  for (const group of project.source.groups ?? []) {
+    for (const f of group.fields) {
+      if (!f.virtual) n++;
+    }
+  }
+  return n;
 }
 
 // ---------- Step model ----------
@@ -337,7 +355,7 @@ function projectCountLabel(n) {
 function renderConfigStep({ stepNum, project }) {
   const stepId = "config";
   const completedSummary = state.config
-    ? t("step.config.summary", { n: Object.keys(state.config).length })
+    ? t("step.config.summary", { n: configValueCount(project) })
     : null;
   const li = renderStepShell({ stepNum, stepId, label: t("step.config"), valueLabel: completedSummary });
   if (li.dataset.state !== "active") return li;
@@ -352,6 +370,13 @@ function renderConfigStep({ stepNum, project }) {
 
   const groupHints = new Map();
   const groupDetails = new Map();
+  // key -> Funktion, die Wert + Eingabefeld setzt (z.B. fuer die Stadt-Suche).
+  const fieldSetters = new Map();
+  const onFieldChange = () => {
+    saveFormCache(state.board, project.id, values);
+    updatePreview();
+    clearValidationErrors();
+  };
   for (const group of project.source.groups ?? []) {
     const fs = document.createElement("details");
     fs.className = "config-group";
@@ -374,6 +399,13 @@ function renderConfigStep({ stepNum, project }) {
     }
 
     for (const field of group.fields) {
+      // Sonderfelder aus location-fields.js (Stadt-Suche, Zeitzone).
+      if (field.type === "timezone" || field.type === "location-search") {
+        const ctx = { field, values, onChange: onFieldChange, setters: fieldSetters };
+        fs.appendChild(field.type === "timezone" ? renderTimezoneField(ctx) : renderLocationSearchField(ctx));
+        continue;
+      }
+
       const wrap = document.createElement("label");
       wrap.className = "field";
 
@@ -443,6 +475,10 @@ function renderConfigStep({ stepNum, project }) {
       input.dataset.key = field.key;
       input.dataset.type = field.type;
       if (field.required) input.required = true;
+      fieldSetters.set(field.key, (v) => {
+        input.value = String(v);
+        values[field.key] = input.value;
+      });
       input.addEventListener("input", () => {
         values[field.key] = input.value;
         saveFormCache(state.board, project.id, values);
