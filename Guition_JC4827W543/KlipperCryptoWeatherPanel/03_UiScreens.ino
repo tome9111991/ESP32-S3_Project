@@ -287,7 +287,7 @@ void refreshTimeUi() {
     setTimeNormalVisible(false);
     updateTimeSecondProgress(-1);
     setHidden(timeSunIcon.root, true);
-    lv_obj_set_style_text_color(timeStatusTitle, lv_color_hex(COLOR_RED), 0);
+    setTextColorIfChanged(timeStatusTitle, COLOR_RED);
     setLabelTextIfChanged(timeStatusTitle, UI_TEXT_WIFI_CONNECTING);
     char statusText[16];
     snprintf(statusText, sizeof(statusText), "%s: %d", UI_TEXT_STATUS, WiFi.status());
@@ -365,14 +365,10 @@ void refreshCryptoUi() {
     changeColor = positive ? COLOR_GREEN : COLOR_LOSS;
   }
   setLabelTextIfChanged(cryptoChangeLabel, changeText.c_str());
-  lv_obj_set_style_text_color(cryptoChangeLabel, lv_color_hex(changeColor), 0);
+  setTextColorIfChanged(cryptoChangeLabel, changeColor); // nur bei Aenderung invalidieren
 
   setLabelTextIfChanged(cryptoStatusLabel, status.c_str());
-  lv_obj_set_style_text_color(
-    cryptoStatusLabel,
-    lv_color_hex(status.startsWith(cryptoServiceName) ? COLOR_MUTED : COLOR_RED),
-    0
-  );
+  setTextColorIfChanged(cryptoStatusLabel, status.startsWith(cryptoServiceName) ? COLOR_MUTED : COLOR_RED);
 }
 
 String formatBtcCandleCountdown(uint32_t candleTime) {
@@ -430,19 +426,24 @@ void refreshBtcDayUi() {
   setLabelTextIfChanged(btcDayRangeLabel, range.c_str());
   setLabelTextIfChanged(btcDayVolumeLabel, volume.c_str());
   setLabelTextIfChanged(btcDayCandleLabel, candle.c_str());
-  lv_obj_set_style_text_color(
-    btcDayPriceLabel,
-    lv_color_hex(priceDirection > 0 ? COLOR_GREEN : (priceDirection < 0 ? COLOR_LOSS : COLOR_TEXT)),
-    0
-  );
-  lv_obj_set_style_text_color(
-    btcDayChangeLabel,
-    lv_color_hex(!ready ? COLOR_MUTED : (positive ? COLOR_GREEN : COLOR_LOSS)),
-    0
-  );
+  // Farben nur bei Aenderung setzen, sonst Full-Redraw alle 500 ms.
+  setTextColorIfChanged(btcDayPriceLabel, priceDirection > 0 ? COLOR_GREEN : (priceDirection < 0 ? COLOR_LOSS : COLOR_TEXT));
+  setTextColorIfChanged(btcDayChangeLabel, !ready ? COLOR_MUTED : (positive ? COLOR_GREEN : COLOR_LOSS));
 }
 
+// Klipper-Layout nur bei Zustandswechsel neu aufbauen (Style-Setter invalidieren sonst jedes Mal).
+enum KlipperLayoutMode { KLIPPER_LAYOUT_NONE, KLIPPER_LAYOUT_OFFLINE, KLIPPER_LAYOUT_ONLINE };
+static KlipperLayoutMode klipperLayoutMode = KLIPPER_LAYOUT_NONE;
+static uint32_t klipperOfflineLayoutColor = 0;
+
 void setKlipperOfflineLayout(uint32_t stateColor) {
+  // Schon im passenden Offline-Layout mit gleicher Farbe -> nichts tun.
+  if (klipperLayoutMode == KLIPPER_LAYOUT_OFFLINE && klipperOfflineLayoutColor == stateColor) {
+    return;
+  }
+  klipperLayoutMode = KLIPPER_LAYOUT_OFFLINE;
+  klipperOfflineLayoutColor = stateColor;
+
   lv_obj_set_style_bg_color(klipperAccent, lv_color_hex(stateColor), 0);
   setHidden(klipperProgressArc, true);
   setHidden(klipperDivider, true);
@@ -485,6 +486,12 @@ void setKlipperOfflineLayout(uint32_t stateColor) {
 }
 
 void setKlipperOnlineLayout() {
+  // Online-Layout schon aktiv -> nichts tun (Arc-Sichtbarkeit regelt refreshKlipperUi).
+  if (klipperLayoutMode == KLIPPER_LAYOUT_ONLINE) {
+    return;
+  }
+  klipperLayoutMode = KLIPPER_LAYOUT_ONLINE;
+
   lv_obj_set_style_bg_color(klipperAccent, lv_color_hex(COLOR_GREEN), 0);
   setHidden(klipperProgressArc, false);
   lv_obj_set_size(klipperProgressArc, 102, 102);
@@ -580,9 +587,9 @@ void refreshKlipperUi() {
     setLabelTextIfChanged(klipperStatusLabel, status.c_str());
     setLabelTextIfChanged(klipperMmuLabel, hostAvailable ? UI_TEXT_TURN_PRINTER_ON : UI_TEXT_MAINSAIL_WAIT);
 
-    lv_obj_set_style_text_color(klipperStateLabel, lv_color_hex(stateColor), 0);
-    lv_obj_set_style_text_color(klipperProgressLabel, lv_color_hex(stateColor), 0);
-    lv_obj_set_style_text_color(klipperStatusLabel, lv_color_hex(hostAvailable ? COLOR_MUTED : COLOR_LOSS), 0);
+    setTextColorIfChanged(klipperStateLabel, stateColor);
+    setTextColorIfChanged(klipperProgressLabel, stateColor);
+    setTextColorIfChanged(klipperStatusLabel, hostAvailable ? COLOR_MUTED : COLOR_LOSS);
 
     for (int i = 0; i < MMU_GATE_MAX; i++) {
       setHidden(klipperMmuGateBox[i], true);
@@ -612,18 +619,17 @@ void refreshKlipperUi() {
     stateColor = COLOR_MUTED;
   }
 
-  lv_obj_set_style_text_color(klipperStateLabel, lv_color_hex(stateColor), 0);
-  lv_obj_set_style_text_color(klipperProgressLabel, lv_color_hex(stateColor), 0);
+  setTextColorIfChanged(klipperStateLabel, stateColor);
+  setTextColorIfChanged(klipperProgressLabel, stateColor);
   int progressPercent = progressPercentFromText(progress);
   setHidden(klipperProgressArc, progressPercent < 0);
   if (progressPercent >= 0) {
-    lv_arc_set_value(klipperProgressArc, progressPercent);
-    lv_obj_set_style_arc_color(klipperProgressArc, lv_color_hex(COLOR_DIM), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(klipperProgressArc, lv_color_hex(stateColor), LV_PART_INDICATOR);
+    lv_arc_set_value(klipperProgressArc, progressPercent); // prueft selbst auf Aenderung
+    // MAIN-Farbe (COLOR_DIM) ist seit createKlipperScreen gesetzt und aendert sich nicht.
+    setArcIndicatorColorIfChanged(klipperProgressArc, stateColor);
   }
-  lv_obj_set_style_text_color(klipperNozzleLabel, lv_color_hex(COLOR_CYAN), 0);
-  lv_obj_set_style_text_color(klipperBedLabel, lv_color_hex(COLOR_CYAN), 0);
-  lv_obj_set_style_text_color(klipperStatusLabel, lv_color_hex(displayMessage.length() > 0 ? COLOR_CYAN : COLOR_DIM), 0);
+  // Nozzle/Bed bleiben COLOR_CYAN aus createLabel -> kein erneutes Setzen noetig.
+  setTextColorIfChanged(klipperStatusLabel, displayMessage.length() > 0 ? COLOR_CYAN : COLOR_DIM);
 
   for (int i = 0; i < MMU_GATE_MAX; i++) {
     bool gateVisible = mmuAvailable && i < mmuGateCount;
@@ -633,14 +639,14 @@ void refreshKlipperUi() {
     }
 
     uint32_t gateColor = mmuGateStatus[i] == 0 ? COLOR_DIM : mmuGateColors[i];
-    lv_obj_set_style_bg_color(klipperMmuGateBox[i], lv_color_hex(gateColor), 0);
-    lv_obj_set_style_border_width(klipperMmuGateBox[i], i == mmuGate ? 2 : 0, 0);
+    setBgColorIfChanged(klipperMmuGateBox[i], gateColor);
+    setBorderWidthIfChanged(klipperMmuGateBox[i], i == mmuGate ? 2 : 0);
 
     uint8_t r = (gateColor >> 16) & 0xff;
     uint8_t g = (gateColor >> 8) & 0xff;
     uint8_t b = gateColor & 0xff;
     uint32_t labelColor = ((uint16_t)r + (uint16_t)g + (uint16_t)b) > 380 ? COLOR_BG : COLOR_TEXT;
-    lv_obj_set_style_text_color(klipperMmuGateLabel[i], lv_color_hex(labelColor), 0);
+    setTextColorIfChanged(klipperMmuGateLabel[i], labelColor);
   }
 }
 

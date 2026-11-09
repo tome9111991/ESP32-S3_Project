@@ -83,18 +83,83 @@ void setHidden(lv_obj_t* obj, bool hidden) {
   }
 }
 
+// FNV-1a Hash; 0 ist fuer "noch nie gesetzt" reserviert.
+static uint32_t labelTextHash(const char* text) {
+  uint32_t hash = 2166136261UL;
+  for (const char* cursor = text; *cursor != '\0'; cursor++) {
+    hash ^= (uint8_t)*cursor;
+    hash *= 16777619UL;
+  }
+  return hash != 0 ? hash : 1;
+}
+
 bool setLabelTextIfChanged(lv_obj_t* label, const char* text) {
   if (label == nullptr || text == nullptr) {
     return false;
   }
 
-  const char* currentText = lv_label_get_text(label);
-  if (currentText != nullptr && strcmp(currentText, text) == 0) {
+  // Nicht mit lv_label_get_text() vergleichen: LONG_DOT schreibt "..." in den
+  // Label-Text, dann waere der Vergleich bei gekuerzten Texten immer ungleich.
+  // Stattdessen Hash des zuletzt gesetzten Originaltexts in user_data merken.
+  const uint32_t hash = labelTextHash(text);
+  if ((uint32_t)(uintptr_t)lv_obj_get_user_data(label) == hash) {
     return false;
   }
 
   lv_label_set_text(label, text);
+  lv_obj_set_user_data(label, (void*)(uintptr_t)hash);
   return true;
+}
+
+// LVGL-Style-Setter invalidieren immer (auch bei gleichem Wert) -> im FULL-Render-Mode
+// wird dann der ganze Screen neu gezeichnet. Diese Helper setzen nur bei echter Aenderung.
+static bool localStyleColorEquals(lv_obj_t* obj, lv_style_prop_t prop, lv_style_selector_t selector, lv_color_t color) {
+  lv_style_value_t value;
+  if (lv_obj_get_local_style_prop(obj, prop, &value, selector) != LV_STYLE_RES_FOUND) {
+    return false;
+  }
+  return lv_color_eq(value.color, color);
+}
+
+void setTextColorIfChanged(lv_obj_t* obj, uint32_t color) {
+  if (obj == nullptr) {
+    return;
+  }
+  const lv_color_t lvColor = lv_color_hex(color);
+  if (!localStyleColorEquals(obj, LV_STYLE_TEXT_COLOR, 0, lvColor)) {
+    lv_obj_set_style_text_color(obj, lvColor, 0);
+  }
+}
+
+void setBgColorIfChanged(lv_obj_t* obj, uint32_t color) {
+  if (obj == nullptr) {
+    return;
+  }
+  const lv_color_t lvColor = lv_color_hex(color);
+  if (!localStyleColorEquals(obj, LV_STYLE_BG_COLOR, 0, lvColor)) {
+    lv_obj_set_style_bg_color(obj, lvColor, 0);
+  }
+}
+
+void setArcIndicatorColorIfChanged(lv_obj_t* obj, uint32_t color) {
+  if (obj == nullptr) {
+    return;
+  }
+  const lv_color_t lvColor = lv_color_hex(color);
+  if (!localStyleColorEquals(obj, LV_STYLE_ARC_COLOR, LV_PART_INDICATOR, lvColor)) {
+    lv_obj_set_style_arc_color(obj, lvColor, LV_PART_INDICATOR);
+  }
+}
+
+void setBorderWidthIfChanged(lv_obj_t* obj, int32_t width) {
+  if (obj == nullptr) {
+    return;
+  }
+  lv_style_value_t value;
+  if (lv_obj_get_local_style_prop(obj, LV_STYLE_BORDER_WIDTH, &value, 0) == LV_STYLE_RES_FOUND && value.num == width) {
+    return;
+  }
+  lv_obj_set_style_border_width(obj, width, 0);
 }
 
 void setTimeNormalVisible(bool visible) {

@@ -116,8 +116,11 @@ void formatQuoteCompact(float value, char* buffer, size_t bufferSize) {
     snprintf(buffer, bufferSize, "%s%.0f", prefix.c_str(), value);
   } else if (value >= 1.0f) {
     snprintf(buffer, bufferSize, "%s%.2f", prefix.c_str(), value);
-  } else {
+  } else if (value >= 0.01f) {
     snprintf(buffer, bufferSize, "%s%.4f", prefix.c_str(), value);
+  } else {
+    // Kleinst-Kurse (z.B. 0.000021) sonst als 0.0000 angezeigt.
+    snprintf(buffer, bufferSize, "%s%.6f", prefix.c_str(), value);
   }
 }
 

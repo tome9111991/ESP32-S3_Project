@@ -319,7 +319,8 @@ bool fetchBtcPrice() {
       if (end > start) {
         String price = payload.substring(start, end);
         int dotIndex = price.indexOf('.');
-        if (dotIndex > 0 && price.length() > dotIndex + 3) {
+        // Nur ab 1.00 auf 2 Nachkommastellen kuerzen - sonst wuerden Kurse < 0.01 zu "0.00".
+        if (dotIndex > 0 && price.length() > dotIndex + 3 && price.toFloat() >= 1.0f) {
           price = price.substring(0, dotIndex + 3);
         }
         float livePrice = price.toFloat();

@@ -39,8 +39,36 @@
   #define RGB565(r, g, b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #endif
 
+// Fix fuer LVGL-PARTIAL auf dem NV3041A (Library bleibt unveraendert):
+// Panel_NV3041A::end_qspi() schickt nach den Pixeldaten noch "0x32 00 00 00",
+// waehrend CS noch low ist. Das Panel wertet diese Bytes als weitere Pixel, das
+// Fenster ist schon voll -> Schreibzeiger springt an den Fensteranfang und es
+// landen Fehlpixel links oben im jeweiligen Update-Bereich (blaue Punkte).
+// Im FULL-Mode fiel das nicht auf (Fenster = ganzer Screen, Muell nur bei 0,0).
+class Panel_NV3041A_Fixed : public lgfx::Panel_NV3041A {
+public:
+  void writeImage(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,
+                  lgfx::pixelcopy_t* param, bool use_dma) override {
+    // Nur den Pfad von lvFlush selbst behandeln: zusammenhaengend, ohne Farbkonvertierung.
+    if (param->transp == lgfx::pixelcopy_t::NON_TRANSP && param->no_convert && param->src_bitwidth == w) {
+      const uint32_t bytesPerPixel = param->dst_bits >> 3;
+      const uint8_t* src = static_cast<const uint8_t*>(param->src_data) +
+        (param->src_x + param->src_y * param->src_bitwidth) * bytesPerPixel;
+
+      setWindow(x, y, x + w - 1, y + h - 1);
+      start_qspi();                                   // 0x32 00 2C 00 -> RAMWR ab Fensteranfang
+      _bus->writeBytes(src, w * h * bytesPerPixel, true, use_dma);
+      _bus->wait();
+      cs_control(true);                               // CS sofort hoch, keine "Stop"-Bytes als Pixel
+      return;
+    }
+    // Alle anderen Faelle (Konvertierung, Transparenz, Teilzeilen) wie bisher.
+    lgfx::Panel_NV3041A::writeImage(x, y, w, h, param, use_dma);
+  }
+};
+
 class LGFX : public lgfx::LGFX_Device {
-  lgfx::Panel_NV3041A _panel;
+  Panel_NV3041A_Fixed _panel;
   lgfx::Bus_SPI _bus;
   lgfx::Light_PWM _light;
 
@@ -183,6 +211,16 @@ const char* TEMP_UNIT = " \xc2\xb0""C";
 #endif
 #ifndef DEBUG_ENABLED
   #define DEBUG_ENABLED 0
+#endif
+// LVGL-Render-Mode: 1 = PARTIAL (nur geaenderte Bereiche, interner DMA-Puffer),
+// 0 = FULL (alter Vollbildpuffer im PSRAM). Bei Darstellungsfehlern auf 0 stellen.
+#ifndef LVGL_RENDER_PARTIAL
+  #define LVGL_RENDER_PARTIAL 1
+#endif
+// Nur PARTIAL: Flush-Bereiche auf gerade Start-/ungerade End-Pixel erweitern.
+// Auf 1 stellen, falls trotz PARTIAL noch Pixelfehler an Bereichskanten auftreten.
+#ifndef LVGL_ALIGN_FLUSH_AREAS
+  #define LVGL_ALIGN_FLUSH_AREAS 0
 #endif
 
 #if !(SCREEN_TIME_ENABLED || SCREEN_CRYPTO_PRICE_ENABLED || SCREEN_CRYPTO_CHART_ENABLED || SCREEN_KLIPPER_ENABLED)
@@ -438,6 +476,11 @@ lv_obj_t* createDivider(lv_obj_t* parent, int x, int y, int w, uint32_t color);
 void updateTimeSecondProgress(int second);
 void setHidden(lv_obj_t* obj, bool hidden);
 bool setLabelTextIfChanged(lv_obj_t* label, const char* text);
+// Style-Setter, die nur bei echter Aenderung invalidieren
+void setTextColorIfChanged(lv_obj_t* obj, uint32_t color);
+void setBgColorIfChanged(lv_obj_t* obj, uint32_t color);
+void setArcIndicatorColorIfChanged(lv_obj_t* obj, uint32_t color);
+void setBorderWidthIfChanged(lv_obj_t* obj, int32_t width);
 void setTimeNormalVisible(bool visible);
 void styleFilledRect(lv_obj_t* obj, uint32_t color, int radius);
 lv_obj_t* createSunRay(lv_obj_t* parent, int x, int y, int w, int h);

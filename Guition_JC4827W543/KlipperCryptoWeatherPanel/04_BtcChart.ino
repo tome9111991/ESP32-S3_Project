@@ -10,6 +10,7 @@ struct BtcChartCache {
   float rawHigh;
   int progressWidth;
   bool valid;
+  bool emptyDrawn; // Leer-Chart ist schon gezeichnet -> nicht jede Sekunde neu
 };
 
 static BtcChartCache btcChartCache = {};
@@ -142,6 +143,10 @@ void drawBtcDayChart() {
   xSemaphoreGive(dataMutex);
 
   if (!ready || sourceCount < 2) {
+    if (btcChartCache.emptyDrawn) {
+      return;
+    }
+    btcChartCache.emptyDrawn = true;
     lv_display_enable_invalidation(lvDisplay, false);
     lv_canvas_fill_bg(btcDayChartCanvas, lv_color_hex(COLOR_BG), LV_OPA_COVER);
     canvasDrawRect(0, 0, BTC_CHART_W, BTC_CHART_H, COLOR_DIM);
@@ -178,8 +183,11 @@ void drawBtcDayChart() {
   float rawLow = low;
   float rawHigh = high;
   float padding = (high - low) * 0.08f;
-  if (padding < 1.0f) {
-    padding = 1.0f;
+  // Mindest-Padding relativ zum Kurs statt fix 1.0 - sonst wird der Chart
+  // bei Coins unter ~10 (Quote-Einheit) platt gedrueckt.
+  const float minPadding = rawHigh * 0.0005f;
+  if (padding < minPadding) {
+    padding = minPadding;
   }
   low -= padding;
   high += padding;
@@ -202,7 +210,11 @@ void drawBtcDayChart() {
     if (btcChartCache.progressWidth == progressWidth) {
       return;
     }
+    // lv_canvas_set_px invalidiert pro Pixel -> waehrend des Zeichnens abschalten,
+    // danach einmal gezielt invalidieren (wie beim vollen Chart-Redraw).
+    lv_display_enable_invalidation(lvDisplay, false);
     drawBtcChartProgressBar(progressWidth);
+    lv_display_enable_invalidation(lvDisplay, true);
     btcChartCache.progressWidth = progressWidth;
     lv_obj_invalidate(btcDayChartCanvas);
     return;
@@ -298,4 +310,5 @@ void drawBtcDayChart() {
   btcChartCache.rawHigh = rawHigh;
   btcChartCache.progressWidth = progressWidth;
   btcChartCache.valid = true;
+  btcChartCache.emptyDrawn = false; // naechster Datenverlust zeichnet Leer-Chart wieder
 }

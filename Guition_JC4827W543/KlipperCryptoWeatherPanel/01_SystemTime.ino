@@ -230,6 +230,8 @@ void lvFlush(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
   }
 
   if (contiguous) {
+    // Bewusst ohne pushImageDMA: der DMA-Pfad erzeugte auf dem NV3041A blaue
+    // Pixelfehler, und der Treiber schreibt ohnehin blockierend (kein Tempogewinn).
     display.pushImage(x1, y1, w, h, pixels);
   } else {
     for (uint32_t row = 0; row < h; row++) {
@@ -261,7 +263,21 @@ int clampMinuteOfDay(int minute) {
 }
 
 int localUtcOffsetMinutes(const struct tm& timeinfo) {
-  return timeinfo.tm_isdst > 0 ? 120 : 60;
+  // UTC-Offset aus TIMEZONE_POSIX ableiten statt fest CET/CEST (60/120).
+  struct tm localTime = timeinfo;
+  time_t epoch = mktime(&localTime); // lokale Zeit -> Epoch (normalisiert localTime)
+  struct tm utcTime;
+  gmtime_r(&epoch, &utcTime);
+
+  int offset = (localTime.tm_hour - utcTime.tm_hour) * 60 + (localTime.tm_min - utcTime.tm_min);
+  int dayDiff = localTime.tm_yday - utcTime.tm_yday;
+  // Jahreswechsel: yday springt von 364/365 auf 0.
+  if (dayDiff > 1) {
+    dayDiff = -1;
+  } else if (dayDiff < -1) {
+    dayDiff = 1;
+  }
+  return offset + dayDiff * 1440;
 }
 
 bool calculateSunTimes(const struct tm& timeinfo, int& sunriseMinute, int& sunsetMinute) {
