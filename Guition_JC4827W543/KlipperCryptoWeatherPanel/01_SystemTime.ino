@@ -280,14 +280,47 @@ int localUtcOffsetMinutes(const struct tm& timeinfo) {
   return offset + dayDiff * 1440;
 }
 
-bool calculateSunTimes(const struct tm& timeinfo, int& sunriseMinute, int& sunsetMinute) {
+// Uhrzeit fuer die Anzeige: 24h "23:05" oder 12h "11:05" mit suffix "PM".
+// Im 24h-Modus ist suffix ein Leerstring.
+void formatClockTime(const struct tm& timeinfo, char* buffer, size_t bufferSize, const char*& suffix) {
+#if TIME_FORMAT_12H
+  int hour12 = timeinfo.tm_hour % 12;
+  if (hour12 == 0) {
+    hour12 = 12; // 0 Uhr -> 12 AM, 12 Uhr -> 12 PM
+  }
+  snprintf(buffer, bufferSize, "%d:%02d", hour12, timeinfo.tm_min);
+  suffix = timeinfo.tm_hour < 12 ? "AM" : "PM";
+#else
+  snprintf(buffer, bufferSize, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+  suffix = "";
+#endif
+}
+
+// Datum je nach DATE_FORMAT aus config_private.h.
+void formatDateText(const struct tm& timeinfo, char* buffer, size_t bufferSize) {
+  const int day = timeinfo.tm_mday;
+  const int month = timeinfo.tm_mon + 1;
+  const int year = timeinfo.tm_year + 1900;
+#if DATE_FORMAT == DATE_FORMAT_MDY_SLASH
+  snprintf(buffer, bufferSize, "%02d/%02d/%04d", month, day, year);
+#elif DATE_FORMAT == DATE_FORMAT_YMD_ISO
+  snprintf(buffer, bufferSize, "%04d-%02d-%02d", year, month, day);
+#elif DATE_FORMAT == DATE_FORMAT_DMY_SLASH
+  snprintf(buffer, bufferSize, "%02d/%02d/%04d", day, month, year);
+#else
+  snprintf(buffer, bufferSize, "%02d.%02d.%04d", day, month, year);
+#endif
+}
+
+// Sonnenstandswerte fuer den Tag: Zeitgleichung (Minuten) und Argument fuer
+// den Stundenwinkel. |hourAngleArg| > 1 bedeutet Polartag bzw. Polarnacht.
+static void solarDayParameters(const struct tm& timeinfo, double& equationOfTime, double& hourAngleArg) {
   const double pi = 3.14159265358979323846;
   const double degToRad = pi / 180.0;
-  const double radToDeg = 180.0 / pi;
   const int dayOfYear = timeinfo.tm_yday + 1;
   const double gamma = (2.0 * pi / 365.0) * (dayOfYear - 1);
 
-  const double equationOfTime =
+  equationOfTime =
     229.18 * (
       0.000075 +
       0.001868 * cos(gamma) -
@@ -307,9 +340,32 @@ bool calculateSunTimes(const struct tm& timeinfo, int& sunriseMinute, int& sunse
 
   const double latitudeRad = locationLatitude * degToRad;
   const double zenithRad = 90.833 * degToRad;
-  const double hourAngleArg =
+  hourAngleArg =
     (cos(zenithRad) / (cos(latitudeRad) * cos(solarDeclination))) -
     (tan(latitudeRad) * tan(solarDeclination));
+}
+
+// 1 = Polartag (Sonne geht nicht unter), -1 = Polarnacht, 0 = normaler Tag.
+int polarSunState(const struct tm& timeinfo) {
+  double equationOfTime = 0.0;
+  double hourAngleArg = 0.0;
+  solarDayParameters(timeinfo, equationOfTime, hourAngleArg);
+  if (hourAngleArg < -1.0) {
+    return 1;
+  }
+  if (hourAngleArg > 1.0) {
+    return -1;
+  }
+  return 0;
+}
+
+bool calculateSunTimes(const struct tm& timeinfo, int& sunriseMinute, int& sunsetMinute) {
+  const double pi = 3.14159265358979323846;
+  const double radToDeg = 180.0 / pi;
+
+  double equationOfTime = 0.0;
+  double hourAngleArg = 0.0;
+  solarDayParameters(timeinfo, equationOfTime, hourAngleArg);
 
   if (hourAngleArg < -1.0 || hourAngleArg > 1.0) {
     return false;
@@ -348,6 +404,16 @@ void updateBrightnessBySun() {
   int sunriseMinute = 0;
   int sunsetMinute = 0;
   if (!calculateSunTimes(timeinfo, sunriseMinute, sunsetMinute)) {
+    // Polartag/-nacht (z.B. Nordskandinavien): sonst bliebe die Helligkeit
+    // auf dem letzten Wert haengen.
+    const int polar = polarSunState(timeinfo);
+    if (polar != 0) {
+      const uint8_t polarBrightness = polar > 0 ? dayBrightness : nightBrightness;
+      if (currentBrightness != polarBrightness) {
+        setDisplayBrightness(polarBrightness);
+        Serial.printf("Display-Helligkeit: %s (%u)\n", polar > 0 ? "Polartag" : "Polarnacht", polarBrightness);
+      }
+    }
     return;
   }
 

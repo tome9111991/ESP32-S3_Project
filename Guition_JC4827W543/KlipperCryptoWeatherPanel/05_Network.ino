@@ -306,3 +306,120 @@ int weatherCodeFromText(String text) {
 
   return -1;
 }
+
+// --- UTF-8 -> ASCII fuer Texte aus APIs (Ortsname, Klipper-Dateiname usw.) ---
+// Die eingebauten Montserrat-Fonts enthalten nur ASCII + Grad-Zeichen + Symbole.
+// Ohne Umwandlung fehlen bei "Muenchen", "Krakow" oder "Sao Paulo" Buchstaben.
+// Deutsche Umlaute -> ae/oe/ue/ss, sonstige Akzente -> Grundbuchstabe,
+// nicht darstellbare Zeichen -> '?'.
+
+// Latin-1 U+00C0..U+00FF auf ASCII (Sonderfaelle wie Umlaute werden vorher behandelt).
+static const char ASCII_FOLD_LATIN1[] =
+  "AAAAAAACEEEEIIII" // C0..CF
+  "DNOOOOOxOUUUUYTs" // D0..DF
+  "aaaaaaaceeeeiiii" // E0..EF
+  "dnooooo/ouuuuyty"; // F0..FF
+static_assert(sizeof(ASCII_FOLD_LATIN1) == 64 + 1, "Latin-1 Fold-Tabelle muss 64 Eintraege haben");
+
+// Latin Extended-A U+0100..U+017F (Polnisch, Tschechisch, Tuerkisch, Baltisch ...).
+static const char ASCII_FOLD_LATIN_EXT_A[] =
+  "AaAaAa" "CcCcCcCc" "DdDd" "EeEeEeEeEe" "GgGgGgGg" "HhHh" "IiIiIiIiIi" "Ii" "Jj" "Kkk"
+  "LlLlLlLlLl" "NnNnNnnNn" "OoOoOoOo" "RrRrRr" "SsSsSsSs" "TtTtTt" "UuUuUuUuUuUu" "Ww" "YyY"
+  "ZzZzZz" "s";
+static_assert(sizeof(ASCII_FOLD_LATIN_EXT_A) == 128 + 1, "Latin-Ext-A Fold-Tabelle muss 128 Eintraege haben");
+
+// Ein Unicode-Codepoint als ASCII-Ersatz anhaengen.
+static void appendAsciiFold(String& out, uint32_t cp) {
+  switch (cp) {
+    case 0x00C4: out += "Ae"; return; // Ä
+    case 0x00D6: out += "Oe"; return; // Ö
+    case 0x00DC: out += "Ue"; return; // Ü
+    case 0x00E4: out += "ae"; return; // ä
+    case 0x00F6: out += "oe"; return; // ö
+    case 0x00FC: out += "ue"; return; // ü
+    case 0x00DF: out += "ss"; return; // ß
+    case 0x00C6: out += "AE"; return; // Æ
+    case 0x00E6: out += "ae"; return; // æ
+    case 0x00DE: out += "Th"; return; // Þ
+    case 0x00FE: out += "th"; return; // þ
+    case 0x0152: out += "OE"; return; // Œ
+    case 0x0153: out += "oe"; return; // œ
+    case 0x00A0: out += ' '; return;  // geschuetztes Leerzeichen
+    case 0x00B7: out += '.'; return;  // Mittelpunkt
+    case 0x0218: out += 'S'; return;  // Ș (Rumaenisch)
+    case 0x0219: out += 's'; return;  // ș
+    case 0x021A: out += 'T'; return;  // Ț
+    case 0x021B: out += 't'; return;  // ț
+    case 0x2018:
+    case 0x2019: out += '\''; return; // typografische Apostrophe
+    case 0x201C:
+    case 0x201D: out += '"'; return;  // typografische Anfuehrungszeichen
+    case 0x2013:
+    case 0x2014: out += '-'; return;  // Halbgeviert-/Geviertstrich
+    case 0x2026: out += "..."; return;
+    case 0x00B0: out += "\xc2\xb0"; return;     // Grad-Zeichen ist im Font enthalten
+    case 0x2022: out += "\xe2\x80\xa2"; return; // Bullet ist im Font enthalten
+    default: break;
+  }
+
+  if (cp >= 0x00C0 && cp <= 0x00FF) {
+    out += ASCII_FOLD_LATIN1[cp - 0x00C0];
+    return;
+  }
+  if (cp >= 0x0100 && cp <= 0x017F) {
+    out += ASCII_FOLD_LATIN_EXT_A[cp - 0x0100];
+    return;
+  }
+  out += '?';
+}
+
+String asciiFoldUtf8(const String& text) {
+  String out;
+  out.reserve(text.length() + 8);
+
+  const size_t len = text.length();
+  size_t i = 0;
+  while (i < len) {
+    const uint8_t c = (uint8_t)text[i];
+    if (c < 0x80) {
+      out += (char)c; // ASCII unveraendert
+      i++;
+      continue;
+    }
+
+    // Laenge der UTF-8-Sequenz aus dem Startbyte bestimmen.
+    size_t seqLen = 0;
+    uint32_t cp = 0;
+    if ((c & 0xE0) == 0xC0) {
+      seqLen = 2;
+      cp = c & 0x1F;
+    } else if ((c & 0xF0) == 0xE0) {
+      seqLen = 3;
+      cp = c & 0x0F;
+    } else if ((c & 0xF8) == 0xF0) {
+      seqLen = 4;
+      cp = c & 0x07;
+    }
+
+    // Folgebytes pruefen; kaputtes UTF-8 (z.B. Latin-1-Bytes) -> '?'.
+    bool valid = seqLen > 0 && i + seqLen <= len;
+    for (size_t k = 1; valid && k < seqLen; k++) {
+      const uint8_t cont = (uint8_t)text[i + k];
+      if ((cont & 0xC0) != 0x80) {
+        valid = false;
+      } else {
+        cp = (cp << 6) | (cont & 0x3F);
+      }
+    }
+
+    if (!valid) {
+      out += '?';
+      i++;
+      continue;
+    }
+
+    appendAsciiFold(out, cp);
+    i += seqLen;
+  }
+  return out;
+}

@@ -15,6 +15,13 @@ void createTimeScreen() {
   lv_obj_set_style_text_outline_stroke_width(timeLabel, 1, 0);
   lv_obj_set_style_text_outline_stroke_opa(timeLabel, LV_OPA_70, 0);
 
+#if TIME_FORMAT_12H
+  // Vor createWeatherImage anlegen, damit placeWeatherImage es gleich mit positioniert.
+  timeAmPmLabel = createLabel(timeScreen, &lv_font_montserrat_18, COLOR_MUTED, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_size(timeAmPmLabel, 44, 22);
+  lv_label_set_text(timeAmPmLabel, "");
+#endif
+
   weatherIconRoot = createWeatherImage(timeScreen);
   updateWeatherImage(weatherCode);
 
@@ -308,8 +315,9 @@ void refreshTimeUi() {
     setHidden(timeSunIcon.root, true);
     updateTimeSecondProgress(-1);
     updateWeatherImage(code);
-    String tempText = temp + TEMP_UNIT;
+    String tempText = temp + WEATHER_TEMP_UNIT;
     setLabelTextIfChanged(timeLocationLabel, location.c_str());
+    setLabelTextIfChanged(timeAmPmLabel, "");
     setLabelTextIfChanged(timeLabel, "--:--");
     updateWeatherImagePositionForTime("--:--");
     setLabelTextIfChanged(weekdayLabel, UI_TEXT_TIME_SYNCING);
@@ -321,8 +329,10 @@ void refreshTimeUi() {
   char timeStringBuff[10];
   char dateStringBuff[20];
   char weekdayDateStringBuff[40];
-  strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M", &timeinfo);
-  strftime(dateStringBuff, sizeof(dateStringBuff), "%d.%m.%Y", &timeinfo);
+  const char* amPmText = "";
+  // Format kommt aus TIME_FORMAT_12H / DATE_FORMAT (config_private.h).
+  formatClockTime(timeinfo, timeStringBuff, sizeof(timeStringBuff), amPmText);
+  formatDateText(timeinfo, dateStringBuff, sizeof(dateStringBuff));
   snprintf(
     weekdayDateStringBuff,
     sizeof(weekdayDateStringBuff),
@@ -336,8 +346,9 @@ void refreshTimeUi() {
   updateSunStatusIcon(timeinfo);
   updateTimeSecondProgress(timeinfo.tm_sec);
   updateWeatherImage(code);
-  String tempText = temp + TEMP_UNIT;
+  String tempText = temp + WEATHER_TEMP_UNIT;
   setLabelTextIfChanged(timeLocationLabel, location.c_str());
+  setLabelTextIfChanged(timeAmPmLabel, amPmText);
   setLabelTextIfChanged(timeLabel, timeStringBuff);
   updateWeatherImagePositionForTime(timeStringBuff);
   setLabelTextIfChanged(weekdayLabel, weekdayDateStringBuff);

@@ -59,7 +59,12 @@ String buildOpenMeteoUrl() {
     String(locationLongitude, 6) +
     // WMO weather_code passt direkt zur vorhandenen Icon-Zuordnung.
     "&current=temperature_2m,weather_code,precipitation,rain,showers,snowfall" +
-    "&hourly=weather_code&forecast_days=1&timezone=auto&models=best_match";
+    "&hourly=weather_code&forecast_days=1&timezone=auto&models=best_match"
+#if TEMPERATURE_FAHRENHEIT
+    // Open-Meteo rechnet direkt in Grad F um (nur Temperatur, Niederschlag bleibt mm).
+    "&temperature_unit=fahrenheit"
+#endif
+    ;
 }
 
 String buildReverseGeocodeUrl() {
@@ -176,6 +181,7 @@ bool resolveWeatherLocationName() {
   if (name.length() == 0) {
     name = jsonStringValue(doc["principalSubdivision"]);
   }
+  name = asciiFoldUtf8(name); // z.B. "Muenchen" statt fehlender Glyphe
   name.trim();
   if (name.length() == 0) {
     return false;
@@ -590,6 +596,8 @@ String formatKlippyConnectionState(String state) {
 }
 
 String formatKlippyMessageForScreen(String message) {
+  // Vor dem Kuerzen umwandeln, sonst kann substring() mitten im UTF-8-Zeichen schneiden.
+  message = asciiFoldUtf8(message);
   message.replace("\r", "");
   message.trim();
   if (message.length() == 0) {
@@ -608,6 +616,7 @@ String formatKlippyMessageForScreen(String message) {
 }
 
 String formatKlipperDisplayMessage(String message) {
+  message = asciiFoldUtf8(message); // M117-Texte koennen Umlaute enthalten
   message.replace("\r", " ");
   message.replace("\n", " ");
   message.trim();
@@ -658,7 +667,8 @@ String formatKlipperFile(String filename) {
   if (slashIndex >= 0 && slashIndex + 1 < filename.length()) {
     filename = filename.substring(slashIndex + 1);
   }
-  return filename;
+  // Nur fuer die Anzeige; Metadaten-Abfrage nutzt weiter den Originalnamen.
+  return asciiFoldUtf8(filename);
 }
 
 uint32_t parseKlipperColor(String colorText) {
@@ -697,7 +707,7 @@ String formatKlipperMmuInfo(int tool, int gate, const String& action, const Stri
   }
   info += " " + activity;
   if (filament.length() > 0 && filament != "Unloaded") {
-    info += "  " + filament;
+    info += "  " + asciiFoldUtf8(filament); // Filamentnamen sind Freitext
   }
   return info;
 }
@@ -870,6 +880,7 @@ bool fetchKlipperPrinterName() {
       Serial.print("Klipper Name JSON Parse Fehler: ");
       Serial.println(error.c_str());
     }
+    name = asciiFoldUtf8(name); // Druckername ist Freitext aus Mainsail
     name.trim();
 
     if (name.length() > 0) {

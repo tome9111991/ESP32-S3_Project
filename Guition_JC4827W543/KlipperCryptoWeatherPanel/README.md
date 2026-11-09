@@ -2,7 +2,7 @@
 
 Arduino/LVGL dashboard for the Guition JC4827W543 ESP32-S3 display. The sketch rotates through local time, weather, live crypto pricing, a configurable crypto candle chart, and Klipper/Moonraker 3D printer status.
 
-The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.ino` in the Arduino IDE, not the numbered `.ino` tabs directly.
+The project is written as a multi-tab Arduino sketch. Open `KlipperCryptoWeatherPanel.ino` in the Arduino IDE, not the numbered `.ino` tabs directly.
 
 ## Screenshots
 
@@ -19,7 +19,9 @@ The project is written as a multi-tab Arduino sketch. Open `Guition_JC4827W543.i
 - 480 x 272 LVGL v9 UI for the Guition JC4827W543 display
 - LovyanGFX driver setup for the NV3041A panel
 - Wi-Fi reconnect handling and serial health diagnostics
-- NTP time sync with CET/CEST timezone handling
+- NTP time sync with any POSIX timezone (default CET/CEST)
+- Regional formats: German or English UI, date format (DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY, ISO), 12h/24h clock, °C/°F weather
+- Accented place names, file names and printer messages are converted to ASCII (e.g. `München` -> `Muenchen`, `Kraków` -> `Krakow`) because the built-in fonts only contain ASCII
 - Day/night brightness switching based on calculated sunrise and sunset, with a morning delay before day brightness
 - Current weather from Open-Meteo, no weather API key required
 - Live crypto spot price from Coinbase
@@ -46,7 +48,7 @@ Target display:
 - 480 x 272 NV3041A panel
 - Backlight on GPIO 1
 
-The display bus and panel pins are configured in `Guition_JC4827W543.ino`:
+The display bus and panel pins are configured in `KlipperCryptoWeatherPanel.ino`:
 
 | Signal | GPIO |
 | --- | ---: |
@@ -100,6 +102,11 @@ Then edit `config_private.h`:
 #define LOCATION_LONGITUDE 13.000000f
 #define TIMEZONE_POSIX "CET-1CEST,M3.5.0,M10.5.0/3"
 
+#define UI_LANGUAGE UI_LANGUAGE_EN           // or UI_LANGUAGE_DE
+#define DATE_FORMAT DATE_FORMAT_MDY_SLASH    // _DMY_DOT, _DMY_SLASH, _MDY_SLASH, _YMD_ISO
+#define TIME_FORMAT_12H 1                    // 0 = 24h
+#define TEMPERATURE_FAHRENHEIT 1             // 0 = °C, Klipper always uses °C
+
 #define CRYPTO_BASE_SYMBOL "BTC"
 #define CRYPTO_QUOTE_SYMBOL "USD"
 #define CRYPTO_PRICE_PREFIX ""
@@ -111,7 +118,11 @@ Then edit `config_private.h`:
 
 `config_private.h` is ignored by Git and should not be uploaded. Keep only `config_private.example.h` in the repository.
 
-`TIMEZONE_POSIX` controls the local time conversion after NTP sync. The example value uses Germany/Central Europe with daylight saving time.
+`TIMEZONE_POSIX` controls the local time conversion after NTP sync. The example value uses Germany/Central Europe with daylight saving time. Other examples: `GMT0BST,M3.5.0/1,M10.5.0` (UK), `EST5EDT,M3.2.0,M11.1.0` (US Eastern), `PST8PDT,M3.2.0,M11.1.0` (US Pacific), `IST-5:30` (India), `JST-9` (Japan), `AEST-10AEDT,M10.1.0,M4.1.0/3` (Sydney).
+
+`DATE_FORMAT`, `TIME_FORMAT_12H` and `TEMPERATURE_FAHRENHEIT` are optional. If they are missing, the sketch keeps the previous behaviour (DD.MM.YYYY, 24h, °C). The Web Flasher offers all three options.
+
+The candle chart uses Coinbase Exchange products, so it only works for quote currencies listed there (e.g. USD, EUR, GBP, USDC, USDT). `CRYPTO_PRICE_PREFIX` must be ASCII; symbols like `€` cannot be rendered.
 
 ## External Services
 
@@ -129,7 +140,7 @@ Moonraker access is unauthenticated in this sketch. If your Moonraker instance r
 
 ## Uploading
 
-1. Open `Guition_JC4827W543.ino` in the Arduino IDE.
+1. Open `KlipperCryptoWeatherPanel.ino` in the Arduino IDE.
 2. Select the correct ESP32-S3 board and port.
 3. Confirm that `config_private.h` exists locally.
 4. Install the required libraries.
@@ -160,7 +171,7 @@ git commit -m "Initial ESP32-S3 HMI dashboard"
 
 | File | Purpose |
 | --- | --- |
-| `Guition_JC4827W543.ino` | Main sketch, display driver setup, global state, setup/loop |
+| `KlipperCryptoWeatherPanel.ino` | Main sketch, display driver setup, global state, setup/loop |
 | `01_SystemTime.ino` | Time, sunrise/sunset, brightness, diagnostics, LVGL flush |
 | `02_UiWeatherIcon.ino` | LVGL helpers, weather canvas, sun/moon status icon |
 | `03_UiScreens.ino` | Time, crypto, candle chart, and Klipper screen layouts |
@@ -177,7 +188,8 @@ git commit -m "Initial ESP32-S3 HMI dashboard"
 
 ## Notes
 
-- The UI text is mostly German because this dashboard was built for a German local setup.
+- The UI language is selectable at compile time (`UI_LANGUAGE_DE` or `UI_LANGUAGE_EN`); code comments and serial logs are German.
+- In polar regions (midnight sun / polar night) the display uses day or night brightness accordingly.
 - Weather icons use converted LVGL C image assets from `src/ui_assets/`; the SVG files in `assets/icons/` stay as editable source assets.
 - The Klipper screen appears only when Moonraker or Klipper status data is reachable.
-- API retry intervals and screen timing constants are defined near the top of `Guition_JC4827W543.ino`.
+- API retry intervals and screen timing constants are defined near the top of `KlipperCryptoWeatherPanel.ino`.

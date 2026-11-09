@@ -166,6 +166,7 @@ void setTimeNormalVisible(bool visible) {
   setHidden(timeAccent, !visible);
   setHidden(timeLocationLabel, !visible);
   setHidden(timeLabel, !visible);
+  setHidden(timeAmPmLabel, !visible); // nullptr im 24h-Modus -> no-op
   setHidden(weekdayLabel, !visible);
   setHidden(dateLabel, !visible);
   setHidden(tempLabel, !visible);
@@ -278,15 +279,22 @@ void placeWeatherImage(const char* timeText) {
   }
 
   int weatherX = 360;
+  int amPmX = 360;
   const int timeWidth = timeTextPixelWidth(timeText);
   if (timeLabel != nullptr && timeWidth > 0) {
     const int timeRight = lv_obj_get_x(timeLabel) + ((lv_obj_get_width(timeLabel) + timeWidth) / 2);
     const int visualGap = 15;
     weatherX = timeRight + visualGap - weatherVisualLeftInset(lastWeatherVisual);
+    amPmX = timeRight + visualGap;
   }
 
   lv_obj_set_size(weatherImage, WEATHER_ICON_W, WEATHER_ICON_H);
   lv_obj_set_pos(weatherImage, weatherX, 90);
+
+  // 12h-Modus: AM/PM klein unter dem Wetter-Icon, rechts neben den Ziffern.
+  if (timeAmPmLabel != nullptr) {
+    lv_obj_set_pos(timeAmPmLabel, amPmX, 140);
+  }
 }
 
 lv_obj_t* createWeatherImage(lv_obj_t* parent) {
@@ -384,7 +392,13 @@ void updateSunStatusIcon(const struct tm& timeinfo) {
   int sunriseMinute = 0;
   int sunsetMinute = 0;
   if (!calculateSunTimes(timeinfo, sunriseMinute, sunsetMinute)) {
-    setHidden(timeSunIcon.root, true);
+    // Polartag/-nacht: Tag- bzw. Nacht-Icon statt gar keinem Icon.
+    const int polar = polarSunState(timeinfo);
+    if (polar == 0) {
+      setHidden(timeSunIcon.root, true);
+      return;
+    }
+    updateSunStatusIcon(timeSunIcon, polar > 0 ? SUN_STATUS_VISUAL_DAY : SUN_STATUS_VISUAL_NIGHT);
     return;
   }
 

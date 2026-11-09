@@ -152,6 +152,12 @@ const char* TEMP_UNIT = " \xc2\xb0""C";
 #define UI_LANGUAGE_DE 0
 #define UI_LANGUAGE_EN 1
 
+// Datumsformate fuer DATE_FORMAT (Beispiel 9. November 2026).
+#define DATE_FORMAT_DMY_DOT 0   // 09.11.2026
+#define DATE_FORMAT_MDY_SLASH 1 // 11/09/2026
+#define DATE_FORMAT_YMD_ISO 2   // 2026-11-09
+#define DATE_FORMAT_DMY_SLASH 3 // 09/11/2026
+
 // --- KONFIGURATION ---
 #include "config_private.h"
 
@@ -197,6 +203,20 @@ const char* TEMP_UNIT = " \xc2\xb0""C";
 #ifndef UI_LANGUAGE
   #define UI_LANGUAGE UI_LANGUAGE_DE
 #endif
+// Regionale Formate. Defaults = bisheriges Verhalten, damit alte
+// config_private.h (lokal, Secret, Web Flasher) ohne Aenderung weiter bauen.
+#ifndef DATE_FORMAT
+  #define DATE_FORMAT DATE_FORMAT_DMY_DOT
+#endif
+#if (DATE_FORMAT < DATE_FORMAT_DMY_DOT) || (DATE_FORMAT > DATE_FORMAT_DMY_SLASH)
+  #error "DATE_FORMAT muss DATE_FORMAT_DMY_DOT, _MDY_SLASH, _YMD_ISO oder _DMY_SLASH sein."
+#endif
+#ifndef TIME_FORMAT_12H
+  #define TIME_FORMAT_12H 0 // 1 = 12h mit AM/PM, 0 = 24h
+#endif
+#ifndef TEMPERATURE_FAHRENHEIT
+  #define TEMPERATURE_FAHRENHEIT 0 // 1 = Wetter in Grad F (Klipper bleibt Grad C)
+#endif
 #ifndef SCREEN_TIME_ENABLED
   #define SCREEN_TIME_ENABLED 1
 #endif
@@ -231,6 +251,13 @@ const char* TEMP_UNIT = " \xc2\xb0""C";
 #define BTC_PRICE_FETCH_NEEDED (SCREEN_CRYPTO_PRICE_ENABLED || SCREEN_CRYPTO_CHART_ENABLED)
 
 #include "ui_texts.h"
+
+// Einheit nur fuer Wetter; Klipper-Temperaturen sind immer Grad C (TEMP_UNIT).
+#if TEMPERATURE_FAHRENHEIT
+const char* WEATHER_TEMP_UNIT = " \xc2\xb0""F";
+#else
+const char* WEATHER_TEMP_UNIT = TEMP_UNIT;
+#endif
 
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -395,6 +422,7 @@ static lv_obj_t* klipperScreen = nullptr;
 static lv_obj_t* timeAccent = nullptr;
 static lv_obj_t* timeLocationLabel = nullptr;
 static lv_obj_t* timeLabel = nullptr;
+static lv_obj_t* timeAmPmLabel = nullptr; // nur im 12h-Modus erzeugt
 static lv_obj_t* weekdayLabel = nullptr;
 static lv_obj_t* dateLabel = nullptr;
 static lv_obj_t* tempLabel = nullptr;
@@ -467,6 +495,10 @@ void setDisplayBrightness(uint8_t brightness);
 int clampMinuteOfDay(int minute);
 int localUtcOffsetMinutes(const struct tm& timeinfo);
 bool calculateSunTimes(const struct tm& timeinfo, int& sunriseMinute, int& sunsetMinute);
+int polarSunState(const struct tm& timeinfo);
+void formatClockTime(const struct tm& timeinfo, char* buffer, size_t bufferSize, const char*& suffix);
+void formatDateText(const struct tm& timeinfo, char* buffer, size_t bufferSize);
+String asciiFoldUtf8(const String& text);
 int calculateSunStrength(const struct tm& timeinfo, int sunriseMinute, int sunsetMinute);
 void updateBrightnessBySun();
 lv_obj_t* createScreen();

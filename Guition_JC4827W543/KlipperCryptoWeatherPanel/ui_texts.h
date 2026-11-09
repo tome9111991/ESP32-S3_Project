@@ -21,6 +21,10 @@
 static const char* const UI_WEEKDAYS[7] = {
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 };
+// Kurze Monatsnamen fuer die Chart-Zeitachse (statt strftime %b = immer Englisch).
+static const char* const UI_MONTHS_SHORT[12] = {
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+};
 static const char* const UI_REVERSE_GEOCODE_LANGUAGE = "en";
 static const char* const UI_TEXT_LOADING = "Loading...";
 static const char* const UI_TEXT_BOOTING = "Booting";
@@ -61,6 +65,10 @@ static const char* const UI_TEXT_CANDLE_WAIT_TIME = "CANDLE WAIT TIME";
 #else
 static const char* const UI_WEEKDAYS[7] = {
   "Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"
+};
+// ASCII-only, weil die Montserrat-Fonts keine Umlaute enthalten ("Mrz" statt "Mär").
+static const char* const UI_MONTHS_SHORT[12] = {
+  "Jan", "Feb", "Mrz", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"
 };
 static const char* const UI_REVERSE_GEOCODE_LANGUAGE = "de";
 static const char* const UI_TEXT_LOADING = "Laden...";

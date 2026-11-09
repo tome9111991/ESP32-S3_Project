@@ -24,6 +24,15 @@
 // UI-Sprache zur Compile-Zeit: UI_LANGUAGE_DE oder UI_LANGUAGE_EN.
 #define UI_LANGUAGE UI_LANGUAGE_DE
 
+// Regionale Formate / regional formats.
+// Datum: DATE_FORMAT_DMY_DOT (09.11.2026), DATE_FORMAT_DMY_SLASH (09/11/2026),
+//        DATE_FORMAT_MDY_SLASH (11/09/2026, US), DATE_FORMAT_YMD_ISO (2026-11-09).
+#define DATE_FORMAT DATE_FORMAT_DMY_DOT
+// 1 = 12h-Uhr mit AM/PM, 0 = 24h.
+#define TIME_FORMAT_12H 0
+// 1 = Wettertemperatur in Grad F, 0 = Grad C. Klipper bleibt immer Grad C.
+#define TEMPERATURE_FAHRENHEIT 0
+
 // Display-Rotation. 2 = Standardausrichtung (wie bisher), 0 = um 180 Grad gedreht.
 // Erlaubte Werte: 0, 1, 2, 3 (LovyanGFX setRotation).
 #define DISPLAY_ROTATION 2

@@ -98,7 +98,25 @@ void formatChartTime(time_t value, bool includeTime, char* buffer, size_t buffer
     return;
   }
 
-  strftime(buffer, bufferSize, includeTime ? "%b %d %H:%M" : "%b %d", &timeinfo);
+  // Monatsname aus ui_texts.h (sprachabhaengig), Reihenfolge nach DATE_FORMAT.
+  char dayText[16];
+#if DATE_FORMAT == DATE_FORMAT_MDY_SLASH || DATE_FORMAT == DATE_FORMAT_YMD_ISO
+  snprintf(dayText, sizeof(dayText), "%s %02d", UI_MONTHS_SHORT[timeinfo.tm_mon], timeinfo.tm_mday);
+#else
+  snprintf(dayText, sizeof(dayText), "%02d %s", timeinfo.tm_mday, UI_MONTHS_SHORT[timeinfo.tm_mon]);
+#endif
+
+  if (!includeTime) {
+    snprintf(buffer, bufferSize, "%s", dayText);
+    return;
+  }
+
+  char clockText[8];
+  const char* suffix = "";
+  formatClockTime(timeinfo, clockText, sizeof(clockText), suffix);
+  // 12h kompakt als "11:45p", damit die Range-Zeile (270 px) nicht ueberlaeuft.
+  const char* shortSuffix = suffix[0] == 'A' ? "a" : (suffix[0] == 'P' ? "p" : "");
+  snprintf(buffer, bufferSize, "%s %s%s", dayText, clockText, shortSuffix);
 }
 
 void formatQuoteCompact(float value, char* buffer, size_t bufferSize) {
